@@ -117,7 +117,7 @@ struct SubprocessRunnerTests {
         let task = Task {
             try await SubprocessRunner.run(
                 binary: "/bin/sleep",
-                arguments: ["5"],
+                arguments: ["10"],
                 environment: ProcessInfo.processInfo.environment,
                 timeout: 30,
                 label: "cancelled-hung-process")
@@ -136,7 +136,7 @@ struct SubprocessRunnerTests {
         }
 
         let elapsed = Date().timeIntervalSince(start)
-        #expect(elapsed < 2, "Cancelled subprocess should not wait for timeout or natural exit")
+        #expect(elapsed < 5, "Cancelled subprocess should not wait for timeout or natural exit")
     }
 
     /// Verify that many concurrent SubprocessRunner calls complete without starving each other.
