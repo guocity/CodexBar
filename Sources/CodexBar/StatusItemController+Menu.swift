@@ -136,7 +136,10 @@ extension StatusItemController {
             // Intentionally skip open-menu tracking when refresh is disabled (tests).
             // If refresh is re-enabled while this menu stays open, it will not be backfilled until next open.
             self.openMenus[ObjectIdentifier(menu)] = menu
-            if menuTrackingWasIdle {
+            // Only re-anchor when the opened menu actually shows current data. During an in-flight provider
+            // refresh `refreshMenuForOpenIfNeeded` can preserve stale content; resyncing the baseline to
+            // live store data in that case would mask the refresh-completion update (#1351).
+            if menuTrackingWasIdle, !self.menuNeedsRefresh(menu) {
                 self.resyncMenuAdjunctReadinessBaseline()
             }
             self.installProviderSwitcherShortcutMonitorIfNeeded(for: menu)

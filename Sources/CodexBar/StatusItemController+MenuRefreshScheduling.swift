@@ -14,10 +14,13 @@ extension StatusItemController {
     /// Resyncs the readiness baseline to the data the menu was just built from.
     ///
     /// Because the baseline is no longer recomputed on every store change while all menus are closed,
-    /// it can drift from the live store state. When a root menu opens it is rebuilt from current data,
-    /// so the baseline must be re-anchored here; otherwise a later open-menu store change that happens
-    /// to revert to the stale baseline value would be treated as "unchanged" and skip a needed rebuild,
-    /// leaving the visible menu showing the older content.
+    /// it can drift from the live store state. When a root menu opens and is actually rebuilt (or is
+    /// already fresh for the current `menuContentVersion`), the baseline must be re-anchored here;
+    /// otherwise a later open-menu store change that happens to revert to the stale baseline value would
+    /// be treated as "unchanged" and skip a needed rebuild, leaving the visible menu showing the older
+    /// content. Callers must **not** invoke this when `refreshMenuForOpenIfNeeded` preserved stale
+    /// content during an in-flight refresh — that would record live store data while the visible menu
+    /// still shows older content and mask the refresh-completion update.
     func resyncMenuAdjunctReadinessBaseline() {
         self.lastMenuAdjunctReadinessSignature = self.menuAdjunctReadinessSignature()
     }
