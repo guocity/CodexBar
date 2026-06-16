@@ -193,3 +193,62 @@ struct UsageProgressBar: View {
         return min(100, max(0, value))
     }
 }
+
+/// Thin live-updating countdown bar shown directly beneath a usage bar.
+///
+/// The fill represents the *time remaining* until the window resets and depletes as the
+/// reset approaches. It is one third the height of `UsageProgressBar` and uses its own
+/// accent color, switching to yellow when under 20% of the window remains and red under 10%.
+struct ResetTimelineBar: View {
+    /// Fraction-remaining thresholds at which the bar shifts to a warning color.
+    private static let yellowThreshold = 0.20
+    private static let redThreshold = 0.10
+    /// Distinct accent so the timeline bar never blends into the provider-tinted usage bar.
+    private static let accentColor = Color(nsColor: .systemTeal)
+
+    let resetsAt: Date
+    let windowSeconds: Double
+    let accessibilityLabel: String
+    @Environment(\.menuItemHighlighted) private var isHighlighted
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let fraction = self.remainingFraction(now: context.date)
+            // Single Canvas (Core Graphics) to avoid the SwiftUI compositing modifiers that
+            // trigger shader compilation on macOS 26.x — same rationale as UsageProgressBar.
+            Canvas { canvas, size in
+                let cornerRadius = size.height / 2
+                let cornerSize = CGSize(width: cornerRadius, height: cornerRadius)
+                let rect = CGRect(origin: .zero, size: size)
+                canvas.clip(to: Path(rect))
+
+                let trackPath = Path { p in p.addRoundedRect(in: rect, cornerSize: cornerSize) }
+                canvas.fill(trackPath, with: .color(MenuHighlightStyle.progressTrack(self.isHighlighted)))
+
+                let fillWidth = size.width * fraction
+                if fillWidth > 0 {
+                    let fillRect = CGRect(x: 0, y: 0, width: min(fillWidth, size.width), height: size.height)
+                    let fillPath = Path { p in p.addRoundedRect(in: fillRect, cornerSize: cornerSize) }
+                    canvas.fill(fillPath, with: .color(self.fillColor(fraction: fraction)))
+                }
+            }
+            // One third the 6pt usage bar height, sitting tight beneath it.
+            .frame(height: 2)
+            .accessibilityLabel(self.accessibilityLabel)
+            .accessibilityValue("\(Int((fraction * 100).rounded())) percent")
+        }
+    }
+
+    private func remainingFraction(now: Date) -> Double {
+        guard self.windowSeconds > 0 else { return 0 }
+        let remaining = self.resetsAt.timeIntervalSince(now)
+        return min(1, max(0, remaining / self.windowSeconds))
+    }
+
+    private func fillColor(fraction: Double) -> Color {
+        if self.isHighlighted { return MenuHighlightStyle.selectionText }
+        if fraction < Self.redThreshold { return Color(nsColor: .systemRed) }
+        if fraction < Self.yellowThreshold { return Color(nsColor: .systemYellow) }
+        return Self.accentColor
+    }
+}

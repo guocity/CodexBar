@@ -33,6 +33,12 @@ struct UsageMenuCardView: View {
             }
         }
 
+        /// Timing for a metric's reset window, used to draw the live countdown timeline bar.
+        struct ResetTimeline: Equatable {
+            let resetsAt: Date
+            let windowSeconds: Double
+        }
+
         struct Metric: Identifiable {
             let id: String
             let title: String
@@ -46,6 +52,7 @@ struct UsageMenuCardView: View {
             let pacePercent: Double?
             let paceOnTop: Bool
             let warningMarkerPercents: [Double]
+            let resetTimeline: ResetTimeline?
             let cardStyle: Bool
 
             init(
@@ -61,6 +68,7 @@ struct UsageMenuCardView: View {
                 pacePercent: Double?,
                 paceOnTop: Bool,
                 warningMarkerPercents: [Double] = [],
+                resetTimeline: ResetTimeline? = nil,
                 cardStyle: Bool = false)
             {
                 self.id = id
@@ -75,6 +83,7 @@ struct UsageMenuCardView: View {
                 self.pacePercent = pacePercent
                 self.paceOnTop = paceOnTop
                 self.warningMarkerPercents = warningMarkerPercents
+                self.resetTimeline = resetTimeline
                 self.cardStyle = cardStyle
             }
 
@@ -439,13 +448,21 @@ private struct MetricRow: View {
                     .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                     .lineLimit(1)
             } else {
-                UsageProgressBar(
-                    percent: self.metric.percent,
-                    tint: self.progressColor,
-                    accessibilityLabel: self.metric.percentStyle.accessibilityLabel,
-                    pacePercent: self.metric.pacePercent,
-                    paceOnTop: self.metric.paceOnTop,
-                    warningMarkerPercents: self.metric.warningMarkerPercents)
+                VStack(alignment: .leading, spacing: 3) {
+                    UsageProgressBar(
+                        percent: self.metric.percent,
+                        tint: self.progressColor,
+                        accessibilityLabel: self.metric.percentStyle.accessibilityLabel,
+                        pacePercent: self.metric.pacePercent,
+                        paceOnTop: self.metric.paceOnTop,
+                        warningMarkerPercents: self.metric.warningMarkerPercents)
+                    if let timeline = self.metric.resetTimeline {
+                        ResetTimelineBar(
+                            resetsAt: timeline.resetsAt,
+                            windowSeconds: timeline.windowSeconds,
+                            accessibilityLabel: L("Time until reset"))
+                    }
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(self.metric.percentLabel)
@@ -1239,7 +1256,8 @@ extension UsageMenuCardView.Model {
                 paceOnTop: tertiaryPaceDetail?.paceOnTop ?? true,
                 warningMarkerPercents: Self.warningMarkerPercents(
                     thresholds: input.quotaWarningThresholds[.weekly],
-                    showUsed: input.usageBarsShowUsed)))
+                    showUsed: input.usageBarsShowUsed),
+                resetTimeline: Self.resetTimeline(for: opus)))
         }
         metrics.append(contentsOf: Self.extraRateWindowMetrics(
             snapshot: snapshot,
@@ -1263,7 +1281,8 @@ extension UsageMenuCardView.Model {
            let remaining = codexProjection.remainingPercent(for: .codeReview)
         {
             let percent = input.usageBarsShowUsed ? (100 - remaining) : remaining
-            let resetText = codexProjection.limitWindow(for: .codeReview).flatMap {
+            let codeReviewWindow = codexProjection.limitWindow(for: .codeReview)
+            let resetText = codeReviewWindow.flatMap {
                 Self.resetText(for: $0, style: input.resetTimeDisplayStyle, now: input.now)
             }
             metrics.append(Metric(
@@ -1276,7 +1295,8 @@ extension UsageMenuCardView.Model {
                 detailLeftText: nil,
                 detailRightText: nil,
                 pacePercent: nil,
-                paceOnTop: true))
+                paceOnTop: true,
+                resetTimeline: codeReviewWindow.flatMap(Self.resetTimeline)))
         }
         return metrics
     }
@@ -1420,7 +1440,8 @@ extension UsageMenuCardView.Model {
             paceOnTop: primaryPaceOnTop,
             warningMarkerPercents: Self.warningMarkerPercents(
                 thresholds: input.quotaWarningThresholds[.session],
-                showUsed: input.usageBarsShowUsed))
+                showUsed: input.usageBarsShowUsed),
+            resetTimeline: Self.resetTimeline(for: primary))
     }
 
     private static func secondaryMetric(
@@ -1526,7 +1547,8 @@ extension UsageMenuCardView.Model {
             detailRightText: paceDetail?.rightLabel,
             pacePercent: paceDetail?.pacePercent,
             paceOnTop: paceDetail?.paceOnTop ?? true,
-            warningMarkerPercents: Self.weeklyMarkerPercents(input: input, windowMinutes: weekly.windowMinutes))
+            warningMarkerPercents: Self.weeklyMarkerPercents(input: input, windowMinutes: weekly.windowMinutes),
+            resetTimeline: Self.resetTimeline(for: weekly))
     }
 
     private static func codexRateMetrics(
@@ -1573,7 +1595,8 @@ extension UsageMenuCardView.Model {
                 warningMarkerPercents: Self.codexLaneMarkerPercents(
                     input: input,
                     lane: lane,
-                    windowMinutes: window.windowMinutes))
+                    windowMinutes: window.windowMinutes),
+                resetTimeline: Self.resetTimeline(for: window))
         }
     }
 }

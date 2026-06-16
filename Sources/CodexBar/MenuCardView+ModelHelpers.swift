@@ -64,6 +64,7 @@ extension UsageMenuCardView.Model {
                 (current.detailText == nil) == (refreshed.detailText == nil) &&
                 (current.detailLeftText == nil) == (refreshed.detailLeftText == nil) &&
                 (current.detailRightText == nil) == (refreshed.detailRightText == nil) &&
+                (current.resetTimeline == nil) == (refreshed.resetTimeline == nil) &&
                 current.cardStyle == refreshed.cardStyle
         }
     }
@@ -178,6 +179,16 @@ extension UsageMenuCardView.Model {
         now: Date) -> String?
     {
         UsageFormatter.resetLine(for: window, style: style, now: now)
+    }
+
+    /// Builds the countdown-timeline data for a window. Returns nil unless both an absolute
+    /// reset time and a known window length are available (needed to draw a proportional bar).
+    static func resetTimeline(for window: RateWindow) -> ResetTimeline? {
+        guard let resetsAt = window.resetsAt,
+              let windowMinutes = window.windowMinutes,
+              windowMinutes > 0
+        else { return nil }
+        return ResetTimeline(resetsAt: resetsAt, windowSeconds: Double(windowMinutes) * 60)
     }
 
     static func placeholder(input: Input) -> String? {
@@ -445,7 +456,8 @@ extension UsageMenuCardView.Model {
                 detailLeftText: usageKnown ? paceDetail?.leftLabel : nil,
                 detailRightText: usageKnown ? paceDetail?.rightLabel : nil,
                 pacePercent: usageKnown ? paceDetail?.pacePercent : nil,
-                paceOnTop: paceDetail?.paceOnTop ?? true)
+                paceOnTop: paceDetail?.paceOnTop ?? true,
+                resetTimeline: usageKnown ? Self.resetTimeline(for: namedWindow.window) : nil)
         }
     }
 
@@ -560,7 +572,8 @@ extension UsageMenuCardView.Model {
             detailLeftText: nil,
             detailRightText: nil,
             pacePercent: nil,
-            paceOnTop: true)
+            paceOnTop: true,
+            resetTimeline: Self.resetTimeline(for: window))
     }
 
     static func zaiLimitDetailText(limit: ZaiLimitEntry?) -> String? {

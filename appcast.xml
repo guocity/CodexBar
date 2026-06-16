@@ -1,160 +1,27 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
-    <channel>
-        <title>CodexBar</title>
-        <item>
-            <title>0.36.1</title>
-            <pubDate>Tue, 16 Jun 2026 00:47:04 -0400</pubDate>
-            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
-            <sparkle:version>88</sparkle:version>
-            <sparkle:shortVersionString>0.36.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>CodexBar 0.36.1</h2>
-<h3>Added</h3>
-<ul>
-<li>Poe: add current point balance and recent points history from a configured API key (#1191). Thanks @Yuxin-Qiao!</li>
-<li>Chutes: add subscription, quota-window, and pay-as-you-go usage tracking from a configured API key (#1496). Thanks @mvanhorn!</li>
-<li>Zed: add plan, edit-prediction quota, billing-cycle, and overdue-invoice tracking from the signed-in editor Keychain session (#1517). Thanks @enesteve0!</li>
-</ul>
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>CodexBar (guocity/CodexBar fork)</title>
+    <link>https://raw.githubusercontent.com/guocity/CodexBar/main/appcast.xml</link>
+    <description>CodexBar fork updates</description>
+    <language>en</language>
+    <item>
+      <title>CodexBar 0.36.2</title>
+      <pubDate>Tue, 16 Jun 2026 21:52:07 +0000</pubDate>
+      <sparkle:version>89</sparkle:version>
+      <sparkle:shortVersionString>0.36.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
 <h3>Changed</h3>
 <ul>
-<li>Website: add Poe, Chutes, and Zed to the provider gallery with matching icons and setup documentation.</li>
+<li>History: Write to file</li>
 </ul>
 <h3>Fixed</h3>
 <ul>
-<li>Provider switcher: use a continuous menu background instead of a separate light-mode tinted band. Thanks @Zihao-Qi!</li>
+<li>adding timer countdown!</li>
 </ul>
-<p><a href="https://github.com/steipete/CodexBar/blob/main/CHANGELOG.md">View full changelog</a></p>
-]]></description>
-            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.36.1/CodexBar-macos-universal-0.36.1.zip" length="51172568" type="application/octet-stream" sparkle:edSignature="tW74GvKbgGuT4yWPU0os8hHsdyxNM01x0bB8bn3lzOB3WwIF910tYK399egTbtB0sn38/s4ywBq3g7VIhT6+Bw=="/>
-        </item>
-        <item>
-            <title>0.36.0</title>
-            <pubDate>Tue, 16 Jun 2026 00:50:52 +0100</pubDate>
-            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
-            <sparkle:version>87</sparkle:version>
-            <sparkle:shortVersionString>0.36.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>CodexBar 0.36.0</h2>
-<ul>
-<li>Ollama: replace the bundled provider icon with the cleaner official mark while preserving native template tinting. Thanks @mattab178!</li>
-<li>Menu bar: avoid a one-time visible menu rebuild after first-open background data arrives.</li>
-<li>Settings: use high-contrast selected-content colors for provider sidebar text and icons.</li>
-<li>Localization: align the app and website on the same 21-language catalog, adding Italian (#1248), Indonesian (#1513), Polish (#1253), Arabic, Persian, and Thai as selectable app languages, plus automatic website detection, persistent pickers, and right-to-left layouts for Arabic and Persian. Thanks @Yuxin-Qiao and @StevanusPangau!</li>
-<li>Website: replace the remaining provider letter tiles with the canonical Devin, LiteLLM, and T3 Chat logos.</li>
-<li>Website: keep localized mobile navigation, calls to action, package commands, and right-to-left layouts inside narrow viewports.</li>
-</ul>
-<h3>Added</h3>
-<ul>
-<li>LiteLLM: add personal and team budget tracking from a configured virtual key and proxy URL (#1542). Thanks @hololee!</li>
-</ul>
-<h3>Changed</h3>
-<ul>
-<li>Antigravity: prefer app and <code>agy</code> quota summaries, group usage into Gemini and Claude + GPT session/weekly pools, and preserve IDE and OAuth fallbacks. Thanks @Zihao-Qi!</li>
-<li>Antigravity: show structured quota reset timestamps from the current <code>resetTime</code> field (#1553). Thanks @akunzai!</li>
-<li>Configuration: honor absolute <code>XDG_CONFIG_HOME</code> paths while rejecting relative paths, preserving existing standard and legacy config precedence (#1562). Thanks @kiranmagic7!</li>
-</ul>
-<h3>Fixed</h3>
-<ul>
-<li>Menu bar: preserve native AppKit image-row alignment when returning to cached provider content in the open merged menu (#1560). Thanks @Zihao-Qi!</li>
-<li>Menu bar: defer hosted submenu reconstruction until an active refresh finishes so partial provider data cannot replace the visible menu (#1556). Thanks @Yuxin-Qiao!</li>
-<li>Weekly pace: suppress the “Lasts until reset” label when the projected run-out risk is nonzero (#1561). Thanks @kiranmagic7!</li>
-<li>Antigravity: retry transient <code>Text file busy</code> launch failures while the CLI executable is being replaced.</li>
-<li>Antigravity: fall back to loopback HTTP for local CLI and language-server probes on Linux, where self-signed localhost TLS cannot be trusted (fixes #1508). Thanks @zodiacfireworks!</li>
-<li>Codebuff: enforce the optional subscription grace period even when the transport ignores cancellation.</li>
-<li>Copilot: show the shared quota reset date for limited premium and chat usage windows. Thanks @Zihao-Qi!</li>
-<li>Codex: keep managed login timeouts bounded while preserving captured output when detached helpers retain stdout or stderr.</li>
-<li>Claude: keep segmented multi-account menus scoped to the selected account while its refresh is in flight (fixes #1527).</li>
-<li>Command Code: keep showing available credits after the bounded optional subscription grace, including when the transport ignores cancellation (fixes #1131).</li>
-<li>DeepSeek: keep balance refreshes responsive when optional usage-summary work ignores cancellation.</li>
-<li>OpenRouter: keep credit refreshes responsive when optional key-quota enrichment ignores cancellation.</li>
-<li>Provider probes: stop waiting indefinitely for inherited output pipes after subprocesses or CLI version checks exit (fixes #1531).</li>
-<li>Menu bar: update visible usage values in place when a manual refresh completes instead of leaving the open provider card stale until the menu is reopened (fixes #1516).</li>
-<li>Gemini: recognize the current <code>gemini-api-key</code> CLI auth setting so API-key sessions show the supported OAuth guidance instead of a misleading not-logged-in error (fixes #1511).</li>
-<li>Kiro: keep usage refreshes bounded and clean up CLI helpers when they retain output pipes, ignore termination, or are cancelled (fixes #1533). Thanks @kiranmagic7!</li>
-<li>Gemini: keep fnm package discovery bounded when helper descendants retain output pipes or ignore termination (fixes #1534). Thanks @kiranmagic7!</li>
-<li>Xiaomi MiMo: cancel optional token-plan requests when the required balance request fails instead of delaying the error for up to 30 seconds.</li>
-<li>Settings: make the cost history window directly editable by keyboard while preserving the existing stepper and 1–365 day bounds (fixes #1499). Thanks @kiranmagic7!</li>
-<li>OpenCode Go: show Zen balances for accounts without subscription usage windows, including when the balance request takes longer than optional enrichment (fixes #1476). Thanks @kiranmagic7!</li>
-</ul>
-<p><a href="https://github.com/steipete/CodexBar/blob/main/CHANGELOG.md">View full changelog</a></p>
-]]></description>
-            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.36.0/CodexBar-macos-universal-0.36.0.zip" length="50246159" type="application/octet-stream" sparkle:edSignature="oWtXMyIwj/+qjrT6MS34gViOfx2kVr/8CshxOhAQbPq4S7tmr73QPfqyKS9w7oeFqnTOWOSswfQEmgTVtM3sDA=="/>
-        </item>
-        <item>
-            <title>0.35.0</title>
-            <pubDate>Sun, 14 Jun 2026 02:41:43 +0100</pubDate>
-            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
-            <sparkle:version>85</sparkle:version>
-            <sparkle:shortVersionString>0.35.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>CodexBar 0.35.0</h2>
-<h3>Added</h3>
-<ul>
-<li>Kimi: add usage fetching from the official Code API key flow, with optional compatible HTTPS proxy support (#1424). Thanks @kiranmagic7!</li>
-<li>Xiaomi MiMo: show paid and granted balance components alongside token-plan usage without requiring a duplicate provider (#1309). Thanks @AdrianSimionov!</li>
-<li>Xiaomi MiMo: add an opt-in local session-log fallback for token accounting when browser quota authentication is unavailable (#1284). Thanks @LeoLin990405!</li>
-<li>Weekly pace: use configured work days for standard weekly pace calculations while leaving historical Codex pacing unchanged (#1451, fixes #1356). Thanks @pstanton237!</li>
-</ul>
-<h3>Fixed</h3>
-<ul>
-<li>Security: prevent test and infrastructure cookie-import paths from accessing real browser profiles, SQLite stores, or Keychain data unless explicitly enabled (#1491).</li>
-<li>Menu bar: stop the provider-switcher shortcut monitor from killing the menu&#x27;s event tracking session. Its event-queue peek re-entered the run loop in tracking mode, which could leave a zombie menu on screen that ignored clicks for tens of seconds (beach ball) — most often right after opening the menu or after rapid Cmd-number provider switching, with Settings… the usual victim. Peeks now run in a barren private run-loop mode, start only once the tracking session is pumping, and no longer touch mouse events. Thanks @ProspectOre!</li>
-<li>Menu bar: rebuild merged provider content inside AppKit&#x27;s active tracking run loop so provider switches no longer wait for the menu to close or the default run loop to resume.</li>
-<li>Menu bar: keep cached provider content visible while switching merged tabs so the open menu no longer flickers through an empty state.</li>
-<li>Menu bar: restore native macOS positioning for merged provider dropdowns while preparing current content before AppKit lays out the menu.</li>
-<li>Menu bar: avoid starting a duplicate background provider refresh when the menu closes while its initial missing-data refresh is still in flight.</li>
-<li>Menu bar: pin the status-item dropdown to the current system appearance so it follows the Light/Dark setting instead of inheriting the menu bar&#x27;s vibrant appearance, which rendered the menu dark in Light mode whenever a dark or strongly-colored window or wallpaper sat behind the menu bar (#1490). Thanks @npapridonu!</li>
-<li>Menu bar: handle the global open-menu shortcut synchronously so repeated presses close the tracked menu instead of queueing a delayed reopen (#1470). Thanks @Zihao-Qi!</li>
-<li>Menu bar: keep the selected quota percentage visible in Pace mode when pace is temporarily unavailable instead of collapsing to an icon-only status item (fixes #1462).</li>
-<li>Settings: memoize cookie cache lookups behind the &quot;Cached: …&quot; picker labels so opening Settings and switching panes no longer pays a synchronous Keychain read per SwiftUI body evaluation, which froze the Providers pane for seconds (#1471). Thanks @ProspectOre!</li>
-<li>Settings: keep the native tab toolbar in sync when macOS switches appearance while the window is open (#1484). Thanks @hhh2210!</li>
-<li>Launch at Login: remove pending registrations when disabled without re-registering entries awaiting user approval (#1469). Thanks @AmrMohamad!</li>
-<li>Diagnostics: enforce probe timeouts even when an underlying provider operation ignores Swift task cancellation.</li>
-</ul>
-<p><a href="https://github.com/steipete/CodexBar/blob/main/CHANGELOG.md">View full changelog</a></p>
-]]></description>
-            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.35.0/CodexBar-macos-universal-0.35.0.zip" length="48598232" type="application/octet-stream" sparkle:edSignature="wx0RuMwESkRRO87c9KgUG4pQilNR8+cM6ZIcsvK65Y75cHDhrrEkMkHUBlLL2y3IN9HNl6RnLiqyhC6fE4rBAA=="/>
-        </item>
-        <item>
-            <title>0.14.0</title>
-            <pubDate>Thu, 25 Dec 2025 03:56:15 +0100</pubDate>
-            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
-            <sparkle:version>41</sparkle:version>
-            <sparkle:shortVersionString>0.14.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>CodexBar 0.14.0</h2>
-<ul>
-<li>Antigravity: new local provider for the Antigravity language server (Claude + Gemini quotas) with an experimental toggle; improved plan display + debug output; clearer not-running/port errors; hide account switch.</li>
-<li>Status: poll Google Workspace incidents for Gemini + Antigravity; Status Page opens the Workspace status page.</li>
-            <li>Settings: add Providers tab; move cost usage + status toggles to General; keep display controls in Advanced.</li>
-<li>Menu/UI: widen the menu for four providers; cards/charts adapt to menu width; tighten provider switcher/toggle spacing; keep menus refreshed while open.</li>
-<li>Gemini: hide the dashboard action when unsupported.</li>
-<li>Claude: fix Extra usage spend/limit units (cents); improve CLI probe stability; surface web session info in Debug.</li>
-<li>OpenAI web: fix dashboard ghost overlay on desktop (WebKit keepalive window).</li>
-<li>Debug: add a debug-lldb build mode for troubleshooting.</li>
-</ul>
-<p><a href="https://github.com/steipete/CodexBar/blob/main/CHANGELOG.md">View full changelog</a></p>
-]]></description>
-            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.14.0/CodexBar-0.14.0.zip" length="5382347" type="application/octet-stream" sparkle:edSignature="qhj8jnqH/eOXEP2plbZyTb8w1x0Afcpix0kC+pzMh5jX9Lkf3Yg2Bvd6/vsKdhOObEwJjQZRb/RKiSBx55J3DA=="/>
-        </item>
-        <item>
-            <title>0.13.0</title>
-            <pubDate>Wed, 24 Dec 2025 01:53:35 +0100</pubDate>
-            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
-            <sparkle:version>40</sparkle:version>
-            <sparkle:shortVersionString>0.13.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.13.0/CodexBar-0.13.0.zip" length="5099083" type="application/octet-stream" sparkle:edSignature="EmhEmcTFQEpuQG6vZ288l9j278VjnpQdQcmZnU1JDvzERVTtnIg+8RDlsHV9niwejaOBPX6mvXST3vNJHpwADA=="/>
-        </item>
-        <item>
-            <title>0.12.0</title>
-            <pubDate>Tue, 23 Dec 2025 04:39:05 +0100</pubDate>
-            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
-            <sparkle:version>39</sparkle:version>
-            <sparkle:shortVersionString>0.12.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.12.0/CodexBar-0.12.0.zip" length="4888386" type="application/octet-stream" sparkle:edSignature="tQMHO/RNAbvwRHXYnLAkNV2ksiV722qR8fEYzcbipgetacfPnwnLJ0Pe/lAiZ03PBmj3BkisHb74GosUlSV+DQ=="/>
-        </item>
-    </channel>
+      ]]></description>
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.36.2/CodexBar-macos-arm64+x86_64-0.36.2.zip" sparkle:edSignature="/jM1tQILD677dMNpXKRmPQIAGS0DXxuOFwuF/kr133citlq3pbKGnmQgvdX+JHW08wM/0PkYQycMLV+vYRe9BQ==" length="50720117" type="application/octet-stream" />
+    </item>
+  </channel>
 </rss>
