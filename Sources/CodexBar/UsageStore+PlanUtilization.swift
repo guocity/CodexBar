@@ -11,12 +11,22 @@ extension UsageStore {
         let lastObservedAt: Date
     }
 
+    /// Whether plan-utilization samples are persisted to the history folder for
+    /// this provider. Recording is enabled for every provider; providers that
+    /// expose no percent-bearing rate windows simply produce no samples.
+    func recordsPlanUtilizationHistory(for _: UsageProvider) -> Bool {
+        true
+    }
+
+    /// Whether the plan-utilization history menu/chart is surfaced for this
+    /// provider. Codex and Claude always qualify; every other provider qualifies
+    /// once it has accumulated history in the store.
     func supportsPlanUtilizationHistory(for provider: UsageProvider) -> Bool {
         switch provider {
         case .codex, .claude:
             true
         default:
-            false
+            !(self.planUtilizationHistory[provider]?.isEmpty ?? true)
         }
     }
 
@@ -129,7 +139,7 @@ extension UsageStore {
                 samples: samples)
         }
 
-        guard self.supportsPlanUtilizationHistory(for: provider) else { return }
+        guard self.recordsPlanUtilizationHistory(for: provider) else { return }
         guard !self.shouldDeferClaudePlanUtilizationHistory(provider: provider) else { return }
 
         var snapshotToPersist: [UsageProvider: PlanUtilizationHistoryBuckets]?
@@ -153,6 +163,13 @@ extension UsageStore {
             }
 
             providerBuckets.setHistories(updatedHistories, for: accountKey)
+            providerBuckets.setLabel(
+                self.planUtilizationAccountLabel(
+                    provider: provider,
+                    snapshot: snapshot,
+                    account: preferredAccount,
+                    accountKey: accountKey),
+                for: accountKey)
             self.planUtilizationHistory[provider] = providerBuckets
             self.planUtilizationHistoryRevision &+= 1
             snapshotToPersist = self.planUtilizationHistory
@@ -400,8 +417,8 @@ extension UsageStore {
             }
         default:
             for window in [snapshot.primary, snapshot.secondary, snapshot.tertiary] {
-                guard let window, window.windowMinutes == Self.weeklyWindowMinutes else { continue }
-                appendWindow(window, name: .weekly)
+                guard let window, let windowMinutes = window.windowMinutes, windowMinutes > 0 else { continue }
+                appendWindow(window, name: Self.genericPlanUtilizationSeriesName(forWindowMinutes: windowMinutes))
             }
         }
 
@@ -410,6 +427,23 @@ extension UsageStore {
                 return lhs.windowMinutes < rhs.windowMinutes
             }
             return lhs.name.rawValue < rhs.name.rawValue
+        }
+    }
+
+    /// Maps an arbitrary provider rate-window duration to a stable series name.
+    /// Known durations reuse the canonical `.session`/`.weekly` names; anything
+    /// else gets a deterministic per-window name so distinct windows stay
+    /// separate series.
+    private nonisolated static func genericPlanUtilizationSeriesName(
+        forWindowMinutes windowMinutes: Int) -> PlanUtilizationSeriesName
+    {
+        switch windowMinutes {
+        case 295...305:
+            .session
+        case 10070...10090:
+            .weekly
+        default:
+            PlanUtilizationSeriesName(rawValue: "window-\(windowMinutes)m")
         }
     }
 
@@ -652,6 +686,31 @@ extension UsageStore {
         return account?.label
             ?? identity?.accountEmail
             ?? identity?.accountOrganization
+    }
+
+    /// Human-readable name persisted alongside an account's history so each
+    /// account can be identified in the history folder. Prefers the account
+    /// email/login, falls back to the displayName, then the opaque account key.
+    private func planUtilizationAccountLabel(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        account: ProviderTokenAccount?,
+        accountKey: String?) -> String?
+    {
+        func cleaned(_ value: String?) -> String? {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed?.isEmpty ?? true) ? nil : trimmed
+        }
+
+        let identity = snapshot.identity(for: provider)
+        // Prefer a login identity (email / login / organization)…
+        if let email = cleaned(identity?.accountEmail) { return email }
+        if let login = cleaned(account?.externalIdentifier) { return login }
+        if let organization = cleaned(identity?.accountOrganization) { return organization }
+        // …then the user-facing display name…
+        if let displayName = cleaned(account?.displayName) { return displayName }
+        // …and finally the opaque account key so the bucket is still labelled.
+        return cleaned(accountKey)
     }
 
     private nonisolated static func weeklyLimitResetDetectorStateKey(

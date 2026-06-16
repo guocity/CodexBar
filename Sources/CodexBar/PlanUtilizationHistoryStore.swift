@@ -64,10 +64,19 @@ struct PlanUtilizationHistoryBuckets: Equatable {
     var preferredAccountKey: String?
     var unscoped: [PlanUtilizationSeriesHistory] = []
     var accounts: [String: [PlanUtilizationSeriesHistory]] = [:]
+    /// Human-readable name for each account key (email/login → displayName → key).
+    /// Persisted alongside history so each account can be identified without
+    /// reversing the opaque account-key hash.
+    var accountLabels: [String: String] = [:]
 
     func histories(for accountKey: String?) -> [PlanUtilizationSeriesHistory] {
         guard let accountKey, !accountKey.isEmpty else { return self.unscoped }
         return self.accounts[accountKey] ?? []
+    }
+
+    func label(for accountKey: String?) -> String? {
+        guard let accountKey, !accountKey.isEmpty else { return nil }
+        return self.accountLabels[accountKey]
     }
 
     mutating func setHistories(_ histories: [PlanUtilizationSeriesHistory], for accountKey: String?) {
@@ -78,9 +87,19 @@ struct PlanUtilizationHistoryBuckets: Equatable {
         }
         if sorted.isEmpty {
             self.accounts.removeValue(forKey: accountKey)
+            self.accountLabels.removeValue(forKey: accountKey)
         } else {
             self.accounts[accountKey] = sorted
         }
+    }
+
+    mutating func setLabel(_ label: String?, for accountKey: String?) {
+        guard let accountKey, !accountKey.isEmpty else { return }
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return }
+        // Only retain labels for keys that actually hold history.
+        guard self.accounts[accountKey] != nil else { return }
+        self.accountLabels[accountKey] = trimmed
     }
 
     var isEmpty: Bool {
@@ -101,6 +120,7 @@ private struct ProviderHistoryFile: Codable {
     let preferredAccountKey: String?
     let unscoped: [PlanUtilizationSeriesHistory]
     let accounts: [String: [PlanUtilizationSeriesHistory]]
+    let accountLabels: [String: String]
 }
 
 private struct ProviderHistoryDocument: Codable {
@@ -108,10 +128,13 @@ private struct ProviderHistoryDocument: Codable {
     let preferredAccountKey: String?
     let unscoped: [PlanUtilizationSeriesHistory]
     let accounts: [String: [PlanUtilizationSeriesHistory]]
+    let accountLabels: [String: String]
 }
 
 struct PlanUtilizationHistoryStore {
-    fileprivate static let providerSchemaVersion = 1
+    /// v1: history-only. v2: adds per-account human-readable `accountLabels`.
+    fileprivate static let providerSchemaVersion = 2
+    fileprivate static let supportedSchemaVersions: Set<Int> = [1, 2]
 
     let directoryURL: URL?
 
@@ -147,11 +170,13 @@ struct PlanUtilizationHistoryStore {
                     continue
                 }
 
+                let accountLabels = buckets.accountLabels.filter { key, _ in accounts[key] != nil }
                 let payload = ProviderHistoryDocument(
                     version: Self.providerSchemaVersion,
                     preferredAccountKey: buckets.preferredAccountKey,
                     unscoped: unscoped,
-                    accounts: accounts)
+                    accounts: accounts,
+                    accountLabels: accountLabels)
                 let data = try encoder.encode(payload)
                 try data.write(to: fileURL, options: Data.WritingOptions.atomic)
             }
@@ -180,7 +205,8 @@ struct PlanUtilizationHistoryStore {
             let history = ProviderHistoryFile(
                 preferredAccountKey: decoded.preferredAccountKey,
                 unscoped: decoded.unscoped,
-                accounts: decoded.accounts)
+                accounts: decoded.accounts,
+                accountLabels: decoded.accountLabels)
             output[provider] = Self.decodeProvider(history)
         }
 
@@ -199,15 +225,18 @@ struct PlanUtilizationHistoryStore {
     }
 
     private static func decodeProvider(_ providerHistory: ProviderHistoryFile) -> PlanUtilizationHistoryBuckets {
-        PlanUtilizationHistoryBuckets(
+        let accounts: [String: [PlanUtilizationSeriesHistory]] = Dictionary(
+            uniqueKeysWithValues: providerHistory.accounts.compactMap { accountKey, histories in
+                let sorted = Self.sortedHistories(histories)
+                guard !sorted.isEmpty else { return nil }
+                return (accountKey, sorted)
+            })
+        let accountLabels = providerHistory.accountLabels.filter { key, _ in accounts[key] != nil }
+        return PlanUtilizationHistoryBuckets(
             preferredAccountKey: providerHistory.preferredAccountKey,
             unscoped: self.sortedHistories(providerHistory.unscoped),
-            accounts: Dictionary(
-                uniqueKeysWithValues: providerHistory.accounts.compactMap { accountKey, histories in
-                    let sorted = Self.sortedHistories(histories)
-                    guard !sorted.isEmpty else { return nil }
-                    return (accountKey, sorted)
-                }))
+            accounts: accounts,
+            accountLabels: accountLabels)
     }
 
     private static func sortedAccounts(
@@ -255,7 +284,7 @@ extension ProviderHistoryDocument {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let version = try container.decode(Int.self, forKey: .version)
-        guard version == PlanUtilizationHistoryStore.providerSchemaVersion else {
+        guard PlanUtilizationHistoryStore.supportedSchemaVersions.contains(version) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .version,
                 in: container,
@@ -265,5 +294,7 @@ extension ProviderHistoryDocument {
         self.preferredAccountKey = try container.decodeIfPresent(String.self, forKey: .preferredAccountKey)
         self.unscoped = try container.decode([PlanUtilizationSeriesHistory].self, forKey: .unscoped)
         self.accounts = try container.decode([String: [PlanUtilizationSeriesHistory]].self, forKey: .accounts)
+        self.accountLabels = try container
+            .decodeIfPresent([String: String].self, forKey: .accountLabels) ?? [:]
     }
 }
