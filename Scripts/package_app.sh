@@ -184,7 +184,8 @@ if [[ -f "$ICON_SOURCE" ]]; then
 fi
 
 BUNDLE_ID="com.steipete.codexbar"
-FEED_URL="https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml"
+# Fork override: set CODEXBAR_FEED_URL to point auto-update at your own appcast.
+FEED_URL="${CODEXBAR_FEED_URL:-https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml}"
 AUTO_CHECKS=true
 if [[ "$LOWER_CONF" == "debug" ]]; then
   BUNDLE_ID="com.steipete.codexbar.debug"
@@ -256,7 +257,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>Icon</string>
     <key>NSHumanReadableCopyright</key><string>© 2026 Peter Steinberger. MIT License.</string>
     <key>SUFeedURL</key><string>${FEED_URL}</string>
-    <key>SUPublicEDKey</key><string>AGCY8w5vHirVfGGDGc8Szc5iuOqupZSh9pMj/Qs67XI=</string>
+    <key>SUPublicEDKey</key><string>${CODEXBAR_SU_PUBLIC_ED_KEY:-AGCY8w5vHirVfGGDGc8Szc5iuOqupZSh9pMj/Qs67XI=}</string>
     <key>SUEnableAutomaticChecks</key><${AUTO_CHECKS}/>
     <key>CodexBuildTimestamp</key><string>${BUILD_TIMESTAMP}</string>
     <key>CodexGitCommit</key><string>${GIT_COMMIT}</string>

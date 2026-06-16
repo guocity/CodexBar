@@ -2,7 +2,9 @@
 set -euo pipefail
 
 APP_NAME="CodexBar"
-APP_IDENTITY="Developer ID Application: Peter Steinberger (Y5PE65HELJ)"
+# Fork override: set CODEXBAR_APP_IDENTITY to your "Developer ID Application: …" cert.
+# Exported so the child package_app.sh signs with the same identity (it reads APP_IDENTITY).
+export APP_IDENTITY="${CODEXBAR_APP_IDENTITY:-Developer ID Application: Peter Steinberger (Y5PE65HELJ)}"
 APP_BUNDLE="CodexBar.app"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source "$ROOT/version.env"
@@ -15,9 +17,15 @@ ARCHES_VALUE=${ARCHES:-"arm64 x86_64"}
 ZIP_NAME=$(codexbar_app_zip_name "$MARKETING_VERSION" "$ARCHES_VALUE")
 DSYM_ZIP=$(codexbar_dsym_zip_name "$MARKETING_VERSION" "$ARCHES_VALUE")
 
-if [[ -z "${APP_STORE_CONNECT_API_KEY_P8:-}" || -z "${APP_STORE_CONNECT_KEY_ID:-}" || -z "${APP_STORE_CONNECT_ISSUER_ID:-}" ]]; then
-  echo "Missing APP_STORE_CONNECT_* env vars (API key, key id, issuer id)." >&2
-  exit 1
+# Notarization credentials: either a stored notarytool keychain profile
+# (CODEXBAR_NOTARY_KEYCHAIN_PROFILE, created via `xcrun notarytool store-credentials`)
+# or the App Store Connect API env vars. The keychain profile wins when set.
+NOTARY_PROFILE="${CODEXBAR_NOTARY_KEYCHAIN_PROFILE:-}"
+if [[ -z "$NOTARY_PROFILE" ]]; then
+  if [[ -z "${APP_STORE_CONNECT_API_KEY_P8:-}" || -z "${APP_STORE_CONNECT_KEY_ID:-}" || -z "${APP_STORE_CONNECT_ISSUER_ID:-}" ]]; then
+    echo "Missing notarization credentials: set CODEXBAR_NOTARY_KEYCHAIN_PROFILE, or all APP_STORE_CONNECT_* env vars." >&2
+    exit 1
+  fi
 fi
 
 NOTARIZATION_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/codexbar-notarize.XXXXXX")
@@ -26,11 +34,13 @@ API_KEY_PATH="$NOTARIZATION_TEMP_DIR/codexbar-api-key.p8"
 NOTARIZATION_ZIP="$NOTARIZATION_TEMP_DIR/${APP_NAME}Notarize.zip"
 trap 'rm -rf "$NOTARIZATION_TEMP_DIR"' EXIT
 
-(
-  umask 077
-  printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" | sed 's/\\n/\n/g' > "$API_KEY_PATH"
-)
-chmod 600 "$API_KEY_PATH"
+if [[ -z "$NOTARY_PROFILE" ]]; then
+  (
+    umask 077
+    printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" | sed 's/\\n/\n/g' > "$API_KEY_PATH"
+  )
+  chmod 600 "$API_KEY_PATH"
+fi
 
 ARCH_LIST=( ${ARCHES_VALUE} )
 ARCHES="${ARCHES_VALUE}" ./Scripts/package_app.sh release
@@ -64,14 +74,32 @@ DITTO_BIN=${DITTO_BIN:-/usr/bin/ditto}
 "$DITTO_BIN" --norsrc -c -k --keepParent "$APP_BUNDLE" "$NOTARIZATION_ZIP"
 
 echo "Submitting for notarization"
-xcrun notarytool submit "$NOTARIZATION_ZIP" \
-  --key "$API_KEY_PATH" \
-  --key-id "$APP_STORE_CONNECT_KEY_ID" \
-  --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
-  --wait
+if [[ -n "$NOTARY_PROFILE" ]]; then
+  xcrun notarytool submit "$NOTARIZATION_ZIP" \
+    --keychain-profile "$NOTARY_PROFILE" \
+    --wait
+else
+  xcrun notarytool submit "$NOTARIZATION_ZIP" \
+    --key "$API_KEY_PATH" \
+    --key-id "$APP_STORE_CONNECT_KEY_ID" \
+    --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
+    --wait
+fi
 
 echo "Stapling ticket"
-xcrun stapler staple "$APP_BUNDLE"
+# Xcode 27 beta's stapler can fail in-place ("Could not remove existing ticket …
+# No such file or directory", Error 73) yet succeed on a fresh copy. Fall back to
+# stapling a clean ditto copy and swapping it back in.
+if ! xcrun stapler staple "$APP_BUNDLE"; then
+  echo "In-place staple failed; retrying via a clean copy"
+  STAPLE_TMP="$NOTARIZATION_TEMP_DIR/staple"
+  rm -rf "$STAPLE_TMP"
+  mkdir -p "$STAPLE_TMP"
+  "$DITTO_BIN" "$APP_BUNDLE" "$STAPLE_TMP/$APP_BUNDLE"
+  xcrun stapler staple "$STAPLE_TMP/$APP_BUNDLE"
+  rm -rf "$APP_BUNDLE"
+  "$DITTO_BIN" "$STAPLE_TMP/$APP_BUNDLE" "$APP_BUNDLE"
+fi
 
 # Strip any extended attributes that would create AppleDouble files when zipping
 xattr -cr "$APP_BUNDLE"
