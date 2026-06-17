@@ -7,21 +7,27 @@
     <language>en</language>
     <item>
       <title>CodexBar 0.36.2</title>
-      <pubDate>Tue, 16 Jun 2026 21:52:07 +0000</pubDate>
+      <pubDate>Wed, 17 Jun 2026 02:56:47 +0000</pubDate>
       <sparkle:version>89</sparkle:version>
       <sparkle:shortVersionString>0.36.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
+<h3>Added</h3>
+<ul>
+<li>History: record plan-utilization history for every provider with per-account names, not just Codex and Claude.</li>
+<li>Menu bar: countdown timeline bar showing the time remaining until each usage limit resets.</li>
+<li>Telemetry: optional self-hosted usage telemetry, configured from the About page (server URL + token) and off by default.</li>
+</ul>
 <h3>Changed</h3>
 <ul>
-<li>History: Write to file</li>
+<li>Menu bar:</li>
 </ul>
 <h3>Fixed</h3>
 <ul>
-<li>adding timer countdown!</li>
+<li>Localization:</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.36.2/CodexBar-macos-arm64+x86_64-0.36.2.zip" sparkle:edSignature="/jM1tQILD677dMNpXKRmPQIAGS0DXxuOFwuF/kr133citlq3pbKGnmQgvdX+JHW08wM/0PkYQycMLV+vYRe9BQ==" length="50720117" type="application/octet-stream" />
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.36.2/CodexBar-macos-universal-0.36.2.zip" sparkle:edSignature="kA5Rvg4f9l5rLo8Q/El2ogN86B7Qy476VRCcm2A8RniSWd1iymR7Hg3bFpZJBeVah0j89YLsppUi/HaPZt24Ag==" length="50833960" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
