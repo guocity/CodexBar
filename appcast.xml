@@ -7,7 +7,7 @@
     <language>en</language>
     <item>
       <title>CodexBar 0.36.2</title>
-      <pubDate>Tue, 16 Jun 2026 21:52:07 +0000</pubDate>
+      <pubDate>Wed, 17 Jun 2026 00:18:07 +0000</pubDate>
       <sparkle:version>89</sparkle:version>
       <sparkle:shortVersionString>0.36.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
@@ -21,7 +21,7 @@
 <li>Localization: improve Japanese terminology consistency and localize next-day reset times across all 21 app languages. Thanks @tukuyomil032!</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.36.2/CodexBar-macos-arm64+x86_64-0.36.2.zip" sparkle:edSignature="/jM1tQILD677dMNpXKRmPQIAGS0DXxuOFwuF/kr133citlq3pbKGnmQgvdX+JHW08wM/0PkYQycMLV+vYRe9BQ==" length="50720117" type="application/octet-stream" />
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.36.2/CodexBar-macos-universal-0.36.2.zip" sparkle:edSignature="IMeBV8UG1O/i9X95E5xwTBhktri5bow6molVkNFKiovdpk455aFv4Jc6Qj8uYtH+4S6ZcSTJeTwiLkUxvA8QCQ==" length="50741920" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
