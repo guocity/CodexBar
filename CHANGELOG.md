@@ -2,11 +2,16 @@
 
 ## 0.36.2 — Unreleased
 
+### Added
+- History: record plan-utilization history for every provider with per-account names, not just Codex and Claude.
+- Menu bar: countdown timeline bar showing the time remaining until each usage limit resets.
+- Telemetry: optional self-hosted usage telemetry, configured from the About page (server URL + token) and off by default.
+
 ### Changed
-- Menu bar: reuse the icon-observation signature during provider refreshes instead of computing it twice. Thanks @abe238!
+- Menu bar:
 
 ### Fixed
-- Localization: improve Japanese terminology consistency and localize next-day reset times across all 21 app languages. Thanks @tukuyomil032!
+- Localization:
 
 ## 0.36.1 — 2026-06-16
 

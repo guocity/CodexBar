@@ -74,17 +74,47 @@ DITTO_BIN=${DITTO_BIN:-/usr/bin/ditto}
 "$DITTO_BIN" --norsrc -c -k --keepParent "$APP_BUNDLE" "$NOTARIZATION_ZIP"
 
 echo "Submitting for notarization"
-if [[ -n "$NOTARY_PROFILE" ]]; then
-  xcrun notarytool submit "$NOTARIZATION_ZIP" \
-    --keychain-profile "$NOTARY_PROFILE" \
-    --wait
-else
-  xcrun notarytool submit "$NOTARIZATION_ZIP" \
-    --key "$API_KEY_PATH" \
-    --key-id "$APP_STORE_CONNECT_KEY_ID" \
-    --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
-    --wait
-fi
+# notarytool's keychain-profile lookup intermittently fails with
+# "No Keychain password item found for profile: …" even when the credential is
+# present and valid (a transient keychain-access glitch). That instant pre-upload
+# failure would otherwise throw away the whole multi-minute build, so retry it a
+# few times. Genuine submission rejections ("Invalid") are not retried.
+notarytool_submit() {
+  if [[ -n "$NOTARY_PROFILE" ]]; then
+    xcrun notarytool submit "$NOTARIZATION_ZIP" \
+      --keychain-profile "$NOTARY_PROFILE" \
+      --wait
+  else
+    xcrun notarytool submit "$NOTARIZATION_ZIP" \
+      --key "$API_KEY_PATH" \
+      --key-id "$APP_STORE_CONNECT_KEY_ID" \
+      --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
+      --wait
+  fi
+}
+
+NOTARIZE_ATTEMPTS="${CODEXBAR_NOTARIZE_ATTEMPTS:-3}"
+attempt=1
+while :; do
+  # `if` condition suspends set -e so we can capture the exit status ourselves.
+  if notarize_out=$(notarytool_submit 2>&1); then
+    notarize_status=0
+  else
+    notarize_status=$?
+  fi
+  printf '%s\n' "$notarize_out"
+  if (( notarize_status == 0 )); then
+    break
+  fi
+  if (( attempt < NOTARIZE_ATTEMPTS )) \
+    && grep -qi "No Keychain password item found" <<<"$notarize_out"; then
+    echo "==> Transient keychain lookup failure (attempt ${attempt}/${NOTARIZE_ATTEMPTS}); retrying in 15s…" >&2
+    attempt=$(( attempt + 1 ))
+    sleep 15
+    continue
+  fi
+  exit "$notarize_status"
+done
 
 echo "Stapling ticket"
 # Xcode 27 beta's stapler can fail in-place ("Could not remove existing ticket …

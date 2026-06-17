@@ -71,6 +71,10 @@ struct AboutPane: View {
                 AboutLinkRow(icon: "globe", title: L("link_website"), url: "https://steipete.me")
                 AboutLinkRow(icon: "bird", title: L("link_twitter"), url: "https://twitter.com/steipete")
                 AboutLinkRow(icon: "envelope", title: L("link_email"), url: "mailto:peter@steipete.me")
+                // Self-hosted telemetry configuration (kept out-of-tree for clean upstream merges).
+                AboutActionRow(icon: "antenna.radiowaves.left.and.right", title: "Telemetry") {
+                    TelemetrySettingsWindow.show()
+                }
             }
             .padding(.top, 8)
             .frame(maxWidth: .infinity)

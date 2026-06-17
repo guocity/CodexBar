@@ -143,6 +143,7 @@ extension UsageStore {
         guard !self.shouldDeferClaudePlanUtilizationHistory(provider: provider) else { return }
 
         var snapshotToPersist: [UsageProvider: PlanUtilizationHistoryBuckets]?
+        var telemetryAccountKey: String?
         await MainActor.run {
             var providerBuckets = self.planUtilizationHistory[provider] ?? PlanUtilizationHistoryBuckets()
             let preferredAccount = account ?? self.settings.selectedTokenAccount(for: provider)
@@ -162,21 +163,34 @@ extension UsageStore {
                 return
             }
 
+            let accountLabel = self.planUtilizationAccountLabel(
+                provider: provider,
+                snapshot: snapshot,
+                account: preferredAccount,
+                accountKey: accountKey)
             providerBuckets.setHistories(updatedHistories, for: accountKey)
-            providerBuckets.setLabel(
-                self.planUtilizationAccountLabel(
-                    provider: provider,
-                    snapshot: snapshot,
-                    account: preferredAccount,
-                    accountKey: accountKey),
-                for: accountKey)
+            providerBuckets.setLabel(accountLabel, for: accountKey)
             self.planUtilizationHistory[provider] = providerBuckets
             self.planUtilizationHistoryRevision &+= 1
             snapshotToPersist = self.planUtilizationHistory
+            telemetryAccountKey = accountKey
         }
 
         guard let snapshotToPersist else { return }
         await self.planUtilizationPersistenceCoordinator.enqueue(snapshotToPersist)
+
+        // Mirror the freshly recorded samples to the self-hosted telemetry pipeline.
+        // Self-contained in Sources/CodexBar/Telemetry/; no-ops when telemetry is off.
+        await TelemetryService.shared.send(usageSamples: samples.map { sample in
+            TelemetryUsageSample(
+                provider: provider.rawValue,
+                accountKey: telemetryAccountKey,
+                series: sample.name.rawValue,
+                windowMinutes: sample.windowMinutes,
+                usedPercent: sample.entry.usedPercent,
+                capturedAt: sample.entry.capturedAt,
+                resetsAt: sample.entry.resetsAt)
+        })
     }
 
     private nonisolated static func updatedPlanUtilizationHistories(
