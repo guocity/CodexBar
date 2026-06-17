@@ -112,6 +112,7 @@ struct StatsHistoricalReset {
     let color: NSColor
     let providerId: String
     let windowName: String
+    let name: String
 }
 
 struct StatsAccountOption: Equatable {
@@ -403,7 +404,8 @@ func statsHistoricalResets(_ providers: [StatsProvider], before now: Date) -> [S
                 let key = Int(date.timeIntervalSince1970.rounded())
                 guard seen.insert(key).inserted else { continue }
                 result.append(StatsHistoricalReset(
-                    date: date, color: color, providerId: provider.id, windowName: window.name))
+                    date: date, color: color, providerId: provider.id, windowName: window.name,
+                    name: "\(provider.name) \(window.displayName)"))
             }
         }
     }

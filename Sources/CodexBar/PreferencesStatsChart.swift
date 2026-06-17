@@ -465,7 +465,7 @@ final class StatsMultiLineChart: NSView {
             self.resetMarkers.append(ResetMarker(
                 x: x,
                 date: reset.date,
-                label: L("Past reset"),
+                label: "\(reset.name) · \(L("Past reset"))",
                 color: reset.color,
                 providerId: reset.providerId,
                 windowName: reset.windowName))
