@@ -5,6 +5,9 @@ ALLOW_LLDB=${CODEXBAR_ALLOW_LLDB:-0}
 SIGNING_MODE=${CODEXBAR_SIGNING:-}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+# `swift build` needs a full Xcode toolchain (CommandLineTools can't load BuildServerProtocol here).
+source "$ROOT/Scripts/select_xcode_toolchain.sh"
+codexbar_select_xcode_toolchain
 LOWER_CONF=$(printf "%s" "$CONF" | tr '[:upper:]' '[:lower:]')
 case "$LOWER_CONF" in
   debug|release) ;;

@@ -5,7 +5,12 @@
 # Usage:
 #   Scripts/fork-release.sh                 # full notarized release
 #   Scripts/fork-release.sh --skip-notarize # signed-only local test build
+#   Scripts/fork-release.sh --skip-build    # reuse the CodexBar.app already on disk (no rebuild)
 #   Scripts/fork-release.sh --draft         # create the GitHub release as a draft
+#
+# --skip-build packages whatever CodexBar.app is already built (e.g. from `make start`) and
+# publishes it as-is — no rebuild and no notarization. Use it to release exactly what you just
+# tested. The artifact name follows the app's actual architectures (detected with `lipo`).
 #
 # Config comes from .fork-release.env (repo, identity, team, Sparkle key, feed URL).
 set -euo pipefail
@@ -24,10 +29,12 @@ source "$ROOT/version.env"
 source "$ROOT/Scripts/release_artifacts.sh"
 
 SKIP_NOTARIZE=0
+SKIP_BUILD=0
 DRAFT=0
 for arg in "$@"; do
   case "$arg" in
     --skip-notarize) SKIP_NOTARIZE=1 ;;
+    --skip-build) SKIP_BUILD=1 ;;
     --draft) DRAFT=1 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
@@ -43,20 +50,24 @@ export CODEXBAR_APP_IDENTITY CODEXBAR_SU_PUBLIC_ED_KEY CODEXBAR_FEED_URL APP_TEA
 export APP_IDENTITY="$CODEXBAR_APP_IDENTITY"
 
 # The CommandLineTools `swift` is broken on this machine (dyld can't load
-# BuildServerProtocol.framework). Fall back to a full Xcode toolchain for the build.
-if [[ -z "${DEVELOPER_DIR:-}" ]] && [[ "$(xcode-select -p 2>/dev/null)" == *CommandLineTools* ]]; then
-  for xc in /Applications/Xcode.app /Applications/Xcode-beta.app; do
-    if [[ -d "$xc/Contents/Developer" ]]; then
-      export DEVELOPER_DIR="$xc/Contents/Developer"
-      break
-    fi
-  done
-fi
+# BuildServerProtocol.framework). Select a full Xcode toolchain (Xcode or Xcode-beta) for the build.
+# shellcheck disable=SC1091
+source "$ROOT/Scripts/select_xcode_toolchain.sh"
+codexbar_select_xcode_toolchain
 echo "==> Toolchain: DEVELOPER_DIR=${DEVELOPER_DIR:-$(xcode-select -p)}"
 
 VERSION="$MARKETING_VERSION"
 TAG="v$VERSION"
-ARCHES_VALUE="${ARCHES:-arm64 x86_64}"
+
+# When reusing the on-disk app, name the artifact after the architectures it actually contains
+# (e.g. `make start` produces a host-arch-only build); otherwise use the requested/universal set.
+if [[ "$SKIP_BUILD" == "1" ]]; then
+  [[ -d CodexBar.app ]] || { echo "--skip-build: no CodexBar.app on disk — build first (e.g. \`make start\`)" >&2; exit 1; }
+  DETECTED_ARCHES=$(lipo -archs "CodexBar.app/Contents/MacOS/CodexBar" 2>/dev/null || true)
+  ARCHES_VALUE="${DETECTED_ARCHES:-${ARCHES:-arm64 x86_64}}"
+else
+  ARCHES_VALUE="${ARCHES:-arm64 x86_64}"
+fi
 ZIP_NAME=$(codexbar_app_zip_name "$VERSION" "$ARCHES_VALUE")
 DSYM_ZIP=$(codexbar_dsym_zip_name "$VERSION" "$ARCHES_VALUE")
 
@@ -65,8 +76,11 @@ SIGN_TOOL=$(find "$ROOT/.build/artifacts/sparkle" -name sign_update -type f 2>/d
 
 echo "==> Fork release $TAG → $CODEXBAR_FORK_REPO (arches: $ARCHES_VALUE)"
 
-# 1. Build + sign (+ notarize)
-if [[ "$SKIP_NOTARIZE" == "1" ]]; then
+# 1. Build + sign (+ notarize) — or reuse the app already on disk.
+if [[ "$SKIP_BUILD" == "1" ]]; then
+  echo "==> Reusing existing CodexBar.app (no rebuild, no notarization) — publishing it as-is"
+  /usr/bin/ditto --norsrc -c -k --keepParent CodexBar.app "$ZIP_NAME"
+elif [[ "$SKIP_NOTARIZE" == "1" ]]; then
   echo "==> Building + signing (Developer ID, NO notarization — local test only)"
   ARCHES="$ARCHES_VALUE" APP_IDENTITY="$CODEXBAR_APP_IDENTITY" ./Scripts/package_app.sh release
   /usr/bin/ditto --norsrc -c -k --keepParent CodexBar.app "$ZIP_NAME"

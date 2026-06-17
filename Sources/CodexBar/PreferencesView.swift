@@ -7,6 +7,7 @@ enum PreferencesTab: String, CaseIterable, Hashable {
     case providers
     case display
     case advanced
+    case stats
     case about
     case debug
 
@@ -20,6 +21,7 @@ enum PreferencesTab: String, CaseIterable, Hashable {
         case .providers: L("tab_providers")
         case .display: L("tab_display")
         case .advanced: L("tab_advanced")
+        case .stats: L("tab_stats")
         case .about: L("tab_about")
         case .debug: L("tab_debug")
         }
@@ -91,6 +93,10 @@ struct PreferencesView: View {
             AdvancedPane(settings: self.settings)
                 .tabItem { Label(L("tab_advanced"), systemImage: "slider.horizontal.3") }
                 .tag(PreferencesTab.advanced)
+
+            StatsPane(settings: self.settings, store: self.store)
+                .tabItem { Label(L("tab_stats"), systemImage: "chart.xyaxis.line") }
+                .tag(PreferencesTab.stats)
 
             AboutPane(updater: self.updater)
                 .tabItem { Label(L("tab_about"), systemImage: "info.circle") }

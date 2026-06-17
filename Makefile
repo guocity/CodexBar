@@ -28,16 +28,16 @@ docs-list:
 	node Scripts/docs-list.mjs
 
 build:
-	swift build
+	@source Scripts/select_xcode_toolchain.sh && codexbar_select_xcode_toolchain && swift build
 
 test:
 	./Scripts/test.sh
 
 test-tty:
-	swift test --filter TTYIntegrationTests
+	@source Scripts/select_xcode_toolchain.sh && codexbar_select_xcode_toolchain && swift test --filter TTYIntegrationTests
 
 test-live:
-	LIVE_TEST=1 swift test --filter LiveAccountTests
+	@source Scripts/select_xcode_toolchain.sh && codexbar_select_xcode_toolchain && LIVE_TEST=1 swift test --filter LiveAccountTests
 
 release:
 	./Scripts/package_app.sh release

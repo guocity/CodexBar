@@ -294,6 +294,10 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         self.openSettings(tab: .general)
     }
 
+    @objc func showSettingsStats() {
+        self.openSettings(tab: .stats)
+    }
+
     @objc func showSettingsAbout() {
         self.openSettings(tab: .about)
     }

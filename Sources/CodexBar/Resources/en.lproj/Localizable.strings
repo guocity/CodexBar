@@ -460,8 +460,23 @@
 "tab_providers" = "Providers";
 "tab_display" = "Display";
 "tab_advanced" = "Advanced";
+"tab_stats" = "Stats";
 "tab_about" = "About";
 "tab_debug" = "Debug";
+
+/* Stats Pane */
+"stats_title" = "Stats";
+"stats_usage_history" = "Usage history";
+"stats_empty_title" = "No usage history yet";
+"stats_empty_subtitle" = "Usage is recorded over time as CodexBar refreshes your providers. Check back once some history has accumulated.";
+"Stats" = "Stats";
+"resets" = "resets";
+"inactive" = "inactive";
+"last seen" = "last seen";
+"No history yet" = "No history yet";
+"Past reset" = "Past reset";
+"Show in Stats" = "Show in Stats";
+"Hide from Stats" = "Hide from Stats";
 
 /* Providers Pane */
 "select_a_provider" = "Select a provider";
