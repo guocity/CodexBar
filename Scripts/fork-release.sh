@@ -117,8 +117,10 @@ if gh release view "$TAG" --repo "$CODEXBAR_FORK_REPO" >/dev/null 2>&1; then
 else
   DRAFT_FLAG=()
   [[ "$DRAFT" == "1" ]] && DRAFT_FLAG=(--draft)
+  # macOS ships bash 3.2, where "${arr[@]}" on an empty array trips `set -u`
+  # ("unbound variable"). The ${arr[@]+...} guard expands to nothing when empty.
   printf '%s\n' "$NOTES_MD" | gh release create "$TAG" "${ASSETS[@]}" \
-    --repo "$CODEXBAR_FORK_REPO" --title "CodexBar $VERSION" --notes-file - "${DRAFT_FLAG[@]}"
+    --repo "$CODEXBAR_FORK_REPO" --title "CodexBar $VERSION" --notes-file - "${DRAFT_FLAG[@]+"${DRAFT_FLAG[@]}"}"
 fi
 
 # 5. Generate appcast.xml (single latest entry — all Sparkle needs to offer an update).
@@ -156,10 +158,11 @@ APPCAST_B64=$(base64 < appcast.xml | tr -d '\n')
 APPCAST_SHA=$(gh api "repos/$CODEXBAR_FORK_REPO/contents/appcast.xml?ref=main" --jq .sha 2>/dev/null || true)
 SHA_ARGS=()
 [[ -n "$APPCAST_SHA" ]] && SHA_ARGS=(-f "sha=$APPCAST_SHA")
+# Same bash 3.2 empty-array guard as above (SHA_ARGS is empty on first publish).
 gh api --method PUT "repos/$CODEXBAR_FORK_REPO/contents/appcast.xml" \
   -f "message=release: CodexBar $VERSION fork appcast" \
   -f "branch=main" \
-  "${SHA_ARGS[@]}" \
+  "${SHA_ARGS[@]+"${SHA_ARGS[@]}"}" \
   -f "content=$APPCAST_B64" \
   --jq '"    committed " + .commit.sha[0:7] + " to main"'
 
