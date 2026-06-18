@@ -6,7 +6,7 @@ import Testing
 // swiftlint:disable:next type_body_length
 struct UsageStorePlanUtilizationTests {
     @Test
-    func `coalesces changed usage within hour into single entry`() throws {
+    func `keeps each changed usage reading within an hour`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -26,8 +26,47 @@ struct UsageStorePlanUtilizationTests {
                 existingEntries: initial,
                 entry: second))
 
-        #expect(updated.count == 1)
-        #expect(updated.last == second)
+        // Every refresh that changes the value is kept, even within the same hour.
+        #expect(updated.count == 2)
+        #expect(updated == [first, second])
+    }
+
+    @Test
+    func `keeps a refresh even when the value is unchanged`() throws {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let first = planEntry(at: base, usedPercent: 12, resetsAt: base.addingTimeInterval(3600))
+        let repeated = planEntry(
+            at: base.addingTimeInterval(60),
+            usedPercent: 12,
+            resetsAt: base.addingTimeInterval(3600))
+
+        let initial = try #require(
+            UsageStore._updatedPlanUtilizationEntriesForTesting(
+                existingEntries: [],
+                entry: first))
+        let updated = try #require(
+            UsageStore._updatedPlanUtilizationEntriesForTesting(
+                existingEntries: initial,
+                entry: repeated))
+
+        #expect(updated.count == 2)
+        #expect(updated == [first, repeated])
+    }
+
+    @Test
+    func `drops only an exact duplicate sample`() throws {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let entry = planEntry(at: base, usedPercent: 12, resetsAt: base.addingTimeInterval(3600))
+
+        let initial = try #require(
+            UsageStore._updatedPlanUtilizationEntriesForTesting(
+                existingEntries: [],
+                entry: entry))
+        let duplicate = UsageStore._updatedPlanUtilizationEntriesForTesting(
+            existingEntries: initial,
+            entry: entry)
+
+        #expect(duplicate == nil)
     }
 
     @Test
@@ -63,7 +102,7 @@ struct UsageStorePlanUtilizationTests {
     }
 
     @Test
-    func `first known reset boundary within hour replaces earlier provisional peak even when usage drops`() throws {
+    func `keeps provisional and known reset readings as distinct entries`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -89,8 +128,9 @@ struct UsageStorePlanUtilizationTests {
                 existingEntries: initial,
                 entry: second))
 
-        #expect(updated.count == 1)
-        #expect(updated[0] == second)
+        // Distinct usage values are both retained instead of collapsing to one peak.
+        #expect(updated.count == 2)
+        #expect(updated == [first, second])
     }
 
     @Test
@@ -773,7 +813,7 @@ struct UsageStorePlanUtilizationTests {
 
     @MainActor
     @Test
-    func `weekly quota celebration posts when reset lands mid hour without history split`() async {
+    func `weekly quota celebration posts when usage drops to zero mid hour`() async {
         let store = Self.makeStore()
         let accountLabel = "mid-hour-reset@example.com"
         let recorder = WeeklyLimitResetEventRecorder(provider: .claude, accountLabel: accountLabel)
@@ -810,8 +850,11 @@ struct UsageStorePlanUtilizationTests {
         await store.recordPlanUtilizationHistorySample(provider: .claude, snapshot: after, now: after.updatedAt)
 
         let histories = store.planUtilizationHistory(for: .claude)
-        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 1)
-        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.last?.usedPercent == 40)
+        // Each changed reading is kept now, so the pre-reset peak and the post-reset zero
+        // are both retained rather than collapsing to a single hourly peak.
+        let weekly = findSeries(histories, name: .weekly, windowMinutes: 10080)
+        #expect(weekly?.entries.count == 2)
+        #expect(weekly?.entries.map(\.usedPercent) == [40, 0])
         let events = recorder.events
         #expect(events.count == 1)
         #expect(events[0].usedPercent == 0)
@@ -1025,7 +1068,7 @@ struct UsageStorePlanUtilizationTests {
 
     @MainActor
     @Test
-    func `concurrent plan history writes coalesce within single hour bucket per series`() async throws {
+    func `concurrent plan history writes each persist as a separate record`() async throws {
         let store = Self.makeStore()
         let snapshot = Self.makeSnapshot(provider: .codex, email: "alice@example.com")
         store._setSnapshotForTesting(snapshot, provider: .codex)
@@ -1054,8 +1097,9 @@ struct UsageStorePlanUtilizationTests {
         }
 
         let histories = try #require(store.planUtilizationHistory[.codex]?.accounts.values.first)
-        #expect(findSeries(histories, name: .session, windowMinutes: 300)?.entries.count == 1)
-        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 1)
+        // Three refreshes at distinct timestamps are each kept as their own record.
+        #expect(findSeries(histories, name: .session, windowMinutes: 300)?.entries.count == 3)
+        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 3)
     }
 
     @Test

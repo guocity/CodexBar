@@ -64,6 +64,35 @@ enum StatsRange: Int, CaseIterable {
     }
 }
 
+// MARK: - Provider sort
+
+/// How the per-provider summaries (and their chart lines) are ordered. "Default" keeps the
+/// store's provider order; the reset modes order by the soonest upcoming reset of the matching
+/// window, so the provider that resets next floats to the top.
+enum StatsSortMode: Int, CaseIterable {
+    case defaultOrder
+    case sessionReset
+    case weeklyReset
+
+    var title: String {
+        switch self {
+        case .defaultOrder: L("stats_sort_default")
+        case .sessionReset: L("stats_sort_session")
+        case .weeklyReset: L("stats_sort_weekly")
+        }
+    }
+
+    /// The canonical window-minute range whose upcoming reset this mode sorts by, or `nil` for
+    /// the default (unsorted) mode.
+    var resetWindowMinutes: ClosedRange<Int>? {
+        switch self {
+        case .defaultOrder: nil
+        case .sessionReset: 295...305
+        case .weeklyReset: 10070...10090
+        }
+    }
+}
+
 // MARK: - Data model (adapted from the reference's AITokens_* types)
 
 struct StatsSample {
@@ -148,9 +177,9 @@ struct StatsUsage {
     /// Builds the model from the live usage store. The window list, labels, and current values come
     /// from each provider's live snapshot (so they match the menu card — e.g. Cursor's Total/Auto/API
     /// tiers and Antigravity's per-service windows). Historical points for the chart are attached from
-    /// plan-utilization history, matched by series name. Windows that share a recorded series (Cursor's
-    /// tiers all share one billing-cycle window) only attach history to the first; the rest still show
-    /// their current value.
+    /// plan-utilization history, matched by series name and — for lanes the recorder names in a way the
+    /// snapshot can't reproduce (Cursor's total/auto/api, Antigravity's per-pool series) — by same-window
+    /// value continuity, so every lane attaches its own recorded history instead of a lone live dot.
     ///
     /// Codex has multiple visible accounts; `codexAccountID` selects which one to show (its snapshot
     /// and its account-scoped history), defaulting to the active account so accounts never mix.
@@ -234,9 +263,14 @@ struct StatsUsage {
         var windows: [StatsWindow] = []
         var claimedSeries = Set<String>()
         for snap in Self.snapshotWindows(snapshot, provider: provider, metadata: metadata) {
+            // Prefer an exact series-name match; otherwise attach the recorded series of the same
+            // window length whose latest value tracks this window (lanes sharing a window — e.g.
+            // Cursor's total/auto/api, Antigravity's per-pool series — are named by the recorder in
+            // a way the snapshot can't reproduce, so fall back to value continuity instead of
+            // dropping the history and rendering a lone dot).
             let match = histories.first {
                 $0.name.rawValue == snap.historyName && !claimedSeries.contains(Self.seriesID($0))
-            }
+            } ?? Self.nearestHistory(to: snap, in: histories, claimed: claimedSeries)
             if let match { claimedSeries.insert(Self.seriesID(match)) }
             var entries = match.map { Self.entries($0.entries) } ?? []
             // Always reflect the live value as the most recent point.
@@ -276,6 +310,22 @@ struct StatsUsage {
 
     private static func seriesID(_ history: PlanUtilizationSeriesHistory) -> String {
         "\(history.name.rawValue):\(history.windowMinutes)"
+    }
+
+    /// Fallback used when no recorded series name matches a live window: the unclaimed series of the
+    /// same window length whose latest value is closest to the window's current value. The recorder
+    /// always records the live value, so the matching lane's latest point coincides with it.
+    private static func nearestHistory(
+        to snap: SnapshotWindow,
+        in histories: [PlanUtilizationSeriesHistory],
+        claimed: Set<String>) -> PlanUtilizationSeriesHistory?
+    {
+        histories
+            .filter { $0.windowMinutes == snap.windowMinutes && !claimed.contains(Self.seriesID($0)) }
+            .min {
+                abs(($0.entries.last?.usedPercent ?? 0) - snap.usedPercent)
+                    < abs(($1.entries.last?.usedPercent ?? 0) - snap.usedPercent)
+            }
     }
 
     /// Enumerates a provider's live windows with their display titles, mirroring the menu card:
@@ -393,6 +443,42 @@ func statsUpcomingReset(_ window: StatsWindow, from now: Date) -> Date? {
     return future.max()
 }
 
+/// The soonest upcoming reset across a provider's windows whose duration falls in
+/// `windowMinutes` (e.g. the ~5h session window or the ~7d weekly window), or `nil` when the
+/// provider has no such active window. Used to order providers in the Stats pane.
+///
+/// For an unused provider the matching window keeps rolling forward, so each reading records a
+/// fresh reset boundary; `statsUpcomingReset` already collapses those to the single latest one,
+/// and this returns that same displayed value so the sort matches what the row shows.
+func statsProviderReset(_ provider: StatsProvider, in windowMinutes: ClosedRange<Int>, from now: Date) -> Date? {
+    provider.windows
+        .filter { windowMinutes.contains($0.windowMinutes) }
+        .compactMap { statsUpcomingReset($0, from: now) }
+        .min()
+}
+
+/// Orders providers for the Stats pane. The default mode preserves the incoming order; the reset
+/// modes sort by the soonest matching upcoming reset (ascending), with providers that have no such
+/// reset pushed to the end. The sort is stable: ties (and the no-reset tail) keep their original
+/// relative order.
+func statsSortedProviders(_ providers: [StatsProvider], mode: StatsSortMode, now: Date) -> [StatsProvider] {
+    guard let windowMinutes = mode.resetWindowMinutes else { return providers }
+    return providers.enumerated().sorted { lhs, rhs in
+        let lhsReset = statsProviderReset(lhs.element, in: windowMinutes, from: now)
+        let rhsReset = statsProviderReset(rhs.element, in: windowMinutes, from: now)
+        switch (lhsReset, rhsReset) {
+        case let (left?, right?):
+            return left == right ? lhs.offset < rhs.offset : left < right
+        case (.some, nil):
+            return true
+        case (nil, .some):
+            return false
+        case (nil, nil):
+            return lhs.offset < rhs.offset
+        }
+    }.map(\.element)
+}
+
 /// Past reset boundaries per provider+window, for the thin historical marker lines.
 func statsHistoricalResets(_ providers: [StatsProvider], before now: Date) -> [StatsHistoricalReset] {
     var result: [StatsHistoricalReset] = []
@@ -498,8 +584,23 @@ final class StatsRootView: NSView {
         return control
     }()
 
+    private let sortControl: NSSegmentedControl = {
+        let control = NSSegmentedControl(
+            labels: StatsSortMode.allCases.map(\.title),
+            trackingMode: .selectOne,
+            target: nil,
+            action: nil)
+        control.segmentStyle = .rounded
+        control.controlSize = .small
+        control.translatesAutoresizingMaskIntoConstraints = false
+        control.toolTip = L("stats_sort_tooltip")
+        return control
+    }()
+
     private static let rangeDefaultsKey = "Stats_rangeIndex"
+    private static let sortDefaultsKey = "Stats_sortMode"
     private var selectedRange: StatsRange = .week
+    private var sortMode: StatsSortMode = .defaultOrder
     private var signature = ""
     private var summaryPanels: [String: StatsSummaryPanel] = [:]
     private var selectedSeriesKey: (providerId: String, windowName: String)?
@@ -518,6 +619,8 @@ final class StatsRootView: NSView {
         super.init(frame: frame)
         let saved = UserDefaults.standard.object(forKey: Self.rangeDefaultsKey) as? Int
         self.selectedRange = saved.flatMap(StatsRange.init(rawValue:)) ?? .week
+        let savedSort = UserDefaults.standard.object(forKey: Self.sortDefaultsKey) as? Int
+        self.sortMode = savedSort.flatMap(StatsSortMode.init(rawValue:)) ?? .defaultOrder
         self.hiddenProviders = Set(UserDefaults.standard.stringArray(forKey: Self.hiddenProvidersKey) ?? [])
 
         self.chartHost.orientation = .vertical
@@ -560,6 +663,10 @@ final class StatsRootView: NSView {
         self.rangeControl.action = #selector(self.rangeChanged(_:))
         self.rangeControl.selectedSegment = self.selectedRange.rawValue
 
+        self.sortControl.target = self
+        self.sortControl.action = #selector(self.sortChanged(_:))
+        self.sortControl.selectedSegment = self.sortMode.rawValue
+
         // Continuous zoom/pan only moves the highlight to the closest preset — it never changes
         // the persisted range or recomputes the viewport. The chart owns the viewport.
         self.usageChart.onZoomOrPan = { [weak self] range in
@@ -583,8 +690,9 @@ final class StatsRootView: NSView {
     /// Rebuilds the model from the store for the current Codex-account / range selection.
     private func reload() {
         guard let store else { return }
-        let usage = StatsUsage.build(store: store, codexAccountID: self.selectedCodexAccountID)
+        var usage = StatsUsage.build(store: store, codexAccountID: self.selectedCodexAccountID)
         self.selectedCodexAccountID = usage.selectedCodexAccountID
+        usage.providers = statsSortedProviders(usage.providers, mode: self.sortMode, now: Date())
         self.apply(usage)
     }
 
@@ -778,6 +886,15 @@ final class StatsRootView: NSView {
         self.usageChart.applyPreset(range, animated: true)
     }
 
+    @objc private func sortChanged(_ sender: NSSegmentedControl) {
+        guard let mode = StatsSortMode(rawValue: sender.selectedSegment) else { return }
+        self.sortMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Self.sortDefaultsKey)
+        // Re-sort the provider summaries (and their chart lines) in place; the new order changes
+        // the signature, so this rebuilds the stacked panels rather than only refreshing values.
+        self.reload()
+    }
+
     // MARK: Layout helpers
 
     private func chartContainer() -> NSView {
@@ -785,6 +902,7 @@ final class StatsRootView: NSView {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.translatesAutoresizingMaskIntoConstraints = false
+        row.addArrangedSubview(self.sortControl)
         row.addArrangedSubview(NSView())
         row.addArrangedSubview(self.rangeControl)
         row.heightAnchor.constraint(equalToConstant: 22).isActive = true

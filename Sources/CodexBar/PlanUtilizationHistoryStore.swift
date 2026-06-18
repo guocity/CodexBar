@@ -152,6 +152,14 @@ struct PlanUtilizationHistoryStore {
 
     func save(_ providers: [UsageProvider: PlanUtilizationHistoryBuckets]) {
         guard let directoryURL = self.directoryURL else { return }
+        // Hard prohibition: a test process must never write to a real history folder. The default
+        // store already resolves to nil under tests, but this also blocks any store explicitly
+        // constructed with a non-temporary path, so a stray test can never overwrite the user's
+        // real plan-utilization history. The assertion makes such a mistake fail loudly in DEBUG.
+        if Self.isRunningTests, !Self.isWithinTemporaryDirectory(directoryURL) {
+            assertionFailure("Refusing to write plan-utilization history to a real folder during tests: \(directoryURL.path)")
+            return
+        }
         do {
             try FileManager.default.createDirectory(
                 at: directoryURL,
@@ -267,11 +275,35 @@ struct PlanUtilizationHistoryStore {
     }
 
     private static func defaultDirectoryURL() -> URL? {
+        // Never resolve the real history folder inside a test process. A UsageStore built with the
+        // default store would otherwise load and (on the next recorded sample) overwrite the user's
+        // real plan-utilization history — leaking synthetic test entries into ~/Library. Tests that
+        // genuinely exercise persistence pass an explicit temporary directory instead.
+        if Self.isRunningTests { return nil }
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
         let dir = root.appendingPathComponent("com.steipete.codexbar", isDirectory: true)
         return dir.appendingPathComponent("history", isDirectory: true)
+    }
+
+    /// Mirrors `SettingsStore.isRunningTests` but stays nonisolated so the default directory can be
+    /// resolved off the main actor. Kept in sync deliberately — both guard real files from tests.
+    private nonisolated static let isRunningTests: Bool = {
+        let env = ProcessInfo.processInfo.environment
+        if env["XCTestConfigurationFilePath"] != nil { return true }
+        if env["TESTING_LIBRARY_VERSION"] != nil { return true }
+        if env["SWIFT_TESTING"] != nil { return true }
+        return NSClassFromString("XCTestCase") != nil
+    }()
+
+    /// Whether `url` lives under the system temporary directory — the only place a test is allowed
+    /// to persist history. Uses standardized (symlink-resolved) paths so `/var` vs `/private/var`
+    /// can't slip a real path past the guard.
+    private nonisolated static func isWithinTemporaryDirectory(_ url: URL) -> Bool {
+        let tempPath = FileManager.default.temporaryDirectory.standardizedFileURL.path
+        let candidate = url.standardizedFileURL.path
+        return candidate == tempPath || candidate.hasPrefix(tempPath + "/")
     }
 
     private func providerFileURL(for provider: UsageProvider) -> URL {

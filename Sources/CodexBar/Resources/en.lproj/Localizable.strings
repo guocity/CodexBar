@@ -477,6 +477,10 @@
 "Past reset" = "Past reset";
 "Show in Stats" = "Show in Stats";
 "Hide from Stats" = "Hide from Stats";
+"stats_sort_default" = "Default";
+"stats_sort_session" = "Session";
+"stats_sort_weekly" = "Weekly";
+"stats_sort_tooltip" = "Sort providers";
 
 /* Providers Pane */
 "select_a_provider" = "Select a provider";

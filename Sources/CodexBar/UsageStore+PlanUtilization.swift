@@ -30,7 +30,6 @@ extension UsageStore {
         }
     }
 
-    private nonisolated static let planUtilizationMinSampleIntervalSeconds: TimeInterval = 60 * 60
     private nonisolated static let planUtilizationResetEquivalenceToleranceSeconds: TimeInterval = 2 * 60
     private nonisolated static let planUtilizationMaxSamples: Int = 24 * 730
 
@@ -157,6 +156,7 @@ extension UsageStore {
             let histories = providerBuckets.histories(for: accountKey)
 
             guard let updatedHistories = Self.updatedPlanUtilizationHistories(
+                provider: provider,
                 existingHistories: histories,
                 samples: samples)
             else {
@@ -194,14 +194,30 @@ extension UsageStore {
     }
 
     private nonisolated static func updatedPlanUtilizationHistories(
+        provider: UsageProvider,
         existingHistories: [PlanUtilizationSeriesHistory],
         samples: [PlanUtilizationSeriesSample]) -> [PlanUtilizationSeriesHistory]?
     {
         guard !samples.isEmpty else { return nil }
 
+        // Rescue history stranded under an older series-naming scheme by folding it into
+        // the current lane it continues, so renaming a provider's series never looks like
+        // its accumulated records were deleted.
+        let canonicalLanes = samples.map { sample in
+            PlanUtilizationLegacySeriesMigration.CanonicalLane(
+                name: sample.name,
+                windowMinutes: sample.windowMinutes,
+                usedPercent: sample.entry.usedPercent,
+                resetsAt: sample.entry.resetsAt)
+        }
+        let (migratedHistories, didMigrate) = PlanUtilizationLegacySeriesMigration.migrate(
+            provider: provider,
+            histories: existingHistories,
+            canonicalLanes: canonicalLanes)
+
         var historiesByKey: [PlanUtilizationSeriesKey: PlanUtilizationSeriesHistory] = [:]
-        var didChange = false
-        for history in existingHistories {
+        var didChange = didMigrate
+        for history in migratedHistories {
             let canonicalWindowMinutes = history.name.canonicalWindowMinutes(history.windowMinutes)
             let key = PlanUtilizationSeriesKey(name: history.name, windowMinutes: canonicalWindowMinutes)
             let canonicalHistory = PlanUtilizationSeriesHistory(
@@ -267,18 +283,14 @@ extension UsageStore {
     {
         var entries = existingEntries
         let insertionIndex = entries.firstIndex(where: { $0.capturedAt > entry.capturedAt }) ?? entries.endIndex
-        let sampleHourBucket = self.planUtilizationHourBucket(for: entry.capturedAt)
-        let sameHourRange = self.planUtilizationHourRange(
-            entries: entries,
-            insertionIndex: insertionIndex,
-            hourBucket: sampleHourBucket)
-        let existingHourEntries = Array(entries[sameHourRange])
-        let canonicalHourEntries = self.canonicalPlanUtilizationHourEntries(
-            existingHourEntries: existingHourEntries,
-            incomingEntry: entry)
 
-        guard canonicalHourEntries != existingHourEntries else { return nil }
-        entries.replaceSubrange(sameHourRange, with: canonicalHourEntries)
+        // Keep every refresh: record each observation as its own point, even when the
+        // usage value is unchanged, so the series accumulates continuously over time.
+        // The only thing dropped is an exact duplicate (identical timestamp, usage, and
+        // reset boundary), which guards against recording the very same sample twice.
+        guard !entries.contains(entry) else { return nil }
+
+        entries.insert(entry, at: insertionIndex)
 
         if entries.count > self.planUtilizationMaxSamples {
             entries.removeFirst(entries.count - self.planUtilizationMaxSamples)
@@ -296,14 +308,18 @@ extension UsageStore {
 
     nonisolated static func _updatedPlanUtilizationHistoriesForTesting(
         existingHistories: [PlanUtilizationSeriesHistory],
-        samples: [PlanUtilizationSeriesHistory]) -> [PlanUtilizationSeriesHistory]?
+        samples: [PlanUtilizationSeriesHistory],
+        provider: UsageProvider = .codex) -> [PlanUtilizationSeriesHistory]?
     {
         let normalized = samples.flatMap { history in
             history.entries.map { entry in
                 PlanUtilizationSeriesSample(name: history.name, windowMinutes: history.windowMinutes, entry: entry)
             }
         }
-        return self.updatedPlanUtilizationHistories(existingHistories: existingHistories, samples: normalized)
+        return self.updatedPlanUtilizationHistories(
+            provider: provider,
+            existingHistories: existingHistories,
+            samples: normalized)
     }
 
     nonisolated static var _planUtilizationMaxSamplesForTesting: Int {
@@ -316,6 +332,21 @@ extension UsageStore {
         return max(0, min(100, value))
     }
 
+    /// The sample used to detect a weekly-limit reset. Prefers the canonical
+    /// `.weekly` series; for providers that record weekly usage under semantic
+    /// per-pool names (e.g. Antigravity's `gemini-weekly`), falls back to the
+    /// highest-used sample whose canonical window is weekly.
+    private nonisolated static func representativeWeeklySample(
+        _ samples: [PlanUtilizationSeriesSample]) -> PlanUtilizationSeriesSample?
+    {
+        if let exact = samples.last(where: { $0.name == .weekly }) {
+            return exact
+        }
+        return samples
+            .filter { $0.name.canonicalWindowMinutes($0.windowMinutes) == Self.weeklyWindowMinutes }
+            .max(by: { $0.entry.usedPercent < $1.entry.usedPercent })
+    }
+
     private func postWeeklyLimitResetCelebrationIfNeeded(
         provider: UsageProvider,
         account: ProviderTokenAccount?,
@@ -323,7 +354,7 @@ extension UsageStore {
         accountKey: String?,
         samples: [PlanUtilizationSeriesSample])
     {
-        guard let weeklySample = samples.last(where: { $0.name == .weekly }) else { return }
+        guard let weeklySample = Self.representativeWeeklySample(samples) else { return }
 
         let accountIdentifier = self.weeklyLimitResetAccountIdentifier(
             provider: provider,
@@ -413,20 +444,29 @@ extension UsageStore {
             appendWindow(snapshot.primary, name: .session)
             appendWindow(snapshot.secondary, name: .weekly)
             appendWindow(snapshot.tertiary, name: .opus)
+        case .cursor:
+            // All three lanes share the billing-cycle duration, so the generic
+            // window-duration name would collapse them into one series. Name them by
+            // lane instead so total/auto/api each persist as their own series.
+            appendWindow(snapshot.primary, name: "total")
+            appendWindow(snapshot.secondary, name: "auto")
+            appendWindow(snapshot.tertiary, name: "api")
         case .antigravity:
-            let namedWeeklyWindows = snapshot.extraRateWindows?
-                .filter {
-                    $0.usageKnown
-                        && $0.id.hasPrefix("antigravity-quota-summary-")
-                        && $0.window.windowMinutes == Self.weeklyWindowMinutes
-                }
-                .map(\.window) ?? []
-            if let mostUsedWeeklyWindow = namedWeeklyWindows.max(by: { $0.usedPercent < $1.usedPercent }) {
-                appendWindow(mostUsedWeeklyWindow, name: .weekly)
-            } else {
+            // Record one series per named quota pool (Gemini / Claude+GPT × Session /
+            // Weekly) so every bucket reaches history instead of collapsing into a single
+            // weekly point. Fall back to the representative weekly lanes when no named
+            // pools are present.
+            let namedWindows = snapshot.extraRateWindows?.filter {
+                $0.usageKnown && $0.id.hasPrefix("antigravity-quota-summary-")
+            } ?? []
+            if namedWindows.isEmpty {
                 for window in [snapshot.primary, snapshot.secondary, snapshot.tertiary] {
                     guard let window, window.windowMinutes == Self.weeklyWindowMinutes else { continue }
                     appendWindow(window, name: .weekly)
+                }
+            } else {
+                for namedWindow in namedWindows {
+                    appendWindow(namedWindow.window, name: Self.antigravitySeriesName(for: namedWindow))
                 }
             }
         default:
@@ -461,128 +501,30 @@ extension UsageStore {
         }
     }
 
-    private nonisolated static func planUtilizationHourBucket(for date: Date) -> Int64 {
-        Int64(floor(date.timeIntervalSince1970 / self.planUtilizationMinSampleIntervalSeconds))
+    /// Stable, human-readable series name for an Antigravity named quota window,
+    /// derived from its title (e.g. "Gemini Weekly" → `gemini-weekly`).
+    private nonisolated static func antigravitySeriesName(
+        for namedWindow: NamedRateWindow) -> PlanUtilizationSeriesName
+    {
+        let slug = self.seriesSlug(namedWindow.title)
+        return PlanUtilizationSeriesName(rawValue: slug.isEmpty ? namedWindow.id : slug)
     }
 
-    private nonisolated static func planUtilizationHourRange(
-        entries: [PlanUtilizationHistoryEntry],
-        insertionIndex: Int,
-        hourBucket: Int64) -> Range<Int>
-    {
-        var lowerBound = insertionIndex
-        while lowerBound > entries.startIndex {
-            let previousIndex = lowerBound - 1
-            let previousHourBucket = self.planUtilizationHourBucket(for: entries[previousIndex].capturedAt)
-            guard previousHourBucket == hourBucket else { break }
-            lowerBound = previousIndex
-        }
-
-        var upperBound = insertionIndex
-        while upperBound < entries.endIndex {
-            let currentHourBucket = self.planUtilizationHourBucket(for: entries[upperBound].capturedAt)
-            guard currentHourBucket == hourBucket else { break }
-            upperBound += 1
-        }
-
-        return lowerBound..<upperBound
-    }
-
-    private nonisolated static func canonicalPlanUtilizationHourEntries(
-        existingHourEntries: [PlanUtilizationHistoryEntry],
-        incomingEntry: PlanUtilizationHistoryEntry) -> [PlanUtilizationHistoryEntry]
-    {
-        let hourlyObservations = (existingHourEntries + [incomingEntry]).sorted { lhs, rhs in
-            if lhs.capturedAt != rhs.capturedAt {
-                return lhs.capturedAt < rhs.capturedAt
+    /// Lowercases `raw` and collapses every run of non-alphanumeric characters into
+    /// a single dash, trimming leading/trailing dashes.
+    private nonisolated static func seriesSlug(_ raw: String) -> String {
+        var result = ""
+        var pendingDash = false
+        for character in raw.lowercased() {
+            if character.isLetter || character.isNumber {
+                if pendingDash, !result.isEmpty { result.append("-") }
+                pendingDash = false
+                result.append(character)
+            } else {
+                pendingDash = true
             }
-            if lhs.usedPercent != rhs.usedPercent {
-                return lhs.usedPercent < rhs.usedPercent
-            }
-            let lhsReset = lhs.resetsAt?.timeIntervalSince1970 ?? Date.distantPast.timeIntervalSince1970
-            let rhsReset = rhs.resetsAt?.timeIntervalSince1970 ?? Date.distantPast.timeIntervalSince1970
-            return lhsReset < rhsReset
         }
-        guard var activeSegmentPeak = hourlyObservations.first else { return [] }
-
-        var peakBeforeLatestReset: PlanUtilizationHistoryEntry?
-
-        for observation in hourlyObservations.dropFirst() {
-            if self.startsNewPlanUtilizationResetSegment(
-                activeSegmentPeak: activeSegmentPeak,
-                observation: observation)
-            {
-                if peakBeforeLatestReset == nil {
-                    peakBeforeLatestReset = activeSegmentPeak
-                }
-                activeSegmentPeak = observation
-                continue
-            }
-
-            activeSegmentPeak = self.segmentPeakEntry(
-                existingPeak: activeSegmentPeak,
-                observation: observation)
-        }
-
-        if let peakBeforeLatestReset {
-            return [peakBeforeLatestReset, activeSegmentPeak]
-        }
-        return [activeSegmentPeak]
-    }
-
-    private nonisolated static func startsNewPlanUtilizationResetSegment(
-        activeSegmentPeak: PlanUtilizationHistoryEntry,
-        observation: PlanUtilizationHistoryEntry) -> Bool
-    {
-        self.haveMeaningfullyDifferentResetBoundaries(
-            activeSegmentPeak.resetsAt,
-            observation.resetsAt)
-    }
-
-    private nonisolated static func segmentPeakEntry(
-        existingPeak: PlanUtilizationHistoryEntry,
-        observation: PlanUtilizationHistoryEntry) -> PlanUtilizationHistoryEntry
-    {
-        if existingPeak.resetsAt == nil, observation.resetsAt != nil {
-            return observation
-        }
-
-        let hasHigherUsage = observation.usedPercent > existingPeak.usedPercent
-        let tiesUsageAndIsMoreRecent = observation.usedPercent == existingPeak.usedPercent
-            && observation.capturedAt >= existingPeak.capturedAt
-        let observationShouldReplacePeak = hasHigherUsage || tiesUsageAndIsMoreRecent
-        let peakSource = observationShouldReplacePeak ? observation : existingPeak
-        let preferObservationMetadata = observation.capturedAt >= existingPeak.capturedAt
-
-        return PlanUtilizationHistoryEntry(
-            capturedAt: peakSource.capturedAt,
-            usedPercent: peakSource.usedPercent,
-            resetsAt: self.preferredResetBoundary(
-                existing: existingPeak.resetsAt,
-                incoming: observation.resetsAt,
-                preferIncoming: preferObservationMetadata))
-    }
-
-    private nonisolated static func haveMeaningfullyDifferentResetBoundaries(_ lhs: Date?, _ rhs: Date?) -> Bool {
-        switch (lhs, rhs) {
-        case let (lhs?, rhs?):
-            abs(lhs.timeIntervalSince(rhs)) >= self.planUtilizationResetEquivalenceToleranceSeconds
-        case (.none, .none):
-            false
-        default:
-            false
-        }
-    }
-
-    private nonisolated static func preferredResetBoundary(
-        existing: Date?,
-        incoming: Date?,
-        preferIncoming: Bool) -> Date?
-    {
-        if preferIncoming {
-            return incoming ?? existing
-        }
-        return existing ?? incoming
+        return result
     }
 
     private func planUtilizationAccountKey(
