@@ -5,6 +5,10 @@ extension UsageStore {
     private nonisolated static let weeklyLimitResetThreshold = 1.0
     private nonisolated static let weeklyLimitResetDetectorDefaultsKey = "weeklyLimitResetDetectorStates"
     private nonisolated static let weeklyWindowMinutes = 7 * 24 * 60
+    /// Canonical window length for Copilot's monthly-resetting quotas/budgets, which report
+    /// no window duration of their own. Stamped on recorded samples so they reach history and
+    /// stay grouped as one stable series across refreshes (real month lengths vary).
+    nonisolated static let copilotMonthlyWindowMinutes = 30 * 24 * 60
 
     struct WeeklyLimitResetDetectorState: Codable, Equatable {
         let wasAboveThreshold: Bool
@@ -410,10 +414,14 @@ extension UsageStore {
     {
         var samplesByKey: [PlanUtilizationSeriesKey: PlanUtilizationSeriesSample] = [:]
 
-        func appendWindow(_ window: RateWindow?, name: PlanUtilizationSeriesName?) {
+        func appendWindow(
+            _ window: RateWindow?,
+            name: PlanUtilizationSeriesName?,
+            windowMinutesOverride: Int? = nil)
+        {
             guard let name,
                   let window,
-                  let windowMinutes = window.windowMinutes,
+                  let windowMinutes = windowMinutesOverride ?? window.windowMinutes,
                   windowMinutes > 0,
                   let usedPercent = Self.clampedPercent(window.usedPercent)
             else {
@@ -451,6 +459,20 @@ extension UsageStore {
             appendWindow(snapshot.primary, name: "total")
             appendWindow(snapshot.secondary, name: "auto")
             appendWindow(snapshot.tertiary, name: "api")
+        case .copilot:
+            // Copilot's premium-interaction and chat quotas (plus any configured budgets) reset
+            // monthly but report no window duration, so the generic path — which requires a window
+            // length — skips them and nothing reaches history. Stamp the shared monthly window and
+            // record the two core lanes by role (Premium → session, Chat → weekly) so both persist
+            // as distinct series; record each named budget under its own slug.
+            appendWindow(snapshot.primary, name: .session, windowMinutesOverride: Self.copilotMonthlyWindowMinutes)
+            appendWindow(snapshot.secondary, name: .weekly, windowMinutesOverride: Self.copilotMonthlyWindowMinutes)
+            for extra in snapshot.extraRateWindows ?? [] where extra.usageKnown {
+                appendWindow(
+                    extra.window,
+                    name: Self.copilotSeriesName(for: extra),
+                    windowMinutesOverride: Self.copilotMonthlyWindowMinutes)
+            }
         case .antigravity:
             // Record one series per named quota pool (Gemini / Claude+GPT × Session /
             // Weekly) so every bucket reaches history instead of collapsing into a single
@@ -504,6 +526,16 @@ extension UsageStore {
     /// Stable, human-readable series name for an Antigravity named quota window,
     /// derived from its title (e.g. "Gemini Weekly" → `gemini-weekly`).
     private nonisolated static func antigravitySeriesName(
+        for namedWindow: NamedRateWindow) -> PlanUtilizationSeriesName
+    {
+        let slug = self.seriesSlug(namedWindow.title)
+        return PlanUtilizationSeriesName(rawValue: slug.isEmpty ? namedWindow.id : slug)
+    }
+
+    /// Stable, human-readable series name for a Copilot named budget window, derived
+    /// from its title (e.g. "Premium requests" → `premium-requests`). Falls back to the
+    /// window id when the title has no alphanumeric characters to slug.
+    private nonisolated static func copilotSeriesName(
         for namedWindow: NamedRateWindow) -> PlanUtilizationSeriesName
     {
         let slug = self.seriesSlug(namedWindow.title)

@@ -346,32 +346,39 @@ struct StatsUsage {
                 .map { Self.snapshotWindow(fromExtra: $0) }
         }
 
+        // Copilot's monthly quotas/budgets carry no window duration; stamp the same canonical
+        // monthly window the recorder uses so each live window lines up with its recorded series.
+        let defaultWindowMinutes = provider == .copilot ? UsageStore.copilotMonthlyWindowMinutes : 0
+
         var result: [SnapshotWindow] = []
         if let primary = snapshot.primary {
             result.append(Self.snapshotWindow(
                 from: primary,
                 id: "primary",
                 title: L(metadata.sessionLabel),
-                historyName: Self.historyName(.session, windowMinutes: primary.windowMinutes, provider: provider)))
+                historyName: Self.historyName(.session, windowMinutes: primary.windowMinutes, provider: provider),
+                defaultWindowMinutes: defaultWindowMinutes))
         }
         if let secondary = snapshot.secondary {
             result.append(Self.snapshotWindow(
                 from: secondary,
                 id: "secondary",
                 title: L(metadata.weeklyLabel),
-                historyName: Self.historyName(.weekly, windowMinutes: secondary.windowMinutes, provider: provider)))
+                historyName: Self.historyName(.weekly, windowMinutes: secondary.windowMinutes, provider: provider),
+                defaultWindowMinutes: defaultWindowMinutes))
         }
         if metadata.supportsOpus, let tertiary = snapshot.tertiary {
             result.append(Self.snapshotWindow(
                 from: tertiary,
                 id: "tertiary",
                 title: metadata.opusLabel.map(L) ?? L("Opus"),
-                historyName: Self.historyName(.opus, windowMinutes: tertiary.windowMinutes, provider: provider)))
+                historyName: Self.historyName(.opus, windowMinutes: tertiary.windowMinutes, provider: provider),
+                defaultWindowMinutes: defaultWindowMinutes))
         }
         // Codex's extra windows are optional credits/usage; keep the summary focused on the core windows.
         if provider != .codex, let extras = snapshot.extraRateWindows {
             for extra in extras where extra.usageKnown {
-                result.append(Self.snapshotWindow(fromExtra: extra))
+                result.append(Self.snapshotWindow(fromExtra: extra, defaultWindowMinutes: defaultWindowMinutes))
             }
         }
         return result
@@ -381,19 +388,23 @@ struct StatsUsage {
         from window: RateWindow,
         id: String,
         title: String,
-        historyName: String) -> SnapshotWindow
+        historyName: String,
+        defaultWindowMinutes: Int = 0) -> SnapshotWindow
     {
         SnapshotWindow(
             id: id,
             title: title,
-            windowMinutes: window.windowMinutes ?? 0,
+            windowMinutes: window.windowMinutes ?? defaultWindowMinutes,
             usedPercent: window.usedPercent,
             resetsAt: window.resetsAt,
             historyName: historyName)
     }
 
-    private static func snapshotWindow(fromExtra named: NamedRateWindow) -> SnapshotWindow {
-        let minutes = named.window.windowMinutes ?? 0
+    private static func snapshotWindow(
+        fromExtra named: NamedRateWindow,
+        defaultWindowMinutes: Int = 0) -> SnapshotWindow
+    {
+        let minutes = named.window.windowMinutes ?? defaultWindowMinutes
         return SnapshotWindow(
             id: named.id,
             title: named.title,
@@ -410,7 +421,9 @@ struct StatsUsage {
         windowMinutes: Int?,
         provider: UsageProvider) -> String
     {
-        if provider == .codex || provider == .claude {
+        if provider == .codex || provider == .claude || provider == .copilot {
+            // Copilot records its two monthly quotas by role (Premium → session, Chat → weekly),
+            // matching the recorder, so the live window maps straight onto its recorded series.
             return role.rawValue
         }
         return self.genericHistoryName(windowMinutes: windowMinutes ?? 0)
