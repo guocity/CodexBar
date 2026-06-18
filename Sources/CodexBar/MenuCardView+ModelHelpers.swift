@@ -9,6 +9,46 @@ extension UsageMenuCardView.Model {
         let paceOnTop: Bool
     }
 
+    static func redactedMetricDetail(_ detail: String?, provider: UsageProvider, metricID: String) -> String? {
+        let redacted = PersonalInfoRedactor.redactEmails(in: detail, isEnabled: true)
+        guard provider == .litellm,
+              metricID == "secondary",
+              let redacted,
+              redacted.hasPrefix("Team "),
+              let separator = redacted.range(of: ": ", options: .backwards)
+        else {
+            return redacted
+        }
+        return "Team Hidden\(redacted[separator.lowerBound...])"
+    }
+
+    static func redactedMetrics(
+        _ metrics: [Metric],
+        provider: UsageProvider,
+        hidePersonalInfo: Bool) -> [Metric]
+    {
+        guard hidePersonalInfo else { return metrics }
+        return metrics.map { metric in
+            Metric(
+                id: metric.id,
+                title: PersonalInfoRedactor.redactEmails(in: metric.title, isEnabled: true) ?? metric.title,
+                percent: metric.percent,
+                percentStyle: metric.percentStyle,
+                statusText: PersonalInfoRedactor.redactEmails(in: metric.statusText, isEnabled: true),
+                resetText: PersonalInfoRedactor.redactEmails(in: metric.resetText, isEnabled: true),
+                detailText: Self.redactedMetricDetail(
+                    metric.detailText,
+                    provider: provider,
+                    metricID: metric.id),
+                detailLeftText: PersonalInfoRedactor.redactEmails(in: metric.detailLeftText, isEnabled: true),
+                detailRightText: PersonalInfoRedactor.redactEmails(in: metric.detailRightText, isEnabled: true),
+                pacePercent: metric.pacePercent,
+                paceOnTop: metric.paceOnTop,
+                warningMarkerPercents: metric.warningMarkerPercents,
+                cardStyle: metric.cardStyle)
+        }
+    }
+
     var isOverviewErrorOnly: Bool {
         self.subtitleStyle == .error &&
             self.metrics.isEmpty &&
@@ -37,8 +77,27 @@ extension UsageMenuCardView.Model {
     }
 
     func hasCompatibleTrackedLayout(with candidate: Self) -> Bool {
+        self.hasCompatibleTrackedLayout(with: candidate, includeMetrics: true)
+    }
+
+    func hasCompatibleTrackedLayoutIgnoringMetrics(with candidate: Self) -> Bool {
+        self.hasCompatibleTrackedLayout(with: candidate, includeMetrics: false)
+    }
+
+    func hasCompatibleTrackedMetricSubset(of candidate: Self) -> Bool {
+        guard self.metrics.count < candidate.metrics.count,
+              self.hasCompatibleTrackedLayoutIgnoringMetrics(with: candidate)
+        else {
+            return false
+        }
+        return self.metrics.allSatisfy { metric in
+            candidate.metrics.contains { Self.hasCompatibleMetricLayout(metric, $0) }
+        }
+    }
+
+    private func hasCompatibleTrackedLayout(with candidate: Self, includeMetrics: Bool) -> Bool {
         guard self.provider == candidate.provider,
-              self.metrics.count == candidate.metrics.count,
+              !includeMetrics || self.metrics.count == candidate.metrics.count,
               self.usageNotes == candidate.usageNotes,
               (self.openAIAPIUsage == nil) == (candidate.openAIAPIUsage == nil),
               Self.hasCompatibleCreditsLayout(
@@ -55,18 +114,21 @@ extension UsageMenuCardView.Model {
             return false
         }
 
-        return zip(self.metrics, candidate.metrics).allSatisfy { current, refreshed in
-            current.id == refreshed.id &&
-                current.title == refreshed.title &&
-                current.percentStyle == refreshed.percentStyle &&
-                (current.statusText == nil) == (refreshed.statusText == nil) &&
-                (current.resetText == nil) == (refreshed.resetText == nil) &&
-                (current.detailText == nil) == (refreshed.detailText == nil) &&
-                (current.detailLeftText == nil) == (refreshed.detailLeftText == nil) &&
-                (current.detailRightText == nil) == (refreshed.detailRightText == nil) &&
-                (current.resetTimeline == nil) == (refreshed.resetTimeline == nil) &&
-                current.cardStyle == refreshed.cardStyle
-        }
+        guard includeMetrics else { return true }
+        return zip(self.metrics, candidate.metrics).allSatisfy(Self.hasCompatibleMetricLayout)
+    }
+
+    private static func hasCompatibleMetricLayout(_ current: Metric, _ candidate: Metric) -> Bool {
+        current.id == candidate.id &&
+            current.title == candidate.title &&
+            current.percentStyle == candidate.percentStyle &&
+            (current.statusText == nil) == (candidate.statusText == nil) &&
+            (current.resetText == nil) == (candidate.resetText == nil) &&
+            (current.detailText == nil) == (candidate.detailText == nil) &&
+            (current.detailLeftText == nil) == (candidate.detailLeftText == nil) &&
+            (current.detailRightText == nil) == (candidate.detailRightText == nil) &&
+            (current.resetTimeline == nil) == (candidate.resetTimeline == nil) &&
+            current.cardStyle == candidate.cardStyle
     }
 
     private static func hasCompatibleCreditsLayout(

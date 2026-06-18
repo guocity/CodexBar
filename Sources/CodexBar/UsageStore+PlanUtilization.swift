@@ -15,22 +15,26 @@ extension UsageStore {
         let lastObservedAt: Date
     }
 
-    /// Whether plan-utilization samples are persisted to the history folder for
-    /// this provider. Recording is enabled for every provider; providers that
-    /// expose no percent-bearing rate windows simply produce no samples.
-    func recordsPlanUtilizationHistory(for _: UsageProvider) -> Bool {
-        true
-    }
-
     /// Whether the plan-utilization history menu/chart is surfaced for this
     /// provider. Codex and Claude always qualify; every other provider qualifies
-    /// once it has accumulated history in the store.
+    /// once it has accumulated history in the store, or as soon as its live snapshot
+    /// can produce samples. This fork always records history, so the toggle does not
+    /// gate surfacing here.
     func supportsPlanUtilizationHistory(for provider: UsageProvider) -> Bool {
         switch provider {
         case .codex, .claude:
             true
         default:
-            !(self.planUtilizationHistory[provider]?.isEmpty ?? true)
+            if self.planUtilizationHistory[provider]?.isEmpty == false {
+                true
+            } else if let snapshot = self.snapshots[provider] {
+                !self.planUtilizationSeriesSamples(
+                    provider: provider,
+                    snapshot: snapshot,
+                    capturedAt: snapshot.updatedAt).isEmpty
+            } else {
+                false
+            }
         }
     }
 
@@ -142,7 +146,7 @@ extension UsageStore {
                 samples: samples)
         }
 
-        guard self.recordsPlanUtilizationHistory(for: provider) else { return }
+        guard self.shouldRecordPlanUtilizationHistory(for: provider) else { return }
         guard !self.shouldDeferClaudePlanUtilizationHistory(provider: provider) else { return }
 
         var snapshotToPersist: [UsageProvider: PlanUtilizationHistoryBuckets]?
@@ -195,6 +199,13 @@ extension UsageStore {
                 capturedAt: sample.entry.capturedAt,
                 resetsAt: sample.entry.resetsAt)
         })
+    }
+
+    private func shouldRecordPlanUtilizationHistory(for _: UsageProvider) -> Bool {
+        // This fork always records plan-utilization history for every provider, regardless of
+        // the `historicalTrackingEnabled` toggle, so usage charts keep accumulating. The toggle
+        // still governs its other consumers (e.g. Codex historical pace).
+        true
     }
 
     private nonisolated static func updatedPlanUtilizationHistories(
@@ -492,9 +503,15 @@ extension UsageStore {
                 }
             }
         default:
-            for window in [snapshot.primary, snapshot.secondary, snapshot.tertiary] {
-                guard let window, let windowMinutes = window.windowMinutes, windowMinutes > 0 else { continue }
-                appendWindow(window, name: Self.genericPlanUtilizationSeriesName(forWindowMinutes: windowMinutes))
+            let standardWeeklyWindow = [snapshot.primary, snapshot.secondary, snapshot.tertiary]
+                .compactMap(\.self)
+                .first { $0.windowMinutes == Self.weeklyWindowMinutes }
+            let extraWeeklyWindow = snapshot.extraRateWindows?
+                .lazy
+                .first { $0.usageKnown && $0.window.windowMinutes == Self.weeklyWindowMinutes }?
+                .window
+            if let weeklyWindow = standardWeeklyWindow ?? extraWeeklyWindow {
+                appendWindow(weeklyWindow, name: .weekly)
             }
         }
 
@@ -503,23 +520,6 @@ extension UsageStore {
                 return lhs.windowMinutes < rhs.windowMinutes
             }
             return lhs.name.rawValue < rhs.name.rawValue
-        }
-    }
-
-    /// Maps an arbitrary provider rate-window duration to a stable series name.
-    /// Known durations reuse the canonical `.session`/`.weekly` names; anything
-    /// else gets a deterministic per-window name so distinct windows stay
-    /// separate series.
-    private nonisolated static func genericPlanUtilizationSeriesName(
-        forWindowMinutes windowMinutes: Int) -> PlanUtilizationSeriesName
-    {
-        switch windowMinutes {
-        case 295...305:
-            .session
-        case 10070...10090:
-            .weekly
-        default:
-            PlanUtilizationSeriesName(rawValue: "window-\(windowMinutes)m")
         }
     }
 

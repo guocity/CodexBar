@@ -1,8 +1,10 @@
 import Foundation
 #if canImport(Darwin)
 import Darwin
-#else
+#elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #endif
 
 public struct KiroUsageSnapshot: Sendable {
@@ -506,8 +508,8 @@ public struct KiroStatusProbe: Sendable {
             throw KiroStatusProbeError.timeout
         }
         return KiroCLIResult(
-            stdout: String(data: output.stdout, encoding: .utf8) ?? "",
-            stderr: String(data: output.stderr, encoding: .utf8) ?? "",
+            stdout: ProcessPipeCapture.decodeUTF8(output.stdout),
+            stderr: ProcessPipeCapture.decodeUTF8(output.stderr),
             terminationStatus: terminationStatus,
             terminatedForIdle: didTerminateForIdle)
     }

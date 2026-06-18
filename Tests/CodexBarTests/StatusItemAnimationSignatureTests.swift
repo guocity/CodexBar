@@ -276,6 +276,58 @@ struct StatusItemAnimationSignatureTests {
     }
 
     @Test
+    func `merged icon status indicator follows rendered provider`() throws {
+        let suite = "StatusItemAnimationSignatureTests-merged-status-provider-scope"
+        let settings = testSettingsStore(suiteName: suite)
+        settings.statusChecksEnabled = true
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = true
+        settings.selectedMenuProvider = .codex
+        settings.menuBarShowsBrandIconWithPercent = false
+
+        let registry = ProviderRegistry.shared
+        let codexMeta = try #require(registry.metadata[.codex])
+        let claudeMeta = try #require(registry.metadata[.claude])
+        settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
+        settings.setProviderEnabled(provider: .claude, metadata: claudeMeta, enabled: true)
+
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 50, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
+            secondary: nil,
+            updatedAt: Date())
+        store._setSnapshotForTesting(snapshot, provider: .codex)
+        store._setSnapshotForTesting(snapshot, provider: .claude)
+        store.statuses[.claude] = ProviderStatus(
+            indicator: .major,
+            description: "Claude status issue",
+            updatedAt: Date(timeIntervalSince1970: 20))
+
+        controller.applyIcon(phase: nil)
+
+        #expect(controller.primaryProviderForUnifiedIcon() == .codex)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=codex") == true)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("status=none") == true)
+
+        settings.selectedMenuProvider = .claude
+        controller.applyIcon(phase: nil)
+
+        #expect(controller.primaryProviderForUnifiedIcon() == .claude)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=claude") == true)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("status=major") == true)
+    }
+
+    @Test
     func `merged icon follows overview provider order when first overview provider is loading`() {
         let suite = "StatusItemAnimationSignatureTests-merged-overview-provider-order"
         let settings = testSettingsStore(suiteName: suite)

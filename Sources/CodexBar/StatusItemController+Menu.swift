@@ -193,7 +193,10 @@ extension StatusItemController {
             (previous.view as? MenuCardHighlighting)?.setHighlighted(false)
         }
 
-        if let item, item.isEnabled {
+        if let item,
+           item.isEnabled,
+           (item.view as? MenuCardHighlighting)?.allowsMenuHighlight != false
+        {
             self.highlightedMenuItems[key] = item
             (item.view as? MenuCardHighlighting)?.setHighlighted(true)
         } else {
@@ -617,6 +620,7 @@ extension StatusItemController {
         }
 
         guard let model = self.menuCardModel(for: context.selectedProvider) else { return false }
+        let renderedModel = self.menuCardRefreshMonitor.model(for: model.provider, fallback: model)
         if context.openAIContext.hasOpenAIWebMenuItems || self
             .hasOpenAIAPIUsageSubmenu(provider: context.currentProvider)
         {
@@ -628,18 +632,19 @@ extension StatusItemController {
             self.addMenuCardSections(
                 to: menu,
                 model: model,
-                provider: context.currentProvider,
+                layoutModel: renderedModel,
                 width: context.menuWidth,
                 webItems: webItems)
             return true
         }
 
         menu.addItem(self.makeMenuCardItem(
-            UsageMenuCardView(model: model, width: context.menuWidth),
+            UsageMenuCardView(model: model, layoutModel: renderedModel, width: context.menuWidth),
             id: "menuCard",
             width: context.menuWidth,
             heightCacheScope: context.currentProvider.rawValue,
-            heightCacheFingerprint: model.heightFingerprint(section: "card")))
+            heightCacheFingerprint: renderedModel.heightFingerprint(section: "card"),
+            containsInteractiveControls: true))
         if self.addStorageMenuCardSection(to: menu, provider: context.currentProvider, width: context.menuWidth) {
             menu.addItem(.separator())
         }
@@ -656,12 +661,14 @@ extension StatusItemController {
         context: MenuCardContext)
     {
         if cards.isEmpty, let model = self.menuCardModel(for: context.selectedProvider) {
+            let renderedModel = self.menuCardRefreshMonitor.model(for: model.provider, fallback: model)
             menu.addItem(self.makeMenuCardItem(
-                UsageMenuCardView(model: model, width: context.menuWidth),
+                UsageMenuCardView(model: model, layoutModel: renderedModel, width: context.menuWidth),
                 id: "menuCard",
                 width: context.menuWidth,
                 heightCacheScope: context.currentProvider.rawValue,
-                heightCacheFingerprint: model.heightFingerprint(section: "card")))
+                heightCacheFingerprint: renderedModel.heightFingerprint(section: "card"),
+                containsInteractiveControls: true))
             menu.addItem(.separator())
         } else {
             for (index, model) in cards.enumerated() {
@@ -670,7 +677,8 @@ extension StatusItemController {
                     id: "menuCard-\(index)",
                     width: context.menuWidth,
                     heightCacheScope: "\(context.currentProvider.rawValue)-\(index)",
-                    heightCacheFingerprint: model.heightFingerprint(section: "card")))
+                    heightCacheFingerprint: model.heightFingerprint(section: "card"),
+                    containsInteractiveControls: true))
                 if index < cards.count - 1 {
                     menu.addItem(.separator())
                 }
@@ -1235,14 +1243,15 @@ extension StatusItemController {
     private func addMenuCardSections(
         to menu: NSMenu,
         model: UsageMenuCardView.Model,
-        provider: UsageProvider,
+        layoutModel: UsageMenuCardView.Model,
         width: CGFloat,
         webItems: OpenAIWebMenuItems)
     {
-        let hasUsageBlock = model.hasUsageContent
-        let hasCredits = model.creditsText != nil
-        let hasExtraUsage = model.providerCost != nil
-        let hasCost = model.tokenUsage != nil
+        let provider = layoutModel.provider
+        let hasUsageBlock = layoutModel.hasUsageContent
+        let hasCredits = layoutModel.creditsText != nil
+        let hasExtraUsage = layoutModel.providerCost != nil
+        let hasCost = layoutModel.tokenUsage != nil
         let hasStorage = self.store.storageFootprintText(for: provider) != nil
         let bottomPadding = CGFloat(hasCredits ? 4 : 6)
         let sectionSpacing = CGFloat(6)
@@ -1252,6 +1261,7 @@ extension StatusItemController {
         if hasUsageBlock {
             let usageView = UsageMenuCardHeaderAndUsageSectionView(
                 model: model,
+                layoutModel: layoutModel,
                 bottomPadding: usageBottomPadding,
                 width: width)
             let usageSubmenu = self.makeUsageSubmenu(
@@ -1264,11 +1274,12 @@ extension StatusItemController {
                 id: "menuCardUsage",
                 width: width,
                 heightCacheScope: provider.rawValue,
-                heightCacheFingerprint: model.heightFingerprint(section: "usage"),
-                submenu: usageSubmenu))
+                heightCacheFingerprint: layoutModel.heightFingerprint(section: "usage"),
+                submenu: usageSubmenu,
+                containsInteractiveControls: true))
         } else {
             let headerView = UsageMenuCardHeaderSectionView(
-                model: model,
+                model: layoutModel,
                 showDivider: false,
                 width: width)
             menu.addItem(self.makeMenuCardItem(
@@ -1276,7 +1287,8 @@ extension StatusItemController {
                 id: "menuCardHeader",
                 width: width,
                 heightCacheScope: provider.rawValue,
-                heightCacheFingerprint: model.heightFingerprint(section: "header")))
+                heightCacheFingerprint: layoutModel.heightFingerprint(section: "header"),
+                containsInteractiveControls: true))
         }
 
         if hasStorage || hasCredits || hasExtraUsage || hasCost {
@@ -1305,7 +1317,7 @@ extension StatusItemController {
                 id: "menuCardCredits",
                 width: width,
                 heightCacheScope: provider.rawValue,
-                heightCacheFingerprint: model.heightFingerprint(section: "credits"),
+                heightCacheFingerprint: layoutModel.heightFingerprint(section: "credits"),
                 submenu: creditsSubmenu))
             if webItems.canShowBuyCredits {
                 menu.addItem(self.makeBuyCreditsItem())
@@ -1326,7 +1338,7 @@ extension StatusItemController {
                 id: "menuCardExtraUsage",
                 width: width,
                 heightCacheScope: provider.rawValue,
-                heightCacheFingerprint: model.heightFingerprint(section: "extraUsage"),
+                heightCacheFingerprint: layoutModel.heightFingerprint(section: "extraUsage"),
                 submenu: extraUsageSubmenu))
         }
         if hasCost {
@@ -1400,7 +1412,8 @@ extension StatusItemController {
             blink: 0,
             wiggle: 0,
             tilt: 0,
-            statusIndicator: indicator)
+            statusIndicator: indicator,
+            hideCritters: self.settings.menuBarHidesCritters)
         image.isTemplate = true
         return image
     }

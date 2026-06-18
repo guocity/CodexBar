@@ -414,8 +414,9 @@ struct StatsUsage {
             historyName: Self.genericHistoryName(windowMinutes: minutes))
     }
 
-    /// The series name the recorder assigns. Codex/Claude record by role (session/weekly/opus);
-    /// every other provider records by window duration (mirrors `genericPlanUtilizationSeriesName`).
+    /// The series name the recorder assigns. Codex/Claude (and Copilot) record by role
+    /// (session/weekly/opus); every other provider records its weekly lane, mapped here from the
+    /// window duration to the canonical `.weekly`/`.session` names via `genericHistoryName`.
     private static func historyName(
         _ role: PlanUtilizationSeriesName,
         windowMinutes: Int?,

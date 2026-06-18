@@ -408,6 +408,55 @@ struct CodexBarTests {
     }
 
     @Test
+    func `status overlays cut halos through the quota bar and keep glyphs visible`() throws {
+        let plain = IconRenderer.makeIcon(
+            primaryRemaining: 100,
+            weeklyRemaining: 100,
+            creditsRemaining: nil,
+            stale: false,
+            style: .combined,
+            statusIndicator: .none)
+        let plainRep = try #require(plain.representations.compactMap { $0 as? NSBitmapImageRep }.first {
+            $0.pixelsWide == 36 && $0.pixelsHigh == 36
+        })
+
+        func alpha(_ rep: NSBitmapImageRep, x: Int, y: Int) -> CGFloat {
+            (rep.colorAt(x: x, y: y) ?? .clear).alphaComponent
+        }
+
+        for indicator in [ProviderStatusIndicator.minor, .major] {
+            let marked = IconRenderer.makeIcon(
+                primaryRemaining: 100,
+                weeklyRemaining: 100,
+                creditsRemaining: nil,
+                stale: false,
+                style: .combined,
+                statusIndicator: indicator)
+            let markedRep = try #require(marked.representations.compactMap { $0 as? NSBitmapImageRep }.first {
+                $0.pixelsWide == 36 && $0.pixelsHigh == 36
+            })
+
+            var cutoutPixels = 0
+            var glyphPixels = 0
+            for y in 0..<markedRep.pixelsHigh {
+                for x in 0..<markedRep.pixelsWide {
+                    let plainAlpha = alpha(plainRep, x: x, y: y)
+                    let markedAlpha = alpha(markedRep, x: x, y: y)
+                    if plainAlpha > 0.5, markedAlpha < 0.05 {
+                        cutoutPixels += 1
+                    }
+                    if plainAlpha < 0.05, markedAlpha > 0.5 {
+                        glyphPixels += 1
+                    }
+                }
+            }
+
+            #expect(cutoutPixels >= 8, "Expected halo cutout pixels for \(indicator)")
+            #expect(glyphPixels >= 4, "Expected visible glyph pixels for \(indicator)")
+        }
+    }
+
+    @Test
     func `icon renderer codex eyes punch through when unknown`() {
         // Regression: when remaining is nil, CoreGraphics inherits the previous fill alpha which caused
         // destinationOut “eyes” to become semi-transparent instead of fully punched through.

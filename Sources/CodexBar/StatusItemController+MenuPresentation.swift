@@ -60,7 +60,14 @@ extension StatusItemController {
 
 @MainActor
 protocol MenuCardHighlighting: AnyObject {
+    var allowsMenuHighlight: Bool { get }
     func setHighlighted(_ highlighted: Bool)
+}
+
+extension MenuCardHighlighting {
+    var allowsMenuHighlight: Bool {
+        true
+    }
 }
 
 @MainActor
@@ -75,14 +82,40 @@ final class MenuCardHighlightState {
 }
 
 final class MenuHostingView<Content: View>: NSHostingView<Content> {
+    /// The height AppKit should give this item's menu row. NSMenu reads `intrinsicContentSize`
+    /// (not the explicit `frame`) when it lays out custom-view rows, so a measured height that
+    /// only lives in `frame` is silently reverted to the open-time row height — leaving the
+    /// SwiftUI content centered in a stale, oversized row. Routing the height through the
+    /// intrinsic size is the channel the menu actually honors.
+    private var measuredHeight: CGFloat?
+
     override var allowsVibrancy: Bool {
         true
+    }
+
+    override var intrinsicContentSize: NSSize {
+        guard let measuredHeight else { return super.intrinsicContentSize }
+        return NSSize(width: NSView.noIntrinsicMetric, height: measuredHeight)
+    }
+
+    func applyMeasuredHeight(width: CGFloat, height: CGFloat) {
+        let resolvedHeight = max(1, ceil(height))
+        guard self.measuredHeight != resolvedHeight || self.frame.height != resolvedHeight else { return }
+
+        self.measuredHeight = resolvedHeight
+        self.frame = NSRect(
+            origin: self.frame.origin,
+            size: NSSize(width: width, height: resolvedHeight))
+        self.invalidateIntrinsicContentSize()
+        self.layoutSubtreeIfNeeded()
+        self.superview?.layoutSubtreeIfNeeded()
     }
 }
 
 @MainActor
 final class MenuCardItemHostingView<Content: View>: NSHostingView<Content>, MenuCardHighlighting, MenuCardMeasuring {
     let highlightState: MenuCardHighlightState
+    private(set) var allowsMenuHighlight: Bool
     private var onClick: (() -> Void)?
     private var hasClickRecognizer = false
 
@@ -96,8 +129,14 @@ final class MenuCardItemHostingView<Content: View>: NSHostingView<Content>, Menu
         return NSSize(width: self.frame.width, height: size.height)
     }
 
-    init(rootView: Content, highlightState: MenuCardHighlightState, onClick: (() -> Void)? = nil) {
+    init(
+        rootView: Content,
+        highlightState: MenuCardHighlightState,
+        allowsMenuHighlight: Bool,
+        onClick: (() -> Void)? = nil)
+    {
         self.highlightState = highlightState
+        self.allowsMenuHighlight = allowsMenuHighlight
         self.onClick = onClick
         super.init(rootView: rootView)
         if onClick != nil {
@@ -109,8 +148,9 @@ final class MenuCardItemHostingView<Content: View>: NSHostingView<Content>, Menu
     /// `rootView` is diffed in place by SwiftUI instead of tearing down and recreating the
     /// hosting view and its graph. Callers must construct `rootView` around this view's own
     /// `highlightState` so menu hover highlighting keeps driving the rendered content.
-    func prepareForReuse(rootView: Content, onClick: (() -> Void)?) {
+    func prepareForReuse(rootView: Content, allowsMenuHighlight: Bool, onClick: (() -> Void)?) {
         self.rootView = rootView
+        self.allowsMenuHighlight = allowsMenuHighlight
         self.onClick = onClick
         if onClick != nil, !self.hasClickRecognizer {
             self.installClickRecognizer()
@@ -126,6 +166,7 @@ final class MenuCardItemHostingView<Content: View>: NSHostingView<Content>, Menu
 
     required init(rootView: Content) {
         self.highlightState = MenuCardHighlightState()
+        self.allowsMenuHighlight = false
         self.onClick = nil
         super.init(rootView: rootView)
     }

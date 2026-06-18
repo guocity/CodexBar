@@ -135,6 +135,7 @@ struct UsageMenuCardView: View {
     }
 
     let model: Model
+    var layoutModel: Model?
     let width: CGFloat
     @Environment(\.menuItemHighlighted) private var isHighlighted
     @Environment(\.menuCardRefreshMonitor) private var refreshMonitor
@@ -149,7 +150,7 @@ struct UsageMenuCardView: View {
     var body: some View {
         let liveModel = self.liveModel
         VStack(alignment: .leading, spacing: 6) {
-            UsageMenuCardHeaderView(model: self.model)
+            UsageMenuCardHeaderView(model: self.layoutModel ?? self.model)
 
             if self.hasDetails(model: liveModel) {
                 Divider()
@@ -881,7 +882,10 @@ extension UsageMenuCardView.Model {
             snapshot: input.snapshot,
             account: input.account,
             metadata: input.metadata)
-        let metrics = Self.metrics(input: input)
+        let metrics = Self.redactedMetrics(
+            Self.metrics(input: input),
+            provider: input.provider,
+            hidePersonalInfo: input.hidePersonalInfo)
         let openAIAPIUsage = input.snapshot?.openAIAPIUsage
         let inlineUsageDashboard = Self.inlineUsageDashboard(input: input)
         let usageNotes = Self.usageNotes(input: input)
@@ -1330,9 +1334,10 @@ extension UsageMenuCardView.Model {
         {
             primaryDetailLeft = detail
         }
-        if input.provider == .warp || input.provider == .kilo || input.provider == .mimo || input.provider == .deepseek,
-           let detail = primary.resetDescription,
-           !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if input.provider == .warp || input.provider == .kilo || input.provider == .mimo || input.provider == .deepseek
+            || input.provider == .litellm,
+            let detail = primary.resetDescription,
+            !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
             primaryDetailText = detail
         }
@@ -1355,7 +1360,7 @@ extension UsageMenuCardView.Model {
             primaryDetailText = detail
             if input.provider == .manus { primaryResetText = nil }
         }
-        if [.warp, .kilo, .mimo, .deepseek].contains(input.provider), primary.resetsAt == nil {
+        if [.warp, .kilo, .mimo, .deepseek, .litellm].contains(input.provider), primary.resetsAt == nil {
             primaryResetText = nil
         }
         // Abacus: show credits as detail, compute pace on the primary monthly window
@@ -1465,7 +1470,7 @@ extension UsageMenuCardView.Model {
             weeklyResetText = nil
             weeklyDetailText = detail
         }
-        if input.provider == .kilo,
+        if input.provider == .kilo || input.provider == .litellm,
            let detail = weekly.resetDescription,
            !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
