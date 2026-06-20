@@ -244,6 +244,7 @@ extension StatusItemController {
         let showUsed = self.settings.usageBarsShowUsed
         let showBrandPercent = self.settings.menuBarShowsBrandIconWithPercent
         let primaryProvider = self.primaryProviderForUnifiedIcon()
+        let resolverStyle = self.store.style(for: primaryProvider)
         let snapshot = self.store.snapshot(for: primaryProvider)
         let warningFlash = self.quotaWarningFlashActive(provider: primaryProvider)
 
@@ -252,8 +253,9 @@ extension StatusItemController {
         let resolved = snapshot.map {
             IconRemainingResolver.resolvedPercents(
                 snapshot: $0,
-                style: style,
+                style: resolverStyle,
                 showUsed: showUsed,
+                renderingStyle: style,
                 secondaryOverrideWindowID: self.settings.copilotIconSecondaryWindowOverrideID(snapshot: $0))
         }
         var primary = resolved?.primary
@@ -700,10 +702,14 @@ extension StatusItemController {
         {
             return balance
         }
-        if provider == .mistral,
-           let spend = Self.mistralSpendDisplayText(snapshot: snapshot)
-        {
-            return spend
+        if provider == .mistral {
+            let preference = self.settings.menuBarMetricPreference(for: provider, snapshot: snapshot)
+            let hasMonthlyWindow = snapshot?.extraRateWindows?.contains { $0.id == "mistral-monthly-plan" } == true
+            if preference != .monthlyPlan || !hasMonthlyWindow,
+               let spend = Self.mistralSpendDisplayText(snapshot: snapshot)
+            {
+                return spend
+            }
         }
         if provider == .kimik2,
            let credits = Self.kimiK2CreditsDisplayText(snapshot: snapshot)
@@ -755,12 +761,6 @@ extension StatusItemController {
                 resetTimeDisplayStyle: self.settings.resetTimeDisplayStyle,
                 now: now)
         }
-        let displayText = MenuBarDisplayText.displayText(
-            mode: mode,
-            percentWindow: percentWindow,
-            pace: pace,
-            showUsed: self.settings.usageBarsShowUsed)
-
         if mode == .percent,
            !self.settings.usageBarsShowUsed,
            codexProjection?.menuBarFallback == .creditsBalance,
@@ -772,8 +772,21 @@ extension StatusItemController {
                     .creditsString(from: creditsRemaining)
                     .replacingOccurrences(of: " left", with: "")
         }
-
-        return displayText
+        if provider == .codex,
+           mode == .percent,
+           self.settings.menuBarMetricPreference(for: .codex, snapshot: snapshot) == .primaryAndSecondary,
+           let combinedText = MenuBarDisplayText.codexCombinedPercentText(
+               sessionWindow: codexProjection?.rateWindow(for: .session),
+               weeklyWindow: codexProjection?.rateWindow(for: .weekly),
+               showUsed: self.settings.usageBarsShowUsed)
+        {
+            return combinedText
+        }
+        return MenuBarDisplayText.displayText(
+            mode: mode,
+            percentWindow: percentWindow,
+            pace: pace,
+            showUsed: self.settings.usageBarsShowUsed)
     }
 
     nonisolated static func deepSeekBalanceDisplayText(snapshot: UsageSnapshot?) -> String? {

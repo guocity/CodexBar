@@ -628,6 +628,8 @@
 "metric_pref_tertiary" = "Tertiair";
 "metric_pref_extra_usage" = "Extra gebruik";
 "metric_pref_average" = "Gemiddeld";
+"metric_mistral_payg" = "Pay-as-you-go";
+"metric_mistral_monthly_plan" = "Monthly Plan";
 
 /* Display modes */
 "display_mode_percent" = "Procent";
@@ -808,6 +810,7 @@
 "API spend" = "API-uitgaven";
 "Extra usage" = "Extra gebruik";
 "Quota usage" = "Quotumgebruik";
+"Your spend" = "Jouw uitgaven";
 "%.0f%% used" = "%.0f%% gebruikt";
 "Usage history (today)" = "Gebruiksgeschiedenis (vandaag)";
 "Usage history (%d days)" = "Gebruiksgeschiedenis (%d dagen)";
@@ -972,6 +975,9 @@
 "Day" = "Dag";
 "Deployment" = "Inzet";
 "Drag to reorder" = "Sleep om de volgorde te wijzigen";
+"Sort providers alphabetically" = "Providers alfabetisch sorteren";
+"Sort providers alphabetically (enabled first)" = "Providers alfabetisch sorteren (ingeschakelde eerst)";
+"Sorted alphabetically (enabled first) — click to use your custom order" = "Alfabetisch gesorteerd (ingeschakelde eerst) — klik om je aangepaste volgorde te gebruiken";
 "Endpoint" = "Eindpunt";
 "Enterprise host" = "Enterprise-host";
 "Extra usage balance: %@" = "Extra gebruikssaldo: %@";
@@ -1082,3 +1088,18 @@
 "language_arabic" = "العربية";
 "language_persian" = "فارسی";
 "language_thai" = "ไทย";
+"Limit Reset Credits" = "Limietresetcredits";
+"1 manual reset available" = "1 handmatige reset beschikbaar";
+"%d manual resets available" = "%d handmatige resets beschikbaar";
+"Next expires %@" = "Volgende verloopt %@";
+"Other (%d items)" = "Overig (%d onderdelen)";
+"Expand" = "Uitvouwen";
+"Collapse" = "Invouwen";
+"byte_unit_byte" = "byte";
+"byte_unit_bytes" = "bytes";
+"byte_unit_kilobyte" = "kilobyte";
+"byte_unit_kilobytes" = "kilobytes";
+"byte_unit_megabyte" = "megabyte";
+"byte_unit_megabytes" = "megabytes";
+"byte_unit_gigabyte" = "gigabyte";
+"byte_unit_gigabytes" = "gigabytes";

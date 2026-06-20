@@ -630,6 +630,8 @@
 "metric_pref_tertiary" = "Tersier";
 "metric_pref_extra_usage" = "Penggunaan ekstra";
 "metric_pref_average" = "Rata-rata";
+"metric_mistral_payg" = "Pay-as-you-go";
+"metric_mistral_monthly_plan" = "Monthly Plan";
 
 /* Display modes */
 "display_mode_percent" = "Persen";
@@ -810,6 +812,7 @@
 "API spend" = "Pengeluaran API";
 "Extra usage" = "Penggunaan ekstra";
 "Quota usage" = "Penggunaan kuota";
+"Your spend" = "Pengeluaran Anda";
 "%.0f%% used" = "%.0f%% terpakai";
 "Usage history (today)" = "Riwayat penggunaan (hari ini)";
 "Usage history (%d days)" = "Riwayat penggunaan (%d hari)";
@@ -879,6 +882,9 @@
 "Clearing removes local temporary provider data." = "Menghapus data sementara penyedia lokal.";
 "Total: %@" = "Total: %@";
 "%d more items" = "%d item lagi";
+"Other (%d items)" = "Lainnya (%d item)";
+"Expand" = "Perluas";
+"Collapse" = "Ciutkan";
 "Cleanup ideas" = "Ide pembersihan";
 "%d unreadable item(s) skipped" = "%d item tidak terbaca dilewati";
 
@@ -974,6 +980,9 @@
 "Day" = "Hari";
 "Deployment" = "Deployment";
 "Drag to reorder" = "Seret untuk mengatur ulang";
+"Sort providers alphabetically" = "Urutkan penyedia menurut abjad";
+"Sort providers alphabetically (enabled first)" = "Urutkan penyedia menurut abjad (yang aktif lebih dulu)";
+"Sorted alphabetically (enabled first) — click to use your custom order" = "Diurutkan menurut abjad (yang aktif lebih dulu) — klik untuk memakai urutan khusus";
 "Endpoint" = "Endpoint";
 "Enterprise host" = "Host enterprise";
 "Extra usage balance: %@" = "Saldo penggunaan ekstra: %@";
@@ -1086,3 +1095,15 @@
 "language_arabic" = "العربية";
 "language_persian" = "فارسی";
 "language_thai" = "ไทย";
+"Limit Reset Credits" = "Kredit pengaturan ulang batas";
+"1 manual reset available" = "1 pengaturan ulang manual tersedia";
+"%d manual resets available" = "%d pengaturan ulang manual tersedia";
+"Next expires %@" = "Berikutnya kedaluwarsa %@";
+"byte_unit_byte" = "byte";
+"byte_unit_bytes" = "byte";
+"byte_unit_kilobyte" = "kilobyte";
+"byte_unit_kilobytes" = "kilobyte";
+"byte_unit_megabyte" = "megabyte";
+"byte_unit_megabytes" = "megabyte";
+"byte_unit_gigabyte" = "gigabyte";
+"byte_unit_gigabytes" = "gigabyte";

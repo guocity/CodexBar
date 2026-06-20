@@ -111,6 +111,7 @@ struct UsageMenuCardView: View {
             let percentUsed: Double?
             let spendLine: String
             let percentLine: String?
+            var personalSpendLine: String?
         }
 
         let provider: UsageProvider
@@ -128,6 +129,8 @@ struct UsageMenuCardView: View {
         let creditsRemaining: Double?
         let creditsHintText: String?
         let creditsHintCopyText: String?
+        var codexResetCreditsText: String?
+        var codexResetCreditsDetailText: String?
         let providerCost: ProviderCostSection?
         let tokenUsage: TokenUsageSection?
         let placeholder: String?
@@ -180,6 +183,12 @@ struct UsageMenuCardView: View {
                                     metric: metric,
                                     title: Self.popupMetricTitle(provider: liveModel.provider, metric: metric),
                                     progressColor: liveModel.progressColor)
+                            }
+                            if let resetCredits = liveModel.codexResetCreditsText {
+                                Divider()
+                                CodexResetCreditsContent(
+                                    text: resetCredits,
+                                    detailText: liveModel.codexResetCreditsDetailText)
                             }
                             if let dashboard = liveModel.inlineUsageDashboard {
                                 InlineUsageDashboardContent(model: dashboard)
@@ -428,6 +437,10 @@ private struct ProviderCostContent: View {
                         .lineLimit(1)
                 }
             }
+            if let personalSpendLine = self.section.personalSpendLine {
+                Text(personalSpendLine)
+                    .font(.footnote).foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted)).lineLimit(1)
+            }
         }
     }
 }
@@ -569,28 +582,30 @@ struct UsageMenuCardUsageSectionView: View {
     var body: some View {
         let liveModel = self.liveModel
         VStack(alignment: .leading, spacing: 12) {
-            if liveModel.metrics.isEmpty {
-                if let dashboard = liveModel.inlineUsageDashboard {
-                    InlineUsageDashboardContent(model: dashboard)
-                } else if !liveModel.usageNotes.isEmpty {
-                    UsageNotesContent(notes: liveModel.usageNotes)
-                } else if let placeholder = liveModel.placeholder {
-                    Text(placeholder)
-                        .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
-                        .font(.subheadline)
+            ForEach(liveModel.metrics, id: \.id) { metric in
+                MetricRow(
+                    metric: metric,
+                    title: UsageMenuCardView.popupMetricTitle(provider: liveModel.provider, metric: metric),
+                    progressColor: liveModel.progressColor)
+            }
+            if let resetCredits = liveModel.codexResetCreditsText {
+                if !liveModel.metrics.isEmpty {
+                    Divider()
                 }
-            } else {
-                ForEach(liveModel.metrics, id: \.id) { metric in
-                    MetricRow(
-                        metric: metric,
-                        title: UsageMenuCardView.popupMetricTitle(provider: liveModel.provider, metric: metric),
-                        progressColor: liveModel.progressColor)
-                }
-                if let dashboard = liveModel.inlineUsageDashboard {
-                    InlineUsageDashboardContent(model: dashboard)
-                } else if !liveModel.usageNotes.isEmpty {
-                    UsageNotesContent(notes: liveModel.usageNotes)
-                }
+                CodexResetCreditsContent(
+                    text: resetCredits,
+                    detailText: liveModel.codexResetCreditsDetailText)
+            }
+            if let dashboard = liveModel.inlineUsageDashboard {
+                InlineUsageDashboardContent(model: dashboard)
+            } else if !liveModel.usageNotes.isEmpty {
+                UsageNotesContent(notes: liveModel.usageNotes)
+            } else if let placeholder = liveModel.placeholder, liveModel.metrics.isEmpty,
+                      liveModel.codexResetCreditsText == nil
+            {
+                Text(placeholder)
+                    .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
+                    .font(.subheadline)
             }
             if self.showBottomDivider {
                 Divider()
@@ -945,6 +960,8 @@ extension UsageMenuCardView.Model {
             creditsRemaining: input.credits?.remaining,
             creditsHintText: redacted.creditsHintText,
             creditsHintCopyText: redacted.creditsHintCopyText,
+            codexResetCreditsText: Self.codexResetCreditsText(input: input),
+            codexResetCreditsDetailText: Self.codexResetCreditsDetailText(input: input),
             providerCost: providerCost,
             tokenUsage: tokenUsage,
             placeholder: placeholder,

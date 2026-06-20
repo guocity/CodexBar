@@ -29,6 +29,7 @@ struct MenuDescriptor {
     }
 
     enum MenuActionSystemImage: String {
+        case installUpdate = "arrow.down.circle"
         case refresh = "arrow.clockwise"
         case dashboard = "chart.bar"
         case statusPage = "waveform.path.ecg"
@@ -763,8 +764,10 @@ private enum AccountFormatter {
 extension MenuDescriptor.MenuAction {
     var systemImageName: String? {
         switch self {
-        case .installUpdate, .settings, .about, .quit:
-            nil
+        case .installUpdate: MenuDescriptor.MenuActionSystemImage.installUpdate.rawValue
+        case .settings: MenuDescriptor.MenuActionSystemImage.settings.rawValue
+        case .about: MenuDescriptor.MenuActionSystemImage.about.rawValue
+        case .quit: MenuDescriptor.MenuActionSystemImage.quit.rawValue
         case .stats: MenuDescriptor.MenuActionSystemImage.stats.rawValue
         case .refresh: MenuDescriptor.MenuActionSystemImage.refresh.rawValue
         case .refreshAugmentSession: MenuDescriptor.MenuActionSystemImage.refresh.rawValue

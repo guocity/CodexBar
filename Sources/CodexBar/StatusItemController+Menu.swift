@@ -162,7 +162,8 @@ extension StatusItemController {
         }
 
         self.clearMergedSwitcherContentCache(for: menu)
-        self.openMenus.removeValue(forKey: key)
+        let wasTracked = self.openMenus.removeValue(forKey: key) != nil
+        let menuTrackingEnded = wasTracked && self.openMenus.isEmpty
         if self.openMenus.isEmpty {
             self.parentMenuRebuildPendingAfterHostedSubviewClose = false
         }
@@ -181,6 +182,9 @@ extension StatusItemController {
         self.scheduleDeferredMenuInteractionRefreshIfNeeded()
         if wasMergedMenu {
             self.applyDeferredMergedIconRenderAfterTrackingIfNeeded()
+        }
+        if menuTrackingEnded {
+            self.prepareAttachedClosedMenusIfNeeded()
         }
     }
 
@@ -792,15 +796,6 @@ extension StatusItemController {
                     menu.addItem(item)
                 case let .action(title, action):
                     let localizedTitle = L(title)
-                    if self.usesPersistentMenuActionItem(for: action) {
-                        menu.addItem(self.makePersistentMenuActionItem(
-                            title: localizedTitle,
-                            action: action,
-                            menu: captureMenu ?? menu,
-                            width: width))
-                        continue
-                    }
-
                     let (selector, represented) = self.selector(for: action)
                     let item = NSMenuItem(title: localizedTitle, action: selector, keyEquivalent: "")
                     item.target = self
@@ -826,6 +821,11 @@ extension StatusItemController {
                     {
                         item.isEnabled = false
                         self.applySubtitle(subtitle, to: item, title: localizedTitle)
+                    }
+                    if action == .refresh {
+                        let targetMenu = captureMenu ?? menu
+                        item.isEnabled = !self.isRefreshActionInFlight(for: targetMenu)
+                        self.persistentRefreshItems.add(item)
                     }
                     menu.addItem(item)
                 case let .submenu(title, systemImageName, submenuItems):
@@ -861,59 +861,6 @@ extension StatusItemController {
                 menu.addItem(.separator())
             }
         }
-    }
-
-    private func makePersistentMenuActionItem(
-        title: String,
-        action: MenuDescriptor.MenuAction,
-        menu: NSMenu,
-        width: CGFloat) -> NSMenuItem
-    {
-        let shortcut = self.shortcut(for: action)
-        let row = PersistentMenuActionItemView(
-            title: title,
-            systemImageName: self.persistentMenuActionSystemImageName(for: action),
-            shortcutText: shortcut.map { self.shortcutLabel(for: $0) },
-            width: width,
-            onClick: { [weak self, weak menu] in
-                self?.performPersistentMenuAction(action, in: menu)
-            })
-
-        if action == .refresh {
-            row.setInProgress(self.manualRefreshTask != nil || self.store.isRefreshing)
-            self.persistentRefreshRows.add(row)
-        }
-
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: shortcut?.key ?? "")
-        item.keyEquivalentModifierMask = shortcut?.modifiers ?? NSEvent.ModifierFlags()
-        item.isEnabled = true
-        item.view = row
-        item.toolTip = title
-        if action != .refresh {
-            let (selector, represented) = self.selector(for: action)
-            item.action = selector
-            item.target = self
-            item.representedObject = represented
-        }
-        return item
-    }
-
-    private func shortcutLabel(for shortcut: (key: String, modifiers: NSEvent.ModifierFlags)) -> String {
-        var label = ""
-        if shortcut.modifiers.contains(.control) {
-            label += "^"
-        }
-        if shortcut.modifiers.contains(.option) {
-            label += "⌥"
-        }
-        if shortcut.modifiers.contains(.shift) {
-            label += "⇧"
-        }
-        if shortcut.modifiers.contains(.command) {
-            label += "⌘"
-        }
-        label += shortcut.key.uppercased()
-        return label
     }
 
     private func makeWrappedSecondaryTextItem(text: String, width: CGFloat) -> NSMenuItem {
@@ -1083,17 +1030,19 @@ extension StatusItemController {
         if self.store.prepareCodexAccountScopedRefreshIfNeeded(), let menu {
             self.deferSwitcherMenuRebuildIfStillVisible(menu, provider: .codex)
         }
-        Task { @MainActor in
+        let store = self.store
+        let settings = self.settings
+        Task { @MainActor [weak controller = self, weak menu, store, settings] in
             await ProviderInteractionContext.$current.withValue(.userInitiated) {
-                await self.store.refreshCodexAccountScopedState(
+                await store.refreshCodexAccountScopedState(
                     allowDisabled: true,
-                    phaseDidChange: { [weak self, weak menu] _ in
-                        guard let self, let menu else { return }
-                        guard self.settings.codexVisibleAccountProjection.activeVisibleAccountID == visibleAccountID
+                    phaseDidChange: { [weak controller, weak menu, settings] _ in
+                        guard let controller, let menu else { return }
+                        guard settings.codexVisibleAccountProjection.activeVisibleAccountID == visibleAccountID
                         else {
                             return
                         }
-                        self.refreshOpenMenuIfStillVisible(menu, provider: .codex)
+                        controller.refreshOpenMenuIfStillVisible(menu, provider: .codex)
                     })
             }
         }

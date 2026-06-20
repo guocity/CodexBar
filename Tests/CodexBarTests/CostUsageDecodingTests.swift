@@ -332,6 +332,55 @@ struct CostUsageDecodingTests {
     }
 
     @Test
+    func `selects most recent supported month format`() throws {
+        let json = """
+        {
+          "type": "monthly",
+          "data": [
+            { "month": "Dec 2025", "totalTokens": 100, "costUSD": 1.00 },
+            { "month": "January 2026", "totalTokens": 200, "costUSD": 2.00 },
+            { "month": "2026-02", "totalTokens": 300, "costUSD": 3.00 }
+          ]
+        }
+        """
+
+        let report = try JSONDecoder().decode(CostUsageMonthlyReport.self, from: Data(json.utf8))
+        let selected = CostUsageFetcher.selectMostRecentMonth(from: report.data)
+        #expect(selected?.month == "2026-02")
+        #expect(selected?.totalTokens == 300)
+    }
+
+    @Test
+    func `date parsers handle concurrent mixed formats`() async {
+        let dateInputs = [
+            "2026-02-03T04:05:06.789Z",
+            "2026-02-03T04:05:06Z",
+            "2026-02-03",
+            "Feb 3, 2026",
+        ]
+        let monthInputs = ["Feb 2026", "February 2026", "2026-02"]
+
+        await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<32 {
+                group.addTask {
+                    for _ in 0..<250 {
+                        guard dateInputs.allSatisfy({ CostUsageDateParser.parse($0) != nil }),
+                              monthInputs.allSatisfy({ CostUsageDateParser.parseMonth($0) != nil })
+                        else {
+                            return false
+                        }
+                    }
+                    return true
+                }
+            }
+
+            for await succeeded in group {
+                #expect(succeeded)
+            }
+        }
+    }
+
+    @Test
     func `token snapshot selects most recent day`() throws {
         let json = """
         {

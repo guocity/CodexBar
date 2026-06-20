@@ -617,6 +617,8 @@
 "metric_pref_tertiary" = "第三";
 "metric_pref_extra_usage" = "額外使用量";
 "metric_pref_average" = "平均";
+"metric_mistral_payg" = "Pay-as-you-go";
+"metric_mistral_monthly_plan" = "Monthly Plan";
 "display_mode_percent" = "百分比";
 "display_mode_pace" = "進度";
 "display_mode_both" = "兩者";
@@ -684,6 +686,7 @@
 "API spend" = "API 支出";
 "Extra usage" = "額外使用量";
 "Quota usage" = "配額使用量";
+"Your spend" = "您的支出";
 "%.0f%% used" = "已使用 %.0f%%";
 "Usage history (today)" = "使用量記錄（今天）";
 "Usage history (%d days)" = "使用量記錄（%d 天）";
@@ -838,6 +841,9 @@
 "Day" = "日期";
 "Deployment" = "部署";
 "Drag to reorder" = "拖曳以重新排序";
+"Sort providers alphabetically" = "依字母順序排列供應商";
+"Sort providers alphabetically (enabled first)" = "依字母順序排列供應商（已啟用的優先）";
+"Sorted alphabetically (enabled first) — click to use your custom order" = "已依字母順序排列（已啟用的優先）— 按一下使用自訂順序";
 "Endpoint" = "端點";
 "Enterprise host" = "Enterprise 主機";
 "Extra usage balance: %@" = "額外使用量餘額：%@";
@@ -955,3 +961,18 @@
 "language_arabic" = "العربية";
 "language_persian" = "فارسی";
 "language_thai" = "ไทย";
+"Limit Reset Credits" = "限額重設額度";
+"1 manual reset available" = "可使用 1 次手動重設";
+"%d manual resets available" = "可使用 %d 次手動重設";
+"Next expires %@" = "下一個將於 %@ 到期";
+"Other (%d items)" = "其他（%d 個項目）";
+"Expand" = "展開";
+"Collapse" = "收合";
+"byte_unit_byte" = "位元組";
+"byte_unit_bytes" = "位元組";
+"byte_unit_kilobyte" = "千位元組";
+"byte_unit_kilobytes" = "千位元組";
+"byte_unit_megabyte" = "百萬位元組";
+"byte_unit_megabytes" = "百萬位元組";
+"byte_unit_gigabyte" = "十億位元組";
+"byte_unit_gigabytes" = "十億位元組";

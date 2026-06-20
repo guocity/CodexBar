@@ -617,6 +617,8 @@
 "metric_pref_tertiary" = "Terciario";
 "metric_pref_extra_usage" = "Uso adicional";
 "metric_pref_average" = "Promedio";
+"metric_mistral_payg" = "Pay-as-you-go";
+"metric_mistral_monthly_plan" = "Monthly Plan";
 
 /* Display modes */
 "display_mode_percent" = "Porcentaje";
@@ -688,6 +690,7 @@
 "API spend" = "Gasto de API";
 "Extra usage" = "Uso adicional";
 "Quota usage" = "Uso de cuota";
+"Your spend" = "Tu gasto";
 "%.0f%% used" = "%.0f%% usado";
 "Usage history (today)" = "Historial de uso (hoy)";
 "Usage history (%d days)" = "Historial de uso (%d días)";
@@ -828,6 +831,9 @@
 "Day" = "Día";
 "Deployment" = "Despliegue";
 "Drag to reorder" = "Arrastra para reordenar";
+"Sort providers alphabetically" = "Ordenar proveedores alfabéticamente";
+"Sort providers alphabetically (enabled first)" = "Ordenar proveedores alfabéticamente (activados primero)";
+"Sorted alphabetically (enabled first) — click to use your custom order" = "Ordenados alfabéticamente (activados primero) — haz clic para usar tu orden personalizado";
 "Endpoint" = "Endpoint";
 "Enterprise host" = "Host Enterprise";
 "Extra usage balance: %@" = "Saldo de uso extra: %@";
@@ -942,3 +948,18 @@
 "language_arabic" = "العربية";
 "language_persian" = "فارسی";
 "language_thai" = "ไทย";
+"Limit Reset Credits" = "Créditos para restablecer límites";
+"1 manual reset available" = "1 restablecimiento manual disponible";
+"%d manual resets available" = "%d restablecimientos manuales disponibles";
+"Next expires %@" = "El siguiente caduca %@";
+"Other (%d items)" = "Otros (%d elementos)";
+"Expand" = "Expandir";
+"Collapse" = "Contraer";
+"byte_unit_byte" = "byte";
+"byte_unit_bytes" = "bytes";
+"byte_unit_kilobyte" = "kilobyte";
+"byte_unit_kilobytes" = "kilobytes";
+"byte_unit_megabyte" = "megabyte";
+"byte_unit_megabytes" = "megabytes";
+"byte_unit_gigabyte" = "gigabyte";
+"byte_unit_gigabytes" = "gigabytes";

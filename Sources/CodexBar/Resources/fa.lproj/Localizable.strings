@@ -628,6 +628,8 @@
 "metric_pref_tertiary" = "دوره سوم";
 "metric_pref_extra_usage" = "استفاده اضافی";
 "metric_pref_average" = "میانگین";
+"metric_mistral_payg" = "Pay-as-you-go";
+"metric_mistral_monthly_plan" = "Monthly Plan";
 
 /* Display modes */
 "display_mode_percent" = "درصد";
@@ -808,6 +810,7 @@
 "API spend" = "API خرج می کنم";
 "Extra usage" = "استفاده اضافی";
 "Quota usage" = "استفاده از سهمیه";
+"Your spend" = "هزینه شما";
 "%.0f%% used" = "%.0f%% استفاده می شود";
 "Usage history (today)" = "تاریخچه استفاده (امروز)";
 "Usage history (%d days)" = "تاریخچه استفاده (%d روز)";
@@ -877,6 +880,9 @@
 "Clearing removes local temporary provider data." = "پاک سازی داده های ارائه دهنده موقت محلی را حذف می کند.";
 "Total: %@" = "کل: %@";
 "%d more items" = "%d آیتم های بیشتر";
+"Other (%d items)" = "موارد دیگر (%d مورد)";
+"Expand" = "گسترش";
+"Collapse" = "جمع کردن";
 "Cleanup ideas" = "ایده های پاکسازی";
 "%d unreadable item(s) skipped" = "%d آیتم(های) غیرقابل خواندن رد شده اند";
 
@@ -972,6 +978,9 @@
 "Day" = "روز";
 "Deployment" = "استقرار";
 "Drag to reorder" = "درگ برای بازآرایی";
+"Sort providers alphabetically" = "مرتب‌سازی ارائه‌دهندگان بر اساس حروف الفبا";
+"Sort providers alphabetically (enabled first)" = "مرتب‌سازی الفبایی ارائه‌دهندگان (فعال‌ها ابتدا)";
+"Sorted alphabetically (enabled first) — click to use your custom order" = "مرتب‌شده بر اساس حروف الفبا (فعال‌ها ابتدا) — برای استفاده از ترتیب سفارشی کلیک کنید";
 "Endpoint" = "نقطه پایان";
 "Enterprise host" = "میزبان سازمانی";
 "Extra usage balance: %@" = "تعادل استفاده اضافی: %@";
@@ -1087,3 +1096,15 @@
 "language_arabic" = "العربية";
 "language_persian" = "فارسی";
 "language_thai" = "ไทย";
+"Limit Reset Credits" = "اعتبارهای بازنشانی محدودیت";
+"1 manual reset available" = "۱ بازنشانی دستی موجود است";
+"%d manual resets available" = "%d بازنشانی دستی موجود است";
+"Next expires %@" = "مورد بعدی در %@ منقضی می‌شود";
+"byte_unit_byte" = "بایت";
+"byte_unit_bytes" = "بایت";
+"byte_unit_kilobyte" = "کیلوبایت";
+"byte_unit_kilobytes" = "کیلوبایت";
+"byte_unit_megabyte" = "مگابایت";
+"byte_unit_megabytes" = "مگابایت";
+"byte_unit_gigabyte" = "گیگابایت";
+"byte_unit_gigabytes" = "گیگابایت";

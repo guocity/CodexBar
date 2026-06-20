@@ -551,6 +551,16 @@ extension CodexBarCLI {
         if provider == .codex, sourceMode == .auto {
             return false
         }
+        if provider == .opencodego {
+            if sourceMode == .auto || settings?.opencodego?.cookieSource == .manual {
+                return false
+            }
+        }
+        if provider == .commandcode,
+           settings?.commandcode?.cookieSource == .manual
+        {
+            return false
+        }
         if provider == .ollama,
            sourceMode == .auto
         {

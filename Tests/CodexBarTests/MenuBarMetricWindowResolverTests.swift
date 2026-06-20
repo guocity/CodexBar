@@ -39,6 +39,134 @@ struct MenuBarMetricWindowResolverTests {
     }
 
     @Test
+    func `combined primary and secondary metric uses the most constrained lane`() {
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 12, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
+            secondary: RateWindow(usedPercent: 91, windowMinutes: 7 * 24 * 60, resetsAt: nil, resetDescription: nil),
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .primaryAndSecondary,
+            provider: .codex,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window?.usedPercent == 91)
+        #expect(window?.windowMinutes == 7 * 24 * 60)
+    }
+
+    @Test
+    func `automatic metric skips exhausted cursor subquota when total remains usable`() {
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 67, windowMinutes: 30 * 24 * 60, resetsAt: nil, resetDescription: "Total"),
+            secondary: RateWindow(
+                usedPercent: 34,
+                windowMinutes: 30 * 24 * 60,
+                resetsAt: nil,
+                resetDescription: "Auto"),
+            tertiary: RateWindow(usedPercent: 100, windowMinutes: 30 * 24 * 60, resetsAt: nil, resetDescription: "API"),
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .automatic,
+            provider: .cursor,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window?.remainingPercent == 33)
+        #expect(window?.resetDescription == "Total")
+    }
+
+    @Test
+    func `automatic metric still reports cursor exhausted when every subquota is exhausted`() {
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(
+                usedPercent: 100,
+                windowMinutes: 30 * 24 * 60,
+                resetsAt: nil,
+                resetDescription: "Total"),
+            secondary: RateWindow(
+                usedPercent: 100,
+                windowMinutes: 30 * 24 * 60,
+                resetsAt: nil,
+                resetDescription: "Auto"),
+            tertiary: RateWindow(usedPercent: 100, windowMinutes: 30 * 24 * 60, resetsAt: nil, resetDescription: "API"),
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .automatic,
+            provider: .cursor,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window?.remainingPercent == 0)
+    }
+
+    @Test
+    func `automatic metric keeps exhausted cursor total when a subquota remains usable`() {
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(
+                usedPercent: 100,
+                windowMinutes: 30 * 24 * 60,
+                resetsAt: nil,
+                resetDescription: "Total"),
+            secondary: RateWindow(
+                usedPercent: 60,
+                windowMinutes: 30 * 24 * 60,
+                resetsAt: nil,
+                resetDescription: "Auto"),
+            tertiary: nil,
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .automatic,
+            provider: .cursor,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window?.remainingPercent == 0)
+        #expect(window?.resetDescription == "Total")
+    }
+
+    @Test
+    func `automatic metric reports cursor exhausted when all present subquotas are exhausted`() {
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 67, windowMinutes: 30 * 24 * 60, resetsAt: nil, resetDescription: "Total"),
+            secondary: RateWindow(
+                usedPercent: 100,
+                windowMinutes: 30 * 24 * 60,
+                resetsAt: nil,
+                resetDescription: "Auto"),
+            tertiary: RateWindow(usedPercent: 100, windowMinutes: 30 * 24 * 60, resetsAt: nil, resetDescription: "API"),
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .automatic,
+            provider: .cursor,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window?.remainingPercent == 0)
+    }
+
+    @Test
+    func `automatic metric preserves exhausted minimax session lane`() {
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 100, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
+            secondary: RateWindow(usedPercent: 97, windowMinutes: 7 * 24 * 60, resetsAt: nil, resetDescription: nil),
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .automatic,
+            provider: .minimax,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window?.usedPercent == 100)
+        #expect(window?.windowMinutes == 300)
+    }
+
+    @Test
     func `automatic metric uses team budget for team-bound LiteLLM keys`() {
         let snapshot = UsageSnapshot(
             primary: RateWindow(
@@ -205,6 +333,28 @@ struct MenuBarMetricWindowResolverTests {
         #expect(primary?.resetDescription == "Claude")
         #expect(secondary?.resetDescription == "Gemini Pro")
         #expect(tertiary?.resetDescription == "Gemini Flash")
+    }
+
+    @Test
+    func `monthly plan metric selects Mistral subscription window`() {
+        let snapshot = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            extraRateWindows: [
+                NamedRateWindow(
+                    id: "mistral-monthly-plan",
+                    title: "Monthly Plan",
+                    window: RateWindow(usedPercent: 42, windowMinutes: nil, resetsAt: nil, resetDescription: nil)),
+            ],
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .monthlyPlan,
+            provider: .mistral,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window?.usedPercent == 42)
     }
 
     @Test

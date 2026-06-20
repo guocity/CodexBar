@@ -85,10 +85,20 @@ public struct ProviderDiagnosticAuthSummary: Codable, Sendable {
 
 public struct ProviderDiagnosticUsageSummary: Codable, Sendable {
     public let updatedAt: Date
+    public let dataConfidence: String
     public let windows: [ProviderDiagnosticRateWindow]
     public let extraWindowCount: Int
     public let providerCostPresent: Bool
     public let providerSpecificData: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case updatedAt
+        case dataConfidence
+        case windows
+        case extraWindowCount
+        case providerCostPresent
+        case providerSpecificData
+    }
 
     public init(from snapshot: UsageSnapshot) {
         var windows: [ProviderDiagnosticRateWindow] = []
@@ -122,10 +132,22 @@ public struct ProviderDiagnosticUsageSummary: Codable, Sendable {
         if snapshot.cursorRequests != nil { providerSpecificData.append("cursorRequests") }
 
         self.updatedAt = snapshot.updatedAt
+        self.dataConfidence = snapshot.dataConfidence.rawValue
         self.windows = windows
         self.extraWindowCount = snapshot.extraRateWindows?.count ?? 0
         self.providerCostPresent = snapshot.providerCost != nil
         self.providerSpecificData = providerSpecificData.sorted()
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        self.dataConfidence = try container.decodeIfPresent(String.self, forKey: .dataConfidence)
+            ?? UsageDataConfidence.unknown.rawValue
+        self.windows = try container.decode([ProviderDiagnosticRateWindow].self, forKey: .windows)
+        self.extraWindowCount = try container.decode(Int.self, forKey: .extraWindowCount)
+        self.providerCostPresent = try container.decode(Bool.self, forKey: .providerCostPresent)
+        self.providerSpecificData = try container.decode([String].self, forKey: .providerSpecificData)
     }
 }
 
@@ -369,16 +391,49 @@ public struct MiniMaxDiagnosticDetails: Codable, Sendable {
 public struct MiniMaxDiagnosticServiceUsage: Codable, Sendable {
     public let displayName: String
     public let percent: Double
+    public let usage: Int
+    public let limit: Int
+    public let remaining: Int?
+    public let isUnlimited: Bool
     public let windowType: String
     public let resetsAt: Date?
     public let hasResetDescription: Bool
 
+    private enum CodingKeys: String, CodingKey {
+        case displayName
+        case percent
+        case usage
+        case limit
+        case remaining
+        case isUnlimited
+        case windowType
+        case resetsAt
+        case hasResetDescription
+    }
+
     public init(from service: MiniMaxServiceUsage) {
         self.displayName = service.displayName
         self.percent = service.percent
+        self.usage = service.usage
+        self.limit = service.limit
+        self.remaining = service.isUnlimited ? nil : max(0, service.limit - service.usage)
+        self.isUnlimited = service.isUnlimited
         self.windowType = service.windowType
         self.resetsAt = service.resetsAt
         self.hasResetDescription = !service.resetDescription.isEmpty
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.displayName = try container.decode(String.self, forKey: .displayName)
+        self.percent = try container.decode(Double.self, forKey: .percent)
+        self.usage = try container.decodeIfPresent(Int.self, forKey: .usage) ?? 0
+        self.limit = try container.decodeIfPresent(Int.self, forKey: .limit) ?? 0
+        self.remaining = try container.decodeIfPresent(Int.self, forKey: .remaining)
+        self.isUnlimited = try container.decodeIfPresent(Bool.self, forKey: .isUnlimited) ?? false
+        self.windowType = try container.decode(String.self, forKey: .windowType)
+        self.resetsAt = try container.decodeIfPresent(Date.self, forKey: .resetsAt)
+        self.hasResetDescription = try container.decode(Bool.self, forKey: .hasResetDescription)
     }
 }
 

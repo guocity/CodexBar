@@ -628,6 +628,8 @@
 "metric_pref_tertiary" = "Tertiaire";
 "metric_pref_extra_usage" = "Utilisation supplémentaire";
 "metric_pref_average" = "Moyenne";
+"metric_mistral_payg" = "Pay-as-you-go";
+"metric_mistral_monthly_plan" = "Monthly Plan";
 
 /* Display modes */
 "display_mode_percent" = "Pourcentage";
@@ -808,6 +810,7 @@
 "API spend" = "Dépenses API";
 "Extra usage" = "Utilisation supplémentaire";
 "Quota usage" = "Utilisation des quotas";
+"Your spend" = "Votre dépense";
 "%.0f%% used" = "%.0f%% utilisé";
 "Usage history (today)" = "Historique d'utilisation (aujourd'hui)";
 "Usage history (%d days)" = "Historique d'utilisation (%d jours)";
@@ -972,6 +975,9 @@
 "Day" = "Jour";
 "Deployment" = "Déploiement";
 "Drag to reorder" = "Faites glisser pour réorganiser";
+"Sort providers alphabetically" = "Trier les fournisseurs par ordre alphabétique";
+"Sort providers alphabetically (enabled first)" = "Trier les fournisseurs par ordre alphabétique (activés en premier)";
+"Sorted alphabetically (enabled first) — click to use your custom order" = "Triés par ordre alphabétique (activés en premier) — cliquez pour utiliser votre ordre personnalisé";
 "Endpoint" = "Point de terminaison";
 "Enterprise host" = "Hôte d'entreprise";
 "Extra usage balance: %@" = "Solde d'utilisation supplémentaire : %@";
@@ -1082,3 +1088,18 @@
 "language_arabic" = "العربية";
 "language_persian" = "فارسی";
 "language_thai" = "ไทย";
+"Limit Reset Credits" = "Crédits de réinitialisation de limite";
+"1 manual reset available" = "1 réinitialisation manuelle disponible";
+"%d manual resets available" = "%d réinitialisations manuelles disponibles";
+"Next expires %@" = "Prochaine expiration %@";
+"Other (%d items)" = "Autres (%d éléments)";
+"Expand" = "Développer";
+"Collapse" = "Réduire";
+"byte_unit_byte" = "octet";
+"byte_unit_bytes" = "octets";
+"byte_unit_kilobyte" = "kilooctet";
+"byte_unit_kilobytes" = "kilooctets";
+"byte_unit_megabyte" = "mégaoctet";
+"byte_unit_megabytes" = "mégaoctets";
+"byte_unit_gigabyte" = "gigaoctet";
+"byte_unit_gigabytes" = "gigaoctets";

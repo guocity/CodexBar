@@ -66,12 +66,14 @@ extension UsageMenuCardView.Model {
             !self.usageNotes.isEmpty ||
             self.openAIAPIUsage != nil ||
             self.inlineUsageDashboard != nil ||
+            self.codexResetCreditsText != nil ||
             self.placeholder != nil
     }
 
     var usesStackedDetailLayout: Bool {
         !self.metrics.isEmpty ||
             self.creditsText != nil ||
+            self.codexResetCreditsText != nil ||
             self.providerCost != nil ||
             self.tokenUsage != nil
     }
@@ -106,6 +108,8 @@ extension UsageMenuCardView.Model {
                   candidateText: candidate.creditsText,
                   candidateRemaining: candidate.creditsRemaining),
               self.creditsHintText == candidate.creditsHintText,
+              self.codexResetCreditsText == candidate.codexResetCreditsText,
+              self.codexResetCreditsDetailText == candidate.codexResetCreditsDetailText,
               self.placeholder == candidate.placeholder,
               Self.hasCompatibleDashboardLayout(self.inlineUsageDashboard, candidate.inlineUsageDashboard),
               Self.hasCompatibleProviderCostLayout(self.providerCost, candidate.providerCost),
@@ -183,7 +187,8 @@ extension UsageMenuCardView.Model {
         case let (current?, candidate?):
             current.title == candidate.title &&
                 (current.percentUsed == nil) == (candidate.percentUsed == nil) &&
-                (current.percentLine == nil) == (candidate.percentLine == nil)
+                (current.percentLine == nil) == (candidate.percentLine == nil) &&
+                (current.personalSpendLine == nil) == (candidate.personalSpendLine == nil)
         default:
             false
         }

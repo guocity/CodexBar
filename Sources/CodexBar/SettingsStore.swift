@@ -42,9 +42,11 @@ enum MenuBarMetricPreference: String, CaseIterable, Identifiable {
     case automatic
     case primary
     case secondary
+    case primaryAndSecondary
     case tertiary
     case extraUsage
     case average
+    case monthlyPlan
 
     var id: String {
         self.rawValue
@@ -55,9 +57,11 @@ enum MenuBarMetricPreference: String, CaseIterable, Identifiable {
         case .automatic: L("metric_pref_automatic")
         case .primary: L("metric_pref_primary")
         case .secondary: L("metric_pref_secondary")
+        case .primaryAndSecondary: "\(L("metric_pref_primary")) + \(L("metric_pref_secondary"))"
         case .tertiary: L("metric_pref_tertiary")
         case .extraUsage: L("metric_pref_extra_usage")
         case .average: L("metric_pref_average")
+        case .monthlyPlan: L("metric_mistral_monthly_plan")
         }
     }
 }
@@ -410,6 +414,8 @@ extension SettingsStore {
             forKey: "mergedOverviewSelectedProviders") as? [String] ?? []
         let selectedMenuProviderRaw = userDefaults.string(forKey: "selectedMenuProvider")
         let providerDetectionCompleted = userDefaults.object(forKey: "providerDetectionCompleted") as? Bool ?? false
+        let providersSortedAlphabetically = userDefaults.object(
+            forKey: "providersSortedAlphabetically") as? Bool ?? false
         let appLanguageRaw = userDefaults.string(forKey: "appLanguage")
         return SettingsDefaultsState(
             refreshFrequency: refreshFrequency,
@@ -463,6 +469,7 @@ extension SettingsStore {
             mergedOverviewSelectedProvidersRaw: mergedOverviewSelectedProvidersRaw,
             selectedMenuProviderRaw: selectedMenuProviderRaw,
             providerDetectionCompleted: providerDetectionCompleted,
+            providersSortedAlphabetically: providersSortedAlphabetically,
             appLanguageRaw: appLanguageRaw,
             terminalAppRaw: userDefaults.string(forKey: "terminalApp"))
     }
@@ -493,7 +500,7 @@ extension SettingsStore {
             migrated[UsageProvider.antigravity.rawValue] = MenuBarMetricPreference.primary.rawValue
         case .tertiary:
             migrated[UsageProvider.antigravity.rawValue] = MenuBarMetricPreference.primary.rawValue
-        case .automatic, .extraUsage, .average, .none:
+        case .automatic, .primaryAndSecondary, .extraUsage, .average, .monthlyPlan, .none:
             break
         }
         userDefaults.set(migrated, forKey: "menuBarMetricPreferences")

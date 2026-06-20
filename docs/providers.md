@@ -29,7 +29,7 @@ headers, source selection, provider ordering, and token accounts are stored in `
 | Antigravity | Local LSP/HTTP probe (`local`). |
 | Cursor | Web API via cookies → stored WebKit session (`web`). |
 | OpenCode | Web dashboard via cookies (`web`). |
-| OpenCode Go | Web dashboard via cookies (`web`); optional workspace ID. |
+| OpenCode Go | Web dashboard via cookies (`web`) -> local SQLite usage (`local`) in auto mode; optional workspace ID. |
 | Alibaba Coding Plan | Console RPC via web cookies (auto/manual) with API key fallback (`web`, `api`). |
 | Alibaba Token Plan | Bailian subscription summary API via browser or manual cookies (`web`). |
 | Droid/Factory | Web cookies → stored tokens → local storage → WorkOS cookies (`web`). |
@@ -57,7 +57,7 @@ headers, source selection, provider ordering, and token accounts are stored in `
 | Xiaomi MiMo | Browser cookies → balance/token plan endpoints (`web`). |
 | Doubao | API key from config/env → Volcengine Ark chat-completions probe (`api`). |
 | Abacus AI | Browser cookies → compute points + billing API (`web`). |
-| Mistral | Console billing API via Ory Kratos session cookies (`web`). |
+| Mistral | Console billing and Vibe subscription usage via browser cookies (`web`). |
 | DeepSeek | API key from env or token accounts → balance endpoint (`api`). |
 | Moonshot | API key from config/env → balance endpoint (`api`). |
 | Codebuff | API token from config/env or `codebuff login` credentials → usage API (`api`). |
@@ -65,7 +65,7 @@ headers, source selection, provider ordering, and token accounts are stored in `
 | Venice | API key from config/env → DIEM/USD balance API (`api`). |
 | Command Code | Web billing API via Command Code session cookies (`web`). |
 | StepFun | Username/password login or manual Oasis token (`web`). |
-| AWS Bedrock | AWS credentials → Cost Explorer usage and budget tracking (`api`). |
+| AWS Bedrock | AWS credentials → Cost Explorer spend/budgets and optional CloudWatch Claude activity (`api`). |
 | Grok | `grok agent stdio` JSON-RPC `x.ai/billing` (`cli`) → grok.com billing gRPC-web via Chrome session cookies (`web`); local `~/.grok/sessions` signals as fallback. |
 | GroqCloud | API key → Prometheus metrics API for request/token/cache-hit rates (`api`). |
 | LLM Proxy | API key + base URL → `/v1/quota-stats` aggregate proxy usage (`api`). |
@@ -177,7 +177,8 @@ headers, source selection, provider ordering, and token accounts are stored in `
 - Details: `docs/opencode.md`.
 
 ## OpenCode Go
-- Web dashboard via browser cookies (`opencode.ai`).
+- Web dashboard via browser or manual cookies (`opencode.ai`).
+- Auto mode falls back to local usage from `~/.local/share/opencode/opencode.db` on macOS and Linux.
 - Uses the workspace Go page/server data for rolling 5-hour, weekly, and optional monthly usage windows.
 - Optional workspace ID comes from `~/.codexbar/config.json` (`providers[].workspaceID`) or `CODEXBAR_OPENCODEGO_WORKSPACE_ID`.
 - Status: none yet.
@@ -319,10 +320,12 @@ headers, source selection, provider ordering, and token accounts are stored in `
 
 ## Mistral
 - Session cookie (`ory_session_*`) from browser auto-import or manual `Cookie:` header.
-- CSRF token (`csrftoken` cookie) sent as `X-CSRFTOKEN` header.
-- Domain: `admin.mistral.ai`.
+- CSRF token (`csrftoken` cookie) sent as `X-CSRFTOKEN` for billing and Vibe usage requests.
+- Domains: `admin.mistral.ai` for API billing and `console.mistral.ai` for optional Vibe subscription usage. Admin Ory cookies are never forwarded to the console origin.
 - Reads monthly usage and pricing from the Mistral billing API.
 - Cost is computed client-side from token counts and response pricing.
+- Reads Vibe monthly-plan usage percentage and reset time when the console endpoint is available.
+- The menu bar metric can show either pay-as-you-go API spend or monthly-plan usage.
 - Resets at end of calendar month.
 - Status: `https://status.mistral.ai` (link only, no auto-polling).
 
@@ -364,6 +367,7 @@ headers, source selection, provider ordering, and token accounts are stored in `
 
 ## Command Code
 - Browser session cookies from automatic import or manual `Cookie:` header.
+- Linux CLI supports configured manual cookies; automatic browser import remains macOS-only.
 - Reads monthly USD credits and billing-cycle usage from `api.commandcode.ai`.
 - Automatic import looks for better-auth session cookies from `commandcode.ai` / `www.commandcode.ai`.
 - Status: none yet.
@@ -382,6 +386,7 @@ headers, source selection, provider ordering, and token accounts are stored in `
 - AWS credentials from `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional `AWS_SESSION_TOKEN`.
 - Region from `AWS_REGION` / `AWS_DEFAULT_REGION`, defaulting to `us-east-1`.
 - Reads AWS Cost Explorer for Bedrock spend and can compare usage against `CODEXBAR_BEDROCK_BUDGET`.
+- Optionally reads rolling 14-day Claude token and request totals from CloudWatch with `cloudwatch:GetMetricData`.
 - Override Cost Explorer base URL with `CODEXBAR_BEDROCK_API_URL` for tests.
 - Details: `docs/bedrock.md`.
 
