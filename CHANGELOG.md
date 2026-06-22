@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.37.2 — Unreleased
+## 0.37.3 — Unreleased
+
+## 0.37.2 — 2026-06-22
+
+### Added
+- Diagnostics: write redacted provider reports to a file with platform and app-version context. Thanks @Yuxin-Qiao!
+- CLI server: report the startup build version from `/health` so clients can detect stale helper processes after updates. Thanks @enieuwy!
+
+### Fixed
+- Claude: pause background CLI usage probes briefly after rate limiting while keeping manual refresh available. Thanks @kiranmagic7!
+- Codex OAuth: publish refreshed `auth.json` credentials with private file permissions already applied. Thanks @Hinotoi-agent!
+- Provider endpoints: reject unsafe Deepgram, z.ai, and Xiaomi MiMo overrides before attaching credentials. Thanks @Hinotoi-agent!
+- Azure OpenAI: reject unsafe endpoint overrides before attaching API keys while keeping invalid configurations visible with an actionable error. Thanks @Hinotoi-agent!
 
 ## 0.37.1 — 2026-06-21
 
