@@ -6,15 +6,15 @@
     <description>CodexBar fork updates</description>
     <language>en</language>
     <item>
-      <title>CodexBar 0.37.2</title>
-      <pubDate>Mon, 22 Jun 2026 01:25:42 +0000</pubDate>
-      <sparkle:version>92</sparkle:version>
-      <sparkle:shortVersionString>0.37.2</sparkle:shortVersionString>
+      <title>CodexBar 0.37.3</title>
+      <pubDate>Mon, 22 Jun 2026 15:40:03 +0000</pubDate>
+      <sparkle:version>93</sparkle:version>
+      <sparkle:shortVersionString>0.37.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
 
       ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.37.2/CodexBar-macos-arm64-0.37.2.zip" sparkle:edSignature="SIqCIO6TbKnG0P5+gdTAHcJ5MI+VToqYOwW3+ZNcitHcMEDhNRdVsm4oQG7n7vObzf7QVnxC8mQ5jYIfBOsGBA==" length="22886660" type="application/octet-stream" />
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.37.3/CodexBar-macos-universal-0.37.3.zip" sparkle:edSignature="ZLhS6j0VJl0l8O3FlIhDU7MKK+lxfzM3ms/BFBqWtZe8Cxj6052Es90wQMW4e38i3xXddmH9s8yt19QzCIFODA==" length="41223523" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
