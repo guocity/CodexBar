@@ -10,6 +10,7 @@ extension StatusItemController {
     static let menuCardBaseWidth: CGFloat = 310
     private static let maxOverviewProviders = SettingsStore.mergedOverviewProviderLimit
     static let overviewRowIdentifierPrefix = "overviewRow-"
+    static let persistentRefreshMenuItemID = "persistentRefreshAction"
     private static let defaultMenuOpenRefreshDelay: Duration = .seconds(1.2)
     #if DEBUG
     private static var menuOpenRefreshDelayForTesting: Duration = .seconds(1.2)
@@ -38,8 +39,6 @@ extension StatusItemController {
 
     private func shortcut(for action: MenuDescriptor.MenuAction) -> (key: String, modifiers: NSEvent.ModifierFlags)? {
         switch action {
-        case .refresh:
-            ("r", [.command])
         case .settings:
             (",", [.command])
         case .quit:
@@ -47,6 +46,10 @@ extension StatusItemController {
         default:
             nil
         }
+    }
+
+    func isPersistentRefreshItem(_ item: NSMenuItem) -> Bool {
+        item.representedObject as? String == Self.persistentRefreshMenuItemID
     }
 
     func makeMenu() -> NSMenu {
@@ -715,7 +718,9 @@ extension StatusItemController {
                 _ = self.addCostHistorySubmenu(to: menu, provider: currentProvider)
             }
         }
-        menu.addItem(.separator())
+        if menu.items.last?.isSeparatorItem != true {
+            menu.addItem(.separator())
+        }
     }
 
     func addPrimaryMenuContent(
@@ -795,6 +800,16 @@ extension StatusItemController {
                     }
                     menu.addItem(item)
                 case let .action(title, action):
+                    if action == .refresh {
+                        let item = self.makePersistentRefreshItem(
+                            title: L(title),
+                            action: action,
+                            menu: captureMenu ?? menu,
+                            width: width)
+                        menu.addItem(item)
+                        self.persistentRefreshItems.add(item)
+                        continue
+                    }
                     let localizedTitle = L(title)
                     let (selector, represented) = self.selector(for: action)
                     let item = NSMenuItem(title: localizedTitle, action: selector, keyEquivalent: "")
@@ -821,11 +836,6 @@ extension StatusItemController {
                     {
                         item.isEnabled = false
                         self.applySubtitle(subtitle, to: item, title: localizedTitle)
-                    }
-                    if action == .refresh {
-                        let targetMenu = captureMenu ?? menu
-                        item.isEnabled = !self.isRefreshActionInFlight(for: targetMenu)
-                        self.persistentRefreshItems.add(item)
                     }
                     menu.addItem(item)
                 case let .submenu(title, systemImageName, submenuItems):
@@ -861,6 +871,28 @@ extension StatusItemController {
                 menu.addItem(.separator())
             }
         }
+    }
+
+    private func makePersistentRefreshItem(
+        title: String,
+        action: MenuDescriptor.MenuAction,
+        menu: NSMenu,
+        width: CGFloat) -> NSMenuItem
+    {
+        let item = self.makeMenuCardItem(
+            PersistentMenuActionRowView(
+                title: title,
+                systemImageName: action.systemImageName),
+            id: Self.persistentRefreshMenuItemID,
+            width: width,
+            heightCacheFingerprint: "persistentRefreshAction:\(action.systemImageName ?? "")|\(title)",
+            onClick: { [weak self, weak menu] in
+                guard let self, let menu else { return }
+                self.performPersistentRefreshAction(in: ObjectIdentifier(menu))
+            })
+        item.title = title
+        item.isEnabled = !self.isRefreshActionInFlight(for: menu)
+        return item
     }
 
     private func makeWrappedSecondaryTextItem(text: String, width: CGFloat) -> NSMenuItem {
@@ -1206,6 +1238,10 @@ extension StatusItemController {
         let sectionSpacing = CGFloat(6)
         let usageBottomPadding = bottomPadding
         let creditsBottomPadding = bottomPadding
+        func addSectionSeparator() {
+            guard menu.items.last?.isSeparatorItem != true else { return }
+            menu.addItem(.separator())
+        }
 
         if hasUsageBlock {
             let usageView = UsageMenuCardHeaderAndUsageSectionView(
@@ -1241,18 +1277,18 @@ extension StatusItemController {
         }
 
         if hasStorage || hasCredits || hasExtraUsage || hasCost {
-            menu.addItem(.separator())
+            addSectionSeparator()
         }
 
         if self.addStorageMenuCardSection(to: menu, provider: provider, width: width),
-           hasCredits || hasExtraUsage || hasCost
+           hasCredits || hasExtraUsage
         {
-            menu.addItem(.separator())
+            addSectionSeparator()
         }
 
         if hasCredits {
             if hasExtraUsage || hasCost {
-                menu.addItem(.separator())
+                addSectionSeparator()
             }
             let creditsView = UsageMenuCardCreditsSectionView(
                 model: model,
@@ -1274,7 +1310,7 @@ extension StatusItemController {
         }
         if hasExtraUsage {
             if hasCredits {
-                menu.addItem(.separator())
+                addSectionSeparator()
             }
             let extraUsageSubmenu = self.makeOpenAIAPIUsageSubmenu(provider: provider, width: width)
             let extraUsageView = UsageMenuCardExtraUsageSectionView(
@@ -1292,7 +1328,7 @@ extension StatusItemController {
         }
         if hasCost {
             if hasCredits || hasExtraUsage {
-                menu.addItem(.separator())
+                addSectionSeparator()
             }
             let costSubmenu = webItems.hasCostHistory ? self
                 .makeCostHistorySubmenu(provider: provider, width: width) : nil
@@ -1306,19 +1342,18 @@ extension StatusItemController {
     @discardableResult
     func addStorageMenuCardSection(to menu: NSMenu, provider: UsageProvider, width: CGFloat) -> Bool {
         guard let storageText = self.store.storageFootprintText(for: provider) else { return false }
-        let storageView = StorageMenuCardSectionView(
-            storageText: storageText,
-            topPadding: 6,
-            bottomPadding: 6,
-            width: width)
         let storageSubmenu = self.makeStorageBreakdownSubmenu(provider: provider, width: width)
-        menu.addItem(self.makeMenuCardItem(
-            storageView,
-            id: "menuCardStorage",
-            width: width,
-            heightCacheScope: provider.rawValue,
-            heightCacheFingerprint: UsageMenuCardView.Model.heightFingerprintField("storage", storageText),
-            submenu: storageSubmenu))
+        let menuFont = NSFont.menuFont(ofSize: 0)
+        let title = NSMutableAttributedString(string: L("Storage"), attributes: [.font: menuFont])
+        title.append(NSAttributedString(
+            string: "  \(storageText)",
+            attributes: [.font: menuFont, .foregroundColor: NSColor.secondaryLabelColor]))
+        let item = NSMenuItem(title: L("Storage"), action: nil, keyEquivalent: "")
+        item.attributedTitle = title
+        item.isEnabled = storageSubmenu != nil
+        item.representedObject = "menuCardStorage"
+        item.submenu = storageSubmenu
+        menu.addItem(item)
         return true
     }
 

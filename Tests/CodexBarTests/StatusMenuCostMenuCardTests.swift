@@ -67,6 +67,40 @@ struct StatusMenuCostMenuCardTests {
     }
 
     @Test
+    func `cost menu with history submenu omits native tooltip`() {
+        let settings = self.makeSettings()
+        let fetcher = UsageFetcher()
+        let store = UsageStore(
+            fetcher: fetcher,
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: .system)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let tokenUsage = UsageMenuCardView.Model.TokenUsageSection(
+            sessionLine: "Today: $1.00",
+            monthLine: "Last 30 days: $9.00",
+            hintLine: "Costs are estimated from local usage.",
+            errorLine: nil,
+            errorCopyText: nil)
+        let submenu = NSMenu()
+
+        let item = controller.makeCostMenuCardItem(
+            model: self.makeModel(tokenUsage: tokenUsage),
+            submenu: submenu,
+            width: StatusItemController.menuCardBaseWidth)
+
+        #expect(item.submenu === submenu)
+        #expect(item.toolTip == nil)
+    }
+
+    @Test
     func `rendered cost menu keeps long dynamic details inside fixed row width`() throws {
         let previousRendering = StatusItemController.menuCardRenderingEnabled
         StatusItemController.menuCardRenderingEnabled = true
@@ -95,11 +129,11 @@ struct StatusMenuCostMenuCardTests {
             errorLine: nil,
             errorCopyText: nil)
         let model = self.makeModel(tokenUsage: tokenUsage)
-        let submenu = NSMenu()
 
+        // No history submenu — detail lines are visible and must be clipped to the row width.
         let item = controller.makeCostMenuCardItem(
             model: model,
-            submenu: submenu,
+            submenu: nil,
             width: width)
         let view = try #require(item.view)
 
@@ -107,9 +141,7 @@ struct StatusMenuCostMenuCardTests {
         #expect(abs(view.frame.width - width) <= 0.5)
         #expect(item.title == "Cost")
         #expect(item.toolTip?.contains("$52,431.09") == true)
-        #expect(item.submenu === submenu)
-        #expect(item.target === controller)
-        #expect(item.action.map(NSStringFromSelector) == "menuCardNoOp:")
+        #expect(item.submenu == nil)
     }
 
     private func makeSettings() -> SettingsStore {
