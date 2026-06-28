@@ -493,16 +493,55 @@ func statsSortedProviders(_ providers: [StatsProvider], mode: StatsSortMode, now
     }.map(\.element)
 }
 
+/// Collapsed past reset boundaries for one window. Consecutive readings at the same usage share
+/// one marker — only the latest `resetsAt` from that run is kept. Unused providers otherwise
+/// produce a new vertical line on every poll because each reading records a fresh reset date.
+func statsHistoricalResetDates(in entries: [StatsEntry], before now: Date) -> [Date] {
+    let sorted = entries.sorted { lhs, rhs in
+        if lhs.capturedAt != rhs.capturedAt {
+            return lhs.capturedAt < rhs.capturedAt
+        }
+        return false
+    }
+    guard let first = sorted.first else { return [] }
+
+    var collapsed: [Date] = []
+    var segmentUsage = first.usedPercent
+    var lastResetInSegment = first.resetsAt
+
+    func flushSegment() {
+        if let reset = lastResetInSegment, reset <= now {
+            collapsed.append(reset)
+        }
+    }
+
+    for entry in sorted.dropFirst() {
+        if entry.usedPercent == segmentUsage {
+            if let reset = entry.resetsAt {
+                lastResetInSegment = reset
+            }
+        } else {
+            flushSegment()
+            segmentUsage = entry.usedPercent
+            lastResetInSegment = entry.resetsAt
+        }
+    }
+    flushSegment()
+
+    var seen = Set<Int>()
+    return collapsed.filter { date in
+        let key = Int(date.timeIntervalSince1970.rounded())
+        return seen.insert(key).inserted
+    }
+}
+
 /// Past reset boundaries per provider+window, for the thin historical marker lines.
 func statsHistoricalResets(_ providers: [StatsProvider], before now: Date) -> [StatsHistoricalReset] {
     var result: [StatsHistoricalReset] = []
     for provider in providers {
         for (index, window) in provider.windows.enumerated() {
             let color = provider.color(forWindowIndex: index)
-            var seen = Set<Int>()
-            for date in window.entries.compactMap(\.resetsAt) where date <= now {
-                let key = Int(date.timeIntervalSince1970.rounded())
-                guard seen.insert(key).inserted else { continue }
+            for date in statsHistoricalResetDates(in: window.entries, before: now) {
                 result.append(StatsHistoricalReset(
                     date: date, color: color, providerId: provider.id, windowName: window.name,
                     name: "\(provider.name) \(window.displayName)"))
