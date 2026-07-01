@@ -382,11 +382,7 @@ extension SettingsStore {
         let debugLoadingPatternRaw = userDefaults.string(forKey: "debugLoadingPattern")
         let debugKeepCLISessionsAlive = userDefaults.object(forKey: "debugKeepCLISessionsAlive") as? Bool ?? false
         let statusChecksEnabled = userDefaults.object(forKey: "statusChecksEnabled") as? Bool ?? true
-        let sessionQuotaDefault = userDefaults.object(forKey: "sessionQuotaNotificationsEnabled") as? Bool
-        let sessionQuotaNotificationsEnabled = sessionQuotaDefault ?? true
-        if Self.isRunningTests, sessionQuotaDefault == nil {
-            userDefaults.set(true, forKey: "sessionQuotaNotificationsEnabled")
-        }
+        let sessionQuotaNotificationsEnabled = Self.loadSessionQuotaNotificationsDefault(userDefaults: userDefaults)
         let quotaWarnings = Self.loadQuotaWarningDefaults(userDefaults: userDefaults)
         let quotaWarningMarkersVisibleDefault = userDefaults.object(forKey: "quotaWarningMarkersVisible") as? Bool
         let quotaWarningMarkersVisible = quotaWarningMarkersVisibleDefault ?? true
@@ -608,6 +604,14 @@ extension SettingsStore {
         var weeklyEnabled: Bool
         var soundEnabled: Bool
         var onScreenAlertEnabled: Bool
+    }
+
+    private static func loadSessionQuotaNotificationsDefault(userDefaults: UserDefaults) -> Bool {
+        let stored = userDefaults.object(forKey: "sessionQuotaNotificationsEnabled") as? Bool
+        if Self.isRunningTests, stored == nil {
+            userDefaults.set(true, forKey: "sessionQuotaNotificationsEnabled")
+        }
+        return stored ?? true
     }
 
     private static func loadQuotaWarningDefaults(userDefaults: UserDefaults) -> LoadedQuotaWarningDefaults {
