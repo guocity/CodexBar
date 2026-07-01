@@ -53,13 +53,14 @@ public enum QoderCookieImporter {
         for browserSource in installedBrowsers {
             for site in QoderWebSite.allCases {
                 do {
-                    let query = BrowserCookieQuery(domains: site.cookieDomains)
+                    let query = Self.cookieQuery(for: site)
                     let sources = try Self.cookieClient.codexBarRecords(
                         matching: query,
                         in: browserSource,
                         logger: { msg in self.emit(msg, logger: logger) })
                     for source in sources where !source.records.isEmpty {
-                        let cookies = BrowserCookieClient.makeHTTPCookies(source.records, origin: query.origin)
+                        let records = self.records(source.records, for: site)
+                        let cookies = BrowserCookieClient.makeHTTPCookies(records, origin: query.origin)
                         guard !cookies.isEmpty else { continue }
                         self.emit("Found \(cookies.count) cookies in \(source.label)", logger: logger)
                         sessions.append(SessionInfo(cookies: cookies, sourceLabel: source.label, site: site))
@@ -77,6 +78,27 @@ public enum QoderCookieImporter {
             throw QoderUsageError.missingCredentials
         }
         return sessions
+    }
+
+    static func cookieQuery(for site: QoderWebSite) -> BrowserCookieQuery {
+        BrowserCookieQuery(domains: site.cookieDomains, domainMatch: .exact)
+    }
+
+    static func records(_ records: [BrowserCookieRecord], for site: QoderWebSite) -> [BrowserCookieRecord] {
+        records.filter { record in
+            self.cookieDomainMatchesSite(record.domain, site: site)
+        }
+    }
+
+    private static func cookieDomainMatchesSite(_ rawDomain: String, site: QoderWebSite) -> Bool {
+        let domain = self.normalizedCookieDomain(rawDomain)
+        return site.cookieDomains.contains { self.normalizedCookieDomain($0) == domain }
+    }
+
+    private static func normalizedCookieDomain(_ rawDomain: String) -> String {
+        let trimmed = rawDomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmed.hasPrefix(".") else { return trimmed }
+        return String(trimmed.dropFirst())
     }
 
     private static func emit(_ message: String, logger: ((String) -> Void)?) {

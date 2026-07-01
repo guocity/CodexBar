@@ -83,19 +83,33 @@ struct QoderWebFetchStrategy: ProviderFetchStrategy {
         var skippedSourceLabels = Set<String>()
         var allowCached = true
         var sawInvalidCredentials = false
-        var deferredError: Error?
+        var terminalNonAuthError: Error?
 
         while true {
-            guard let resolvedCookie = try self.cookieResolver(
-                context,
-                allowCached,
-                skippedSourceLabels)
-            else {
-                if sawInvalidCredentials {
-                    throw QoderUsageError.invalidCredentials
+            let resolvedCookie: QoderResolvedCookie
+            do {
+                guard let candidate = try self.cookieResolver(
+                    context,
+                    allowCached,
+                    skippedSourceLabels)
+                else {
+                    if let exhaustionError = Self.errorForExhaustion(
+                        terminalNonAuthError: terminalNonAuthError,
+                        sawInvalidCredentials: sawInvalidCredentials)
+                    {
+                        throw exhaustionError
+                    }
+                    throw QoderUsageError.missingCredentials
                 }
-                if let deferredError {
-                    throw deferredError
+                resolvedCookie = candidate
+            } catch QoderUsageError.missingCredentials
+                where terminalNonAuthError != nil || sawInvalidCredentials
+            {
+                if let exhaustionError = Self.errorForExhaustion(
+                    terminalNonAuthError: terminalNonAuthError,
+                    sawInvalidCredentials: sawInvalidCredentials)
+                {
+                    throw exhaustionError
                 }
                 throw QoderUsageError.missingCredentials
             }
@@ -112,12 +126,11 @@ struct QoderWebFetchStrategy: ProviderFetchStrategy {
                 throw CancellationError()
             } catch let fetchError {
                 guard shouldRetry else { throw fetchError }
-                if deferredError == nil {
-                    deferredError = fetchError
-                }
                 if case QoderUsageError.invalidCredentials = fetchError {
                     CookieHeaderCache.clear(provider: .qoder)
                     sawInvalidCredentials = true
+                } else {
+                    terminalNonAuthError = fetchError
                 }
                 if !resolvedCookie.isFromCache {
                     skippedSourceLabels.insert(resolvedCookie.sourceLabel)
@@ -126,6 +139,15 @@ struct QoderWebFetchStrategy: ProviderFetchStrategy {
                 continue
             }
         }
+    }
+
+    private static func errorForExhaustion(
+        terminalNonAuthError: Error?,
+        sawInvalidCredentials: Bool) -> Error?
+    {
+        if let terminalNonAuthError { return terminalNonAuthError }
+        if sawInvalidCredentials { return QoderUsageError.invalidCredentials }
+        return nil
     }
 
     static func resolveCookieHeader(
@@ -138,7 +160,7 @@ struct QoderWebFetchStrategy: ProviderFetchStrategy {
             guard let manual = CookieHeaderNormalizer.normalize(rawHeader) else {
                 throw QoderUsageError.missingCredentials
             }
-            for site in Self.sites(forManualCookieHeader: rawHeader) {
+            for site in try Self.sites(forManualCookieHeader: rawHeader) {
                 let sourceLabel = Self.sourceLabel(browserLabel: "manual", site: site)
                 guard Self.shouldUseSourceLabel(sourceLabel, skipping: skippingSourceLabels) else {
                     continue
@@ -188,24 +210,325 @@ struct QoderWebFetchStrategy: ProviderFetchStrategy {
         #endif
     }
 
-    static func site(forManualCookieHeader rawHeader: String?) -> QoderWebSite {
-        self.sites(forManualCookieHeader: rawHeader).first ?? .international
+    static func site(forManualCookieHeader rawHeader: String?) -> QoderWebSite? {
+        guard case let .site(site) = self.manualCookieRoute(rawHeader) else { return nil }
+        return site
     }
 
-    private static func sites(forManualCookieHeader rawHeader: String?) -> [QoderWebSite] {
-        let raw = rawHeader?.lowercased() ?? ""
-        let normalized = CookieHeaderNormalizer.normalize(rawHeader)?.lowercased() ?? ""
-        if raw.contains("qoder.com.cn") || normalized.contains("qoder.com.cn") {
-            return [.china]
+    private enum ManualCookieRoute {
+        case site(QoderWebSite)
+        case invalid
+    }
+
+    private static func sites(forManualCookieHeader rawHeader: String?) throws -> [QoderWebSite] {
+        switch self.manualCookieRoute(rawHeader) {
+        case let .site(site):
+            return [site]
+        case .invalid:
+            throw QoderUsageError.invalidCredentials
         }
-        if raw.contains("qoder.com") || normalized.contains("qoder.com") {
-            return [.international]
+    }
+
+    private static func manualCookieRoute(_ rawHeader: String?) -> ManualCookieRoute {
+        guard let rawHeader else { return .site(.international) }
+        if let curlRoute = self.curlRequestRoute(rawHeader) {
+            return curlRoute
         }
-        return [.international, .china]
+        if let httpRoute = self.httpRequestRoute(rawHeader) {
+            return httpRoute
+        }
+        return self.plainCookieRoute(rawHeader)
+    }
+
+    private static func plainCookieRoute(_ rawHeader: String) -> ManualCookieRoute {
+        var routedSite: QoderWebSite?
+        for part in rawHeader.split(separator: ";") {
+            let pieces = part.split(separator: "=", maxSplits: 1)
+            guard pieces.count == 2 else { continue }
+            let name = pieces[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard name == "domain" else { continue }
+            let value = pieces[1]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            guard let site = self.site(forHost: value) else {
+                return .invalid
+            }
+            if let routedSite, routedSite != site {
+                return .invalid
+            }
+            routedSite = site
+        }
+        return .site(routedSite ?? .international)
+    }
+
+    private static func httpRequestRoute(_ rawHeader: String) -> ManualCookieRoute? {
+        let supportedMethods = ["get", "post", "put", "patch", "delete", "head", "options"]
+        let unsupportedKnownMethods = ["trace", "connect"]
+        var requestSite: QoderWebSite?
+        var sawRequestLine = false
+
+        for line in rawHeader.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard parts.count >= 2 else {
+                continue
+            }
+            let method = String(parts[0]).lowercased()
+            let isHTTPVersionedLine = parts.count >= 3 && parts[2].lowercased().hasPrefix("http/")
+            if unsupportedKnownMethods.contains(method) ||
+                (isHTTPVersionedLine && self.isHTTPRequestMethodToken(String(parts[0])))
+            {
+                guard supportedMethods.contains(method) else { return .invalid }
+            } else if !supportedMethods.contains(method) {
+                continue
+            }
+
+            guard !sawRequestLine else { return .invalid }
+            sawRequestLine = true
+
+            let target = String(parts[1])
+            if target.hasPrefix("/") {
+                requestSite = nil
+            } else if let site = self.site(forURLText: target) {
+                requestSite = site
+            } else {
+                return .invalid
+            }
+        }
+
+        guard sawRequestLine else { return nil }
+        let hostHeaderSites = self.hostHeaderSites(rawHeader)
+        guard hostHeaderSites.allSatisfy({ $0 != nil }) else { return .invalid }
+        let concreteHostSites = hostHeaderSites.compactMap(\.self)
+        guard concreteHostSites.dropFirst().allSatisfy({ $0 == concreteHostSites.first }) else {
+            return .invalid
+        }
+
+        if let requestSite {
+            if let hostSite = concreteHostSites.first, hostSite != requestSite {
+                return .invalid
+            }
+            return .site(requestSite)
+        }
+        guard let hostSite = concreteHostSites.first else { return .invalid }
+        return .site(hostSite)
+    }
+
+    private static func curlRequestRoute(_ rawHeader: String) -> ManualCookieRoute? {
+        let tokens = self.shellTokens(rawHeader)
+        guard let curlIndex = self.curlCommandIndex(tokens) else {
+            if tokens.contains(where: self.isCurlExecutableToken) {
+                return .invalid
+            }
+            return nil
+        }
+
+        guard let explicitTargets = self.explicitCurlURLTargets(tokens, after: curlIndex),
+              let urlTargets = self.urlTokenTargets(tokens, after: curlIndex)
+        else {
+            return .invalid
+        }
+
+        let targetIndices = Set(explicitTargets.map(\.index)).union(urlTargets.map(\.index))
+        guard targetIndices.count == 1,
+              let targetIndex = targetIndices.first
+        else {
+            return .invalid
+        }
+        let trustedIndex = tokens.index(after: curlIndex)
+
+        if let explicitTarget = explicitTargets.first(where: { $0.index == targetIndex }) {
+            return .site(explicitTarget.site)
+        }
+        guard targetIndex == trustedIndex,
+              let trustedTarget = urlTargets.first(where: { $0.index == trustedIndex })
+        else {
+            return .invalid
+        }
+        return .site(trustedTarget.site)
+    }
+
+    private static func curlCommandIndex(_ tokens: [String]) -> Array<String>.Index? {
+        var index = tokens.startIndex
+        while index < tokens.endIndex, self.isShellAssignment(tokens[index]) {
+            index = tokens.index(after: index)
+        }
+        guard index < tokens.endIndex else { return nil }
+        guard self.isCurlExecutableToken(tokens[index]) else { return nil }
+        return index
+    }
+
+    private static func isCurlExecutableToken(_ token: String) -> Bool {
+        let executable = token.split(separator: "/").last.map(String.init) ?? token
+        return executable.lowercased() == "curl"
+    }
+
+    private static func isShellAssignment(_ token: String) -> Bool {
+        guard let equals = token.firstIndex(of: "="),
+              equals != token.startIndex
+        else {
+            return false
+        }
+        let name = token[..<equals]
+        guard let first = name.first,
+              first == "_" || first.isLetter
+        else {
+            return false
+        }
+        return name.allSatisfy { character in
+            character == "_" || character.isLetter || character.isNumber
+        }
+    }
+
+    private static func isHTTPRequestMethodToken(_ token: String) -> Bool {
+        guard !token.isEmpty else { return false }
+        return token.allSatisfy { character in
+            character.isASCII && character.isLetter
+        }
+    }
+
+    private static func explicitCurlURLTargets(
+        _ tokens: [String],
+        after curlIndex: Array<String>.Index) -> [(index: Array<String>.Index, site: QoderWebSite)]?
+    {
+        var targets: [(index: Array<String>.Index, site: QoderWebSite)] = []
+        var index = tokens.index(after: curlIndex)
+        while index < tokens.endIndex {
+            let token = tokens[index]
+            let lowercased = token.lowercased()
+            if lowercased == "--url" {
+                let valueIndex = tokens.index(after: index)
+                guard valueIndex < tokens.endIndex,
+                      let site = self.site(forURLText: tokens[valueIndex])
+                else {
+                    return nil
+                }
+                targets.append((valueIndex, site))
+                index = tokens.index(after: valueIndex)
+                continue
+            }
+            if lowercased.hasPrefix("--url=") {
+                guard let site = self.site(forURLText: String(token.dropFirst("--url=".count))) else {
+                    return nil
+                }
+                targets.append((index, site))
+            }
+            index = tokens.index(after: index)
+        }
+        return targets
+    }
+
+    private static func urlTokenTargets(
+        _ tokens: [String],
+        after curlIndex: Array<String>.Index) -> [(index: Array<String>.Index, site: QoderWebSite)]?
+    {
+        var targets: [(index: Array<String>.Index, site: QoderWebSite)] = []
+        var index = tokens.index(after: curlIndex)
+        while index < tokens.endIndex {
+            if let site = self.site(forURLText: tokens[index]) {
+                targets.append((index, site))
+            } else if self.host(forURLText: tokens[index]) != nil {
+                return nil
+            }
+            index = tokens.index(after: index)
+        }
+        return targets
+    }
+
+    private static func hostHeaderSites(_ rawHeader: String) -> [QoderWebSite?] {
+        var sites: [QoderWebSite?] = []
+        for line in rawHeader.split(whereSeparator: \.isNewline) {
+            let pieces = line.split(separator: ":", maxSplits: 1)
+            guard pieces.count == 2 else { continue }
+            let name = pieces[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard name == "host" else { continue }
+            sites.append(self.site(forHost: String(pieces[1])))
+        }
+        return sites
+    }
+
+    private static func host(forURLText text: String) -> String? {
+        let trimmed = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        let lowercased = trimmed.lowercased()
+        guard lowercased.hasPrefix("https://") || lowercased.hasPrefix("http://") else { return nil }
+        return URL(string: trimmed)?.host(percentEncoded: false)?.lowercased()
+    }
+
+    private static func site(forURLText text: String) -> QoderWebSite? {
+        guard let host = self.host(forURLText: text) else { return nil }
+        return self.site(forHost: host)
+    }
+
+    private static func site(forHost host: String) -> QoderWebSite? {
+        var normalized = String(host
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            .lowercased()
+            .trimmingPrefix("."))
+        if let portSeparator = normalized.lastIndex(of: ":") {
+            normalized = String(normalized[..<portSeparator])
+        }
+        switch normalized {
+        case "qoder.com", "www.qoder.com":
+            return .international
+        case "qoder.com.cn", "www.qoder.com.cn":
+            return .china
+        default:
+            return nil
+        }
+    }
+
+    private static func shellTokens(_ text: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        var isEscaped = false
+
+        for character in text {
+            if isEscaped {
+                current.append(character)
+                isEscaped = false
+                continue
+            }
+            if character == "\\" {
+                isEscaped = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "'" || character == "\"" {
+                quote = character
+                continue
+            }
+            if character.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current = ""
+                }
+                continue
+            }
+            current.append(character)
+        }
+
+        if isEscaped {
+            current.append("\\")
+        }
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
     }
 
     private static func shouldRetryManualCookieHeader(_ rawHeader: String?) -> Bool {
-        self.sites(forManualCookieHeader: rawHeader).count > 1
+        ((try? self.sites(forManualCookieHeader: rawHeader).count) ?? 0) > 1
     }
 
     private static func sourceLabel(browserLabel: String, site: QoderWebSite) -> String {

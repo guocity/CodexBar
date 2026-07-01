@@ -62,6 +62,15 @@ struct QoderUsageFetcherTests {
     }
 
     @Test
+    func `zero total without percentage is invalid`() {
+        #expect(throws: QoderUsageError.parseFailed("total quota must be positive")) {
+            try QoderUsageFetcher.parseUsage(
+                data: Data(Self.zeroTotalQuotaJSON.utf8),
+                now: Self.now)
+        }
+    }
+
+    @Test
     func `fetch sends documented Qoder headers`() async throws {
         let transport = ProviderHTTPTransportStub { request in
             #expect(request.httpMethod == "GET")
@@ -131,6 +140,12 @@ struct QoderUsageFetcherTests {
         await #expect(throws: QoderUsageError.invalidCredentials) {
             try await QoderUsageFetcher.fetchUsage(cookieHeader: "sid=expired", transport: transport)
         }
+    }
+
+    @Test
+    func `invalid credentials message is domain neutral`() {
+        #expect(QoderUsageError.invalidCredentials
+            .localizedDescription == "Qoder session is invalid or expired. Please sign in to Qoder again.")
     }
 
     @Test
@@ -221,6 +236,22 @@ struct QoderUsageFetcherTests {
           "usagePercentage": 20,
           "unit": "credit"
         }
+      }
+    }
+    """
+
+    private static let zeroTotalQuotaJSON = """
+    {
+      "userId": "redacted",
+      "quotaKey": "big_model_credits",
+      "totalQuota": {
+        "quotaSummary": {
+          "usedValue": 0,
+          "limitValue": 0,
+          "remainingValue": 0,
+          "unit": "credit"
+        },
+        "quotaDetail": []
       }
     }
     """

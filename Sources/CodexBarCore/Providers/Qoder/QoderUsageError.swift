@@ -19,7 +19,7 @@ public enum QoderUsageError: LocalizedError, Sendable, Equatable {
         case .missingCredentials:
             "Qoder session cookie not found. Sign in to qoder.com or qoder.com.cn in Chrome, or paste a Cookie header."
         case .invalidCredentials:
-            "Qoder session is invalid or expired. Please sign in to qoder.com again."
+            "Qoder session is invalid or expired. Please sign in to Qoder again."
         case let .apiError(status):
             "Qoder API returned HTTP \(status)."
         case let .parseFailed(message):

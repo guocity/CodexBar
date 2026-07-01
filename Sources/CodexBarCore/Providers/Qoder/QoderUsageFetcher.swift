@@ -106,7 +106,7 @@ public enum QoderUsageFetcher {
             throw QoderUsageError.parseFailed("missing totalQuota.quotaSummary")
         }
 
-        let merged = Self.mergedQuota(
+        let merged = try Self.mergedQuota(
             base: summary,
             shared: response.sharedQuota?.quotaSummary)
 
@@ -130,14 +130,17 @@ public enum QoderUsageFetcher {
 
     private static func mergedQuota(
         base: QoderQuotaSummary,
-        shared: QoderQuotaSummary?) -> MergedQuota
+        shared: QoderQuotaSummary?) throws -> MergedQuota
     {
         let baseUsed = base.usedValue
         let baseTotal = base.limitValue
         let baseRemaining = base.remainingValue ?? max(0, baseTotal - baseUsed)
 
         guard let shared else {
-            let percentage = base.usagePercentage ?? (baseTotal > 0 ? (baseUsed / baseTotal) * 100 : 0)
+            guard baseTotal > 0 else {
+                throw QoderUsageError.parseFailed("total quota must be positive")
+            }
+            let percentage = base.usagePercentage ?? (baseUsed / baseTotal) * 100
             return MergedQuota(
                 usedCredits: baseUsed,
                 totalCredits: baseTotal,
@@ -151,8 +154,11 @@ public enum QoderUsageFetcher {
         let sharedRemaining = shared.remainingValue ?? max(0, sharedTotal - sharedUsed)
         let used = baseUsed + sharedUsed
         let total = baseTotal + sharedTotal
+        guard total > 0 else {
+            throw QoderUsageError.parseFailed("total quota must be positive")
+        }
         let remaining = baseRemaining + sharedRemaining
-        let percentage = total > 0 ? (used / total) * 100 : 0
+        let percentage = (used / total) * 100
         return MergedQuota(
             usedCredits: used,
             totalCredits: total,
