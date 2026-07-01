@@ -359,7 +359,11 @@ extension UsageStore {
         context: LimitResetDetectionContext,
         samples: [PlanUtilizationSeriesSample])
     {
-        let sessionObservation: LimitResetObservation? = if context.provider == .codex {
+        let shouldIgnoreCommandCode = context.provider == .commandcode
+            && context.snapshot.commandCodeSubscriptionEnrichmentUnavailable
+        let sessionObservation: LimitResetObservation? = if shouldIgnoreCommandCode {
+            nil
+        } else if context.provider == .codex {
             samples.last(where: { $0.name == .session }).map {
                 LimitResetObservation(
                     usedPercent: $0.entry.usedPercent,

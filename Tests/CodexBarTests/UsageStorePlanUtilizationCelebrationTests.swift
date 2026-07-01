@@ -615,6 +615,50 @@ extension UsageStorePlanUtilizationTests {
 
     @MainActor
     @Test
+    func `session quota celebration ignores command code subscription enrichment failure`() async {
+        let store = Self.makeStore()
+        let recorder = SessionLimitResetEventRecorder(provider: .commandcode, accountLabel: nil)
+        defer { recorder.invalidate() }
+
+        func snapshot(usedPercent: Double, enrichmentUnavailable: Bool, updatedAt: Date) -> UsageSnapshot {
+            UsageSnapshot(
+                primary: RateWindow(
+                    usedPercent: usedPercent,
+                    windowMinutes: 300,
+                    resetsAt: nil,
+                    resetDescription: nil),
+                secondary: nil,
+                commandCodeSubscriptionEnrichmentUnavailable: enrichmentUnavailable,
+                updatedAt: updatedAt)
+        }
+
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let before = snapshot(usedPercent: 80, enrichmentUnavailable: false, updatedAt: firstDate)
+        let failedEnrichment = snapshot(
+            usedPercent: 0,
+            enrichmentUnavailable: true,
+            updatedAt: firstDate.addingTimeInterval(3600))
+        let validReset = snapshot(
+            usedPercent: 0,
+            enrichmentUnavailable: false,
+            updatedAt: firstDate.addingTimeInterval(7200))
+
+        await store.recordPlanUtilizationHistorySample(provider: .commandcode, snapshot: before, now: before.updatedAt)
+        await store.recordPlanUtilizationHistorySample(
+            provider: .commandcode,
+            snapshot: failedEnrichment,
+            now: failedEnrichment.updatedAt)
+        #expect(recorder.events.isEmpty)
+
+        await store.recordPlanUtilizationHistorySample(
+            provider: .commandcode,
+            snapshot: validReset,
+            now: validReset.updatedAt)
+        #expect(recorder.events.count == 1)
+    }
+
+    @MainActor
+    @Test
     func `session quota celebration does not infer arbitrary secondary session lane`() async {
         let store = Self.makeStore()
         let recorder = SessionLimitResetEventRecorder(provider: .zai, accountLabel: nil)
