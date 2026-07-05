@@ -41,7 +41,7 @@ extension StatusItemController {
         let visibleDetailLines = Self.costMenuVisibleDetailLines(
             tokenUsage: model.tokenUsage,
             hasSubmenu: submenu != nil)
-        guard self.menuCardRenderingEnabledForController else {
+        guard visibleDetailLines.isEmpty == false, self.menuCardRenderingEnabledForController else {
             return Self.makeNativeCostMenuCardItem(
                 visibleDetailLines: visibleDetailLines,
                 tooltipLines: tooltipLines,
@@ -74,7 +74,11 @@ extension StatusItemController {
         item.isEnabled = true
         item.representedObject = "menuCardCost"
         item.submenu = submenu
-        item.toolTip = tooltipLines.joined(separator: "\n")
+        // Submenu cost rows already show these details; keep tooltips only for inline rows
+        // where they reveal truncated text and avoid flashes during in-place menu refreshes.
+        if submenu == nil {
+            item.toolTip = tooltipLines.joined(separator: "\n")
+        }
         if #available(macOS 14.4, *) {
             item.subtitle = visibleDetailLines.joined(separator: "\n")
         } else if !visibleDetailLines.isEmpty {
@@ -84,14 +88,14 @@ extension StatusItemController {
     }
 
     static func costMenuTooltipLines(tokenUsage: UsageMenuCardView.Model.TokenUsageSection?) -> [String] {
-        [
+        let lines = [
             tokenUsage?.sessionLine,
             tokenUsage?.monthLine,
-            tokenUsage?.hintLine,
-            tokenUsage?.errorLine,
         ]
             .compactMap(\.self)
-            .filter { !$0.isEmpty }
+            + (tokenUsage?.comparisonLines ?? [])
+            + [tokenUsage?.hintLine, tokenUsage?.errorLine].compactMap(\.self)
+        return lines.filter { !$0.isEmpty }
     }
 
     static func costMenuVisibleDetailLines(
@@ -99,12 +103,13 @@ extension StatusItemController {
         hasSubmenu: Bool) -> [String]
     {
         guard !hasSubmenu else { return [] }
-        let primaryLines = [
+        let primaryLines = ([
             tokenUsage?.sessionLine,
             tokenUsage?.monthLine,
-            tokenUsage?.errorLine,
         ]
             .compactMap(\.self)
+            + (tokenUsage?.comparisonLines ?? [])
+            + [tokenUsage?.errorLine].compactMap(\.self))
             .filter { !$0.isEmpty }
         guard primaryLines.isEmpty else { return primaryLines }
         return [tokenUsage?.hintLine]

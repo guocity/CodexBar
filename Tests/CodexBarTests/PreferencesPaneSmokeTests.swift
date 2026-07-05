@@ -11,12 +11,13 @@ struct PreferencesPaneSmokeTests {
         let settings = Self.makeSettingsStore(suite: "PreferencesPaneSmokeTests-default")
         let store = Self.makeUsageStore(settings: settings)
 
-        _ = GeneralPane(settings: settings, store: store).body
+        _ = GeneralPane(settings: settings).body
         _ = DisplayPane(settings: settings, store: store).body
-        _ = AdvancedPane(settings: settings).body
+        _ = AdvancedPane(settings: settings, store: store).body
         _ = ProvidersPane(settings: settings, store: store).body
         _ = DebugPane(settings: settings, store: store).body
         _ = AboutPane(updater: DisabledUpdaterController()).body
+        _ = SettingsSidebarView(settings: settings, store: store, selection: .constant(.general)).body
 
         settings.debugDisableKeychainAccess = false
     }
@@ -29,6 +30,8 @@ struct PreferencesPaneSmokeTests {
         settings.multiAccountMenuLayout = .stacked
         settings.hidePersonalInfo = true
         settings.resetTimesShowAbsolute = true
+        settings.costUsageEnabled = true
+        settings.costComparisonPeriodsEnabled = true
         settings.debugDisableKeychainAccess = true
         settings.claudeOAuthKeychainPromptMode = .always
         settings.refreshFrequency = .manual
@@ -36,12 +39,13 @@ struct PreferencesPaneSmokeTests {
         let store = Self.makeUsageStore(settings: settings)
         store._setErrorForTesting("Example error", provider: .codex)
 
-        _ = GeneralPane(settings: settings, store: store).body
+        _ = GeneralPane(settings: settings).body
         _ = DisplayPane(settings: settings, store: store).body
-        _ = AdvancedPane(settings: settings).body
-        _ = ProvidersPane(settings: settings, store: store).body
+        _ = AdvancedPane(settings: settings, store: store).body
+        _ = ProvidersPane(provider: .claude, settings: settings, store: store).body
         _ = DebugPane(settings: settings, store: store).body
         _ = AboutPane(updater: DisabledUpdaterController()).body
+        _ = SettingsSidebarView(settings: settings, store: store, selection: .constant(.provider(.codex))).body
     }
 
     @Test
@@ -109,6 +113,38 @@ struct PreferencesPaneSmokeTests {
             #expect(L("start_at_login_title") == "Mulai saat Login")
             #expect(L("quit_app") == "Keluar CodexBar")
         }
+    }
+
+    @Test
+    func `language preference clears stale app level AppleLanguages override`() {
+        let previousLanguage = UserDefaults.standard.object(forKey: "appLanguage")
+        let previousAppleLanguages = UserDefaults.standard.object(forKey: "AppleLanguages")
+        defer {
+            if let previousLanguage {
+                UserDefaults.standard.set(previousLanguage, forKey: "appLanguage")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "appLanguage")
+            }
+            if let previousAppleLanguages {
+                UserDefaults.standard.set(previousAppleLanguages, forKey: "AppleLanguages")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+            }
+        }
+
+        let staleOverride = ["zz-StaleLanguageOverride"]
+        UserDefaults.standard.set(staleOverride, forKey: "AppleLanguages")
+
+        let settings = Self.makeSettingsStore(suite: "PreferencesPaneSmokeTests-language-system")
+        settings.appLanguage = "ko"
+
+        #expect(UserDefaults.standard.string(forKey: "appLanguage") == "ko")
+        #expect(UserDefaults.standard.object(forKey: "AppleLanguages") as? [String] != staleOverride)
+
+        settings.appLanguage = ""
+
+        #expect(UserDefaults.standard.object(forKey: "appLanguage") == nil)
+        #expect(UserDefaults.standard.object(forKey: "AppleLanguages") as? [String] != staleOverride)
     }
 
     @Test

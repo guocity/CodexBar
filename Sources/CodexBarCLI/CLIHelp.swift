@@ -60,7 +60,7 @@ extension CodexBarCLI {
                        [--json-only]
                        [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>] [-v|--verbose]
                        [--provider \(ProviderHelp.list)]
-                       [--no-color] [--pretty] [--refresh]
+                       [--no-color] [--pretty] [--refresh] [--days <days>] [--group-by project]
 
         Description:
           Print local token cost usage from Claude/Codex native logs plus supported pi sessions.
@@ -68,6 +68,7 @@ extension CodexBarCLI {
 
         Examples:
           codexbar cost
+          codexbar cost --provider codex --group-by project
           codexbar cost --provider claude --format json --pretty
         """
     }
@@ -122,6 +123,8 @@ extension CodexBarCLI {
           codexbar config enable --provider <name> [--format text|json] [--json] [--json-only] [--pretty]
           codexbar config disable --provider <name> [--format text|json] [--json] [--json-only] [--pretty]
           codexbar config set-api-key --provider <name> (--api-key <key>|--stdin)
+                                    [--label <label>] [--usage-scope team]
+                                    [--organization-id <org>] [--workspace-id <project>]
                                     [--no-enable]
                                     [--format text|json] [--json] [--json-only] [--pretty]
 
@@ -130,6 +133,8 @@ extension CodexBarCLI {
           providers lists persistent provider enablement.
           enable/disable updates the same provider toggle used by Settings.
           set-api-key stores a provider API key in the resolved config file and enables that provider by default.
+          For z.ai team usage, add --usage-scope team with BigModel organization and project IDs; this stores
+          the key as a token account instead of a provider-level personal key.
 
         Examples:
           codexbar config validate --format json --pretty
@@ -138,6 +143,8 @@ extension CodexBarCLI {
           codexbar config enable --provider grok
           codexbar config disable --provider cursor
           printf '%s' "$ELEVENLABS_API_KEY" | codexbar config set-api-key --provider elevenlabs --stdin
+          printf '%s' "$Z_AI_API_KEY" | codexbar config set-api-key --provider zai --stdin \\
+            --label Team --usage-scope team --organization-id org_... --workspace-id proj_...
         """
     }
 
@@ -177,6 +184,7 @@ extension CodexBarCLI {
           codexbar diagnose --provider <name|all> --format json
                            [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
                            [-v|--verbose]
+                           [--redact] [--output <path>]
                            [--pretty]
 
         Description:
@@ -185,6 +193,7 @@ extension CodexBarCLI {
           account IDs, org IDs, raw responses, and billing-history records.
 
         Examples:
+          codexbar diagnose --provider minimax --format json --redact --output diagnostic.json
           codexbar diagnose --provider minimax --format json --pretty
           codexbar diagnose --provider claude --format json --pretty
           codexbar diagnose --provider all --format json
@@ -209,6 +218,7 @@ extension CodexBarCLI {
                        [--json-only]
                        [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>] [-v|--verbose]
                        [--provider \(ProviderHelp.list)] [--no-color] [--pretty] [--refresh]
+                       [--days <days>] [--group-by project]
           codexbar serve [--port <port>] [--refresh-interval <seconds>]
                        [--request-timeout <seconds>]
                        [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>] [-v|--verbose]
@@ -221,8 +231,10 @@ extension CodexBarCLI {
           codexbar config enable --provider <name>
           codexbar config disable --provider <name>
           codexbar config set-api-key --provider <name> (--api-key <key>|--stdin)
+          codexbar config set-api-key --provider zai --stdin --usage-scope team
+                                   --organization-id <org> --workspace-id <project>
           codexbar cache clear <--cookies|--cost|--all> [--provider <name>]
-          codexbar diagnose --provider <name|all> --format json [--pretty]
+          codexbar diagnose --provider <name|all> --format json [--redact] [--output <path>] [--pretty]
 
         Global flags:
           -h, --help      Show help
@@ -243,6 +255,7 @@ extension CodexBarCLI {
           codexbar config enable --provider grok
           codexbar config set-api-key --provider elevenlabs --stdin
           codexbar cache clear --cookies
+          codexbar diagnose --provider minimax --format json --redact --output diagnostic.json
           codexbar diagnose --provider minimax --format json --pretty
           codexbar diagnose --provider all --format json
         """

@@ -35,6 +35,7 @@ struct CodexAccountUsageSnapshot: Identifiable {
 
 extension UsageStore {
     func activateCachedTokenAccountSnapshot(provider: UsageProvider, accountID: UUID) {
+        self.knownLimitsAvailabilityByProvider.removeValue(forKey: provider)
         guard let cached = self.accountSnapshots[provider]?.first(where: { $0.account.id == accountID }) else {
             self.snapshots.removeValue(forKey: provider)
             self.errors.removeValue(forKey: provider)
@@ -504,7 +505,7 @@ extension UsageStore {
         return false
     }
 
-    private static func errorIsCancellation(_ error: any Error) -> Bool {
+    nonisolated static func errorIsCancellation(_ error: any Error) -> Bool {
         if error is CancellationError {
             return true
         }
@@ -566,7 +567,12 @@ extension UsageStore {
             provider: provider,
             override: override,
             codexActiveSourceOverride: codexActiveSourceOverride)
-        return await descriptor.fetchOutcome(context: context)
+        let outcome = await descriptor.fetchOutcome(context: context)
+        guard provider == .codex else { return outcome }
+        return await Self.attachingCodexResetCreditsIfNeeded(
+            to: outcome,
+            env: context.env,
+            fetcher: self.codexResetCreditsFetcher())
     }
 
     private func fetchTokenAccountOutcomes(
@@ -611,6 +617,7 @@ extension UsageStore {
 
     private func fetchCodexVisibleAccountOutcomes(_ accounts: [CodexVisibleAccount]) async
     -> [CodexAccountFetchResult] {
+        let resetCreditsFetcher = self.codexResetCreditsFetcher()
         let requests: [(
             index: Int,
             account: CodexVisibleAccount,
@@ -632,7 +639,11 @@ extension UsageStore {
         { group in
             for request in requests {
                 group.addTask {
-                    let outcome = await request.descriptor.fetchOutcome(context: request.context)
+                    let baseOutcome = await request.descriptor.fetchOutcome(context: request.context)
+                    let outcome = await Self.attachingCodexResetCreditsIfNeeded(
+                        to: baseOutcome,
+                        env: request.context.env,
+                        fetcher: resetCreditsFetcher)
                     return CodexAccountFetchResult(
                         index: request.index,
                         account: request.account,
@@ -714,7 +725,7 @@ extension UsageStore {
             costUsageHistoryDays: self.settings.costUsageHistoryDays,
             persistsCLISessions: true,
             persistentCLISessionIdleWindow: ProviderRegistry.persistentCLISessionIdleWindow(
-                refreshInterval: self.settings.refreshFrequency.seconds))
+                refreshInterval: self.normalRefreshIntervalForHeuristics()))
     }
 
     func sourceMode(for provider: UsageProvider) -> ProviderSourceMode {
@@ -1185,6 +1196,7 @@ extension UsageStore {
         switch outcome.result {
         case .success:
             guard let snapshot else { return }
+            self.handleCodexResetCreditNotifications(snapshot: snapshot)
             self.handleSessionQuotaTransition(provider: .codex, snapshot: snapshot)
             self.lastKnownResetSnapshots[.codex] = snapshot
             self.lastCodexAccountScopedRefreshGuard = Self.codexScopedRefreshGuard(for: account)
@@ -1248,6 +1260,7 @@ extension UsageStore {
                 self.snapshots[provider] = backfilled
                 self.lastSourceLabels[provider] = result.sourceLabel
                 self.errors[provider] = nil
+                self.knownLimitsAvailabilityByProvider.removeValue(forKey: provider)
                 self.failureGates[provider]?.recordSuccess()
                 return backfilled
             }
@@ -1258,6 +1271,7 @@ extension UsageStore {
                 account: account)
         case let .failure(error):
             await MainActor.run {
+                self.knownLimitsAvailabilityByProvider.removeValue(forKey: provider)
                 guard let message = self.tokenAccountErrorMessage(error) else {
                     self.errors[provider] = nil
                     return

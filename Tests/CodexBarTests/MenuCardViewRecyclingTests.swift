@@ -139,7 +139,7 @@ extension StatusMenuTests {
 
         let menu = NSMenu()
         let usageHistoryItem = controller.makeMenuCardItem(
-            Text("Subscription Utilization"),
+            Text("Plan Usage"),
             id: "usageHistorySubmenu",
             width: StatusItemController.menuCardBaseWidth)
         menu.addItem(usageHistoryItem)
@@ -632,6 +632,25 @@ extension StatusMenuTests {
     }
 
     @Test
+    func `recycled card clears button role when click action is removed`() {
+        let highlightState = MenuCardHighlightState()
+        let hosting = MenuCardItemHostingView(
+            rootView: Text("clickable"),
+            highlightState: highlightState,
+            allowsMenuHighlight: true,
+            onClick: {})
+
+        #expect(hosting.accessibilityRole() == .button)
+
+        hosting.prepareForReuse(
+            rootView: Text("informational"),
+            allowsMenuHighlight: false,
+            onClick: nil)
+
+        #expect(hosting.accessibilityRole() == .group)
+    }
+
+    @Test
     func `harvesting a highlighted card clears its highlight and tracking entry`() {
         StatusItemController.setMenuRefreshEnabledForTesting(false)
         let previousRendering = StatusItemController.menuCardRenderingEnabled
@@ -693,5 +712,44 @@ extension StatusMenuTests {
         #expect(rebuilt.view !== originalView)
         // The incompatible pool entry is consumed rather than left behind.
         #expect(controller.menuCardViewRecyclePool.isEmpty)
+    }
+
+    @Test
+    func `gpu selection highlight bypasses swiftui highlight state`() {
+        StatusItemController.setMenuRefreshEnabledForTesting(false)
+        let previousRendering = StatusItemController.menuCardRenderingEnabled
+        StatusItemController.menuCardRenderingEnabled = true
+        defer { StatusItemController.menuCardRenderingEnabled = previousRendering }
+
+        let settings = self.makeSettings()
+        settings.statusChecksEnabled = false
+        let controller = self.makeRecyclingController(settings: settings)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let menu = NSMenu()
+        let item = controller.makeMenuCardItem(
+            Text("Overview row"),
+            id: "overview-gpu",
+            width: 300,
+            submenu: NSMenu(),
+            usesGPUSelection: true,
+            onClick: {})
+        menu.addItem(item)
+
+        guard let gpuView = item.view as? GPUSelectionHostingView<Text>
+        else {
+            Issue.record("expected a GPU selection hosting view")
+            return
+        }
+
+        // The menu highlights the AppKit row, but the hosted SwiftUI highlight state must stay false
+        // so selection never re-invalidates the SwiftUI graph.
+        controller.menu(menu, willHighlight: item)
+        #expect(gpuView.isHighlightedForTesting)
+        #expect(!gpuView.swiftUIHighlightStateIsHighlightedForTesting)
+
+        controller.menu(menu, willHighlight: nil)
+        #expect(!gpuView.isHighlightedForTesting)
+        #expect(!gpuView.swiftUIHighlightStateIsHighlightedForTesting)
     }
 }

@@ -39,6 +39,16 @@ function tokenSignature(value) {
   return { printf, swift: swiftInterpolationTokens(value).sort() };
 }
 
+function formatKeyList(keys, limit = 12) {
+  const shown = keys.slice(0, limit).join(", ");
+  const remaining = keys.length - limit;
+  return remaining > 0 ? `${shown}, ... +${remaining} more` : shown;
+}
+
+function blankKeys(catalog, referenceKeys) {
+  return referenceKeys.filter((key) => Object.hasOwn(catalog, key) && !catalog[key]?.trim());
+}
+
 function swiftInterpolationTokens(value) {
   const tokens = [];
   for (let index = 0; index < value.length - 1; index += 1) {
@@ -71,6 +81,15 @@ if (isTest) {
     tokenSignature("\\(self.store.metadata(for: self.provider).displayName) failed"),
     tokenSignature("\\(self.store.metadata(for: self.provider) failed"),
     "truncated Swift interpolation");
+  assertEqual(formatKeyList(["alpha", "beta"]), "alpha, beta", "short key list");
+  assertEqual(
+    formatKeyList(["alpha", "beta", "gamma", "delta"], 2),
+    "alpha, beta, ... +2 more",
+    "truncated key list");
+  assertEqual(
+    blankKeys({ alpha: "", beta: "  ", gamma: "ok" }, ["alpha", "beta", "gamma", "delta"]),
+    ["alpha", "beta"],
+    "blank keys");
   console.log("app locale checker tests OK");
   process.exit(0);
 }
@@ -95,15 +114,18 @@ for (const directory of fs.readdirSync(resources).filter((name) => name.endsWith
 
   checkedCount++;
   const catalogKeys = Object.keys(catalog);
+  const emptyKeys = blankKeys(catalog, englishKeys);
 
   // 1. Missing keys
   const missingKeys = englishKeys.filter((key) => !catalogKeys.includes(key));
   if (missingKeys.length > 0) {
+    const missingKeyList = formatKeyList(missingKeys);
     if (strictLocales.includes(locale)) {
-      console.error(`\x1b[31m[${locale}] Error: Missing ${missingKeys.length} keys in strict locale.\x1b[0m`);
+      console.error(
+        `\x1b[31m[${locale}] Error: Missing ${missingKeys.length} keys in strict locale: ${missingKeyList}.\x1b[0m`);
       hasErrors = true;
     } else {
-      console.warn(`\x1b[33m[${locale}] Warning: Missing ${missingKeys.length} keys.\x1b[0m`);
+      console.warn(`\x1b[33m[${locale}] Warning: Missing ${missingKeys.length} keys: ${missingKeyList}.\x1b[0m`);
     }
   }
 
@@ -121,15 +143,17 @@ for (const directory of fs.readdirSync(resources).filter((name) => name.endsWith
     }
   }
 
+  if (emptyKeys.length > 0) {
+    console.error(
+      `\x1b[31m[${locale}] Error: Blank values for ${emptyKeys.length} keys: ${formatKeyList(emptyKeys)}.\x1b[0m`);
+    hasErrors = true;
+  }
+
   // 2. Identical values count
   let identicalCount = 0;
 
   for (const key of englishKeys) {
     if (!catalog[key]?.trim()) {
-      if (strictLocales.includes(locale) && catalogKeys.includes(key)) {
-        console.error(`\x1b[31m[${locale}] Error: Blank value for strict locale key "${key}".\x1b[0m`);
-        hasErrors = true;
-      }
       continue;
     }
 

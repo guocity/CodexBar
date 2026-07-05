@@ -21,6 +21,26 @@ assert_gate() {
     printf '%s: expected macos-tests=%s, got %s\n' "$name" "$expected" "${actual:-<empty>}" >&2
     exit 1
   fi
+
+  local reason
+  reason="$(sed -n 's/^macos-tests-reason=//p' "$output_file")"
+  if [[ -z "$reason" ]]; then
+    printf '%s: expected macos-tests-reason output\n' "$name" >&2
+    exit 1
+  fi
+
+  local path_count
+  path_count="$(sed -n 's/^changed-path-count=//p' "$output_file")"
+  if ! [[ "$path_count" =~ ^[0-9]+$ ]]; then
+    printf '%s: expected numeric changed-path-count output, got %s\n' \
+      "$name" "${path_count:-<empty>}" >&2
+    exit 1
+  fi
+
+  if [[ "$expected" == false && "$reason" != "docs/site-only changes covered by portable checks" ]]; then
+    printf '%s: expected docs/site skip reason, got %s\n' "$name" "$reason" >&2
+    exit 1
+  fi
 }
 
 assert_gate false docs-only $'M\tdocs/providers.md' $'M\tREADME.md'
@@ -31,10 +51,16 @@ assert_gate true agents-contract $'M\tAGENTS.md'
 assert_gate true rename-to-agents-contract $'R100\tdocs/old.md\tAGENTS.md'
 assert_gate true rename-from-agents-contract $'R100\tAGENTS.md\tdocs/new.md'
 assert_gate true source $'M\tSources/CodexBar/App.swift'
-assert_gate true docs-code $'M\tdocs/site.js'
+assert_gate false docs-site $'M\tdocs/index.html' $'M\tdocs/site.css' $'M\tdocs/site.js' \
+  $'M\tdocs/site-locales.mjs' $'M\tdocs/social.html' $'M\tdocs/social.png' \
+  $'M\tdocs/CNAME' $'M\tdocs/.nojekyll' $'M\tdocs/llms.txt'
+assert_gate false docs-site-assets $'M\tdocs/icon.png' $'M\tdocs/logos/provider-logo.svg'
+assert_gate true docs-unknown-code $'M\tdocs/custom-tool.js'
+assert_gate true docs-site-with-config $'M\tdocs/site.css' $'M\tdocs/configuration.md'
 assert_gate true empty
 assert_gate true source-to-docs $'R100\tSources/CodexBar/App.swift\tdocs/App.md'
 assert_gate true docs-to-source $'R100\tdocs/App.md\tSources/CodexBar/App.swift'
+assert_gate false docs-to-site $'R100\tdocs/old.md\tdocs/site.css'
 
 assert_gate_fails() {
   local name="$1"

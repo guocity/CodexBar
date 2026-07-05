@@ -35,6 +35,7 @@ struct ProviderDiagnosticExportTests {
 
         #expect(json.contains("\"provider\""))
         #expect(json.contains("\"openai\""))
+        #expect(json.contains("\"platform\""))
         #expect(json.contains("\"auth\""))
         #expect(json.contains("\"dataConfidence\""))
         #expect(json.contains("\"unknown\""))
@@ -45,6 +46,35 @@ struct ProviderDiagnosticExportTests {
         #expect(!json.contains("raw local text"))
         #expect(!json.contains("errorMessage"))
         #expect(!json.contains("localizedDescription"))
+    }
+
+    @Test
+    func `diagnostic export decodes legacy schema without platform metadata`() throws {
+        let export = ProviderDiagnosticExport(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            provider: "openai",
+            displayName: "OpenAI",
+            source: "api",
+            sourceMode: "auto",
+            auth: ProviderDiagnosticAuthSummary(configured: true, modes: ["api"]),
+            usage: nil,
+            fetchAttempts: [],
+            error: nil,
+            settings: ProviderDiagnosticSettingsSummary(sourceMode: .auto),
+            details: nil)
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: Data(self.json(export).utf8)) as? [String: Any])
+        object.removeValue(forKey: "platform")
+        object.removeValue(forKey: "appVersion")
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(
+            ProviderDiagnosticExport.self,
+            from: JSONSerialization.data(withJSONObject: object))
+
+        #expect(decoded.platform == ProviderDiagnosticPlatform.current)
+        #expect(decoded.appVersion == nil)
     }
 
     @Test
@@ -127,6 +157,24 @@ struct ProviderDiagnosticExportTests {
             dataConfidence: .exact))
 
         #expect(summary.dataConfidence == "exact")
+    }
+
+    @Test
+    func `diagnostic usage summary includes CrossModel data`() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let usage = CrossModelUsageSnapshot(
+            currency: "USD",
+            balance: 8.06,
+            uncollected: 0,
+            daily: nil,
+            weekly: nil,
+            monthly: nil,
+            updatedAt: now).toUsageSnapshot()
+
+        let summary = ProviderDiagnosticUsageSummary(from: usage)
+
+        #expect(summary.windows.isEmpty)
+        #expect(summary.providerSpecificData == ["crossModelUsage"])
     }
 
     @Test
@@ -478,9 +526,12 @@ struct ProviderDiagnosticExportTests {
             outcome: outcome,
             sourceMode: .auto,
             settings: nil,
-            auth: ProviderDiagnosticAuthSummary(configured: true, modes: ["apiToken"])))
+            auth: ProviderDiagnosticAuthSummary(configured: true, modes: ["apiToken"]),
+            appVersion: "9.8.7"))
 
         #expect(diag.provider == "minimax")
+        #expect(diag.platform == ProviderDiagnosticPlatform.current)
+        #expect(diag.appVersion == "9.8.7")
         #expect(diag.source == "failed")
         #expect(diag.auth.configured == true)
         #expect(diag.usage == nil)
