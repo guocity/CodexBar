@@ -40,7 +40,7 @@ struct MenuDescriptor {
         case openTerminal = "terminal"
         case loginToProvider = "arrow.right.square"
         case settings = "gearshape"
-        case stats = "chart.xyaxis.line"
+        case stats = "chart.bar.xaxis"
         case about = "info.circle"
         case quit = "xmark.rectangle"
         case copyError = "doc.on.doc"

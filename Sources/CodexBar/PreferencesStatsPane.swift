@@ -1,5 +1,6 @@
 import AppKit
 import CodexBarCore
+import Combine
 import SwiftUI
 
 // MARK: - Stats settings pane
