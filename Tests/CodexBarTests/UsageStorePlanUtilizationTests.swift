@@ -1097,13 +1097,16 @@ struct UsageStorePlanUtilizationTests {
 
         let histories = store.planUtilizationHistory(for: .zai)
         #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.map(\.usedPercent) == [42, 58])
+        #expect(findSeries(histories, name: .session, windowMinutes: 300) == nil)
 
         let providerURL = try #require(store.planUtilizationHistoryStore.directoryURL?
             .appendingPathComponent("zai.json", isDirectory: false))
         var persistedBuckets: PlanUtilizationHistoryBuckets?
         for _ in 0..<20 {
             persistedBuckets = store.planUtilizationHistoryStore.load()[.zai]
-            if persistedBuckets?.histories(for: persistedBuckets?.preferredAccountKey).flatMap(\.entries).count == 2 {
+            let weeklyEntries = persistedBuckets?.histories(for: persistedBuckets?.preferredAccountKey)
+                .first { $0.name == .weekly }?.entries.count
+            if weeklyEntries == 2 {
                 break
             }
             try await Task.sleep(nanoseconds: 50_000_000)
@@ -1111,8 +1114,7 @@ struct UsageStorePlanUtilizationTests {
         #expect(FileManager.default.fileExists(atPath: providerURL.path))
         let persisted = try #require(persistedBuckets)
         #expect(persisted.histories(for: persisted.preferredAccountKey)
-            .flatMap(\.entries)
-            .map(\.usedPercent) == [42, 58])
+            .first { $0.name == .weekly }?.entries.map(\.usedPercent) == [42, 58])
     }
 
     @MainActor
@@ -1490,75 +1492,6 @@ func findSeries(
     windowMinutes: Int) -> PlanUtilizationSeriesHistory?
 {
     histories.first { $0.name == name && $0.windowMinutes == windowMinutes }
-}
-
-private final class WeeklyLimitResetEventRecorder: @unchecked Sendable {
-    struct Event {
-        let provider: UsageProvider
-        let accountLabel: String?
-        let usedPercent: Double
-    }
-
-    private let provider: UsageProvider
-    private let accountLabel: String?
-    private let lock = NSLock()
-    private var observedEvents: [Event] = []
-    private var token: NSObjectProtocol?
-
-    init(provider: UsageProvider, accountLabel: String?) {
-        self.provider = provider
-        self.accountLabel = accountLabel
-        self.token = NotificationCenter.default.addObserver(
-            forName: .codexbarWeeklyLimitReset,
-            object: nil,
-            queue: nil)
-        { [weak self] notification in
-            guard let self,
-                  let event = notification.object as? WeeklyLimitResetEvent
-            else {
-                return
-            }
-
-            let recorded = MainActor.assumeIsolated { () -> Event? in
-                guard event.provider == self.provider,
-                      event.accountLabel == self.accountLabel
-                else {
-                    return nil
-                }
-                return Event(
-                    provider: event.provider,
-                    accountLabel: event.accountLabel,
-                    usedPercent: event.usedPercent)
-            }
-            guard let recorded else { return }
-
-            self.lock.lock()
-            self.observedEvents.append(recorded)
-            self.lock.unlock()
-        }
-    }
-
-    var events: [Event] {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        return self.observedEvents
-    }
-
-    var count: Int {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        return self.observedEvents.count
-    }
-
-    func invalidate() {
-        guard let token else { return }
-        NotificationCenter.default.removeObserver(token)
-        self.token = nil
-    }
-
-    deinit {
-        self.invalidate()
-    }
 }
 
 func formattedBoundary(_ date: Date) -> String {
