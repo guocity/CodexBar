@@ -82,6 +82,18 @@ extension UsageStore {
         }
     }
 
+    /// Fingerprint of the Cursor account behind auto/cached cookie resolution, derived from the
+    /// latest status snapshot's identity (via an in-process hash, never the raw email). Used in the
+    /// cost cache scope so a silent account switch invalidates the TTL.
+    nonisolated static func cursorAutoIdentityFingerprint(_ snapshot: UsageSnapshot?) -> String {
+        guard let email = snapshot?.identity?.accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !email.isEmpty
+        else {
+            return "none"
+        }
+        return "\(email.lowercased().hashValue)"
+    }
+
     nonisolated static func tokenCostRequiresProviderSnapshot(_ provider: UsageProvider) -> Bool {
         switch provider {
         case .mistral, .openai:

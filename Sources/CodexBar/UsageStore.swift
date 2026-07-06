@@ -1561,7 +1561,12 @@ extension UsageStore {
         } else if let override = cursorCookieHeaderOverride {
             "|cursorCookie=manual:\(override.hashValue)"
         } else {
-            "|cursorCookie=\(cursorCookieSource.rawValue)"
+            // Auto/cached resolution can silently switch Cursor accounts (e.g. the old cookie is
+            // rejected and a status refresh imports a new browser session). Fold the resolved
+            // account identity into the scope so an account change invalidates the TTL instead of
+            // returning the previous account's cost snapshot.
+            "|cursorCookie=\(cursorCookieSource.rawValue):" +
+                Self.cursorAutoIdentityFingerprint(self.snapshots[.cursor])
         }
         let costScopeSignature =
             "\(costScope.signature)|historyDays=\(historyDays)\(cursorScopeSuffix)"

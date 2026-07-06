@@ -67,6 +67,34 @@ struct UsageStoreCoverageTests {
     }
 
     @Test
+    func `cursor auto identity fingerprint tracks the resolved account`() {
+        func snapshot(email: String?) -> UsageSnapshot {
+            UsageSnapshot(
+                primary: RateWindow(usedPercent: 10, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
+                secondary: nil,
+                updatedAt: Date(),
+                identity: ProviderIdentitySnapshot(
+                    providerID: .cursor,
+                    accountEmail: email,
+                    accountOrganization: nil,
+                    loginMethod: nil))
+        }
+
+        // No snapshot or no resolved account: a stable sentinel, so the scope stays cacheable.
+        #expect(UsageStore.cursorAutoIdentityFingerprint(nil) == "none")
+        #expect(UsageStore.cursorAutoIdentityFingerprint(snapshot(email: nil)) == "none")
+        #expect(UsageStore.cursorAutoIdentityFingerprint(snapshot(email: "  ")) == "none")
+
+        // Same account (modulo case/whitespace) keeps the fingerprint; a different account changes
+        // it, which is what invalidates the cost TTL after a silent session switch.
+        let first = UsageStore.cursorAutoIdentityFingerprint(snapshot(email: "a@example.com"))
+        #expect(first == UsageStore.cursorAutoIdentityFingerprint(snapshot(email: " A@Example.com ")))
+        #expect(first != UsageStore.cursorAutoIdentityFingerprint(snapshot(email: "b@example.com")))
+        // The raw email must never leak into the scope signature.
+        #expect(!first.contains("example.com"))
+    }
+
+    @Test
     func `source label adds open AI web`() {
         let settings = Self.makeSettingsStore(suite: "UsageStoreCoverageTests-source")
         settings.debugDisableKeychainAccess = false
