@@ -7,6 +7,7 @@
 #   Scripts/fork-release.sh --skip-notarize # signed-only local test build
 #   Scripts/fork-release.sh --skip-build    # reuse the CodexBar.app already on disk (no rebuild)
 #   Scripts/fork-release.sh --draft         # create the GitHub release as a draft
+#   Scripts/fork-release.sh --appcast-only  # re-sign + publish appcast for version.env (no rebuild)
 #
 # --skip-build packages whatever CodexBar.app is already built (e.g. from `make start`) and
 # publishes it as-is — no rebuild and no notarization. Use it to release exactly what you just
@@ -31,11 +32,13 @@ source "$ROOT/Scripts/release_artifacts.sh"
 SKIP_NOTARIZE=0
 SKIP_BUILD=0
 DRAFT=0
+APPCAST_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --skip-notarize) SKIP_NOTARIZE=1 ;;
     --skip-build) SKIP_BUILD=1 ;;
     --draft) DRAFT=1 ;;
+    --appcast-only) APPCAST_ONLY=1; SKIP_BUILD=1 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
@@ -71,13 +74,65 @@ fi
 ZIP_NAME=$(codexbar_app_zip_name "$VERSION" "$ARCHES_VALUE")
 DSYM_ZIP=$(codexbar_dsym_zip_name "$VERSION" "$ARCHES_VALUE")
 
+codexbar_resolve_sign_update_tool() {
+  find "$ROOT/.build/artifacts/sparkle" -name sign_update -type f 2>/dev/null | head -1
+}
+
+codexbar_sparkle_sign_args() {
+  if [[ -n "${CODEXBAR_SPARKLE_PRIVATE_KEY_FILE:-}" ]]; then
+    [[ -f "$CODEXBAR_SPARKLE_PRIVATE_KEY_FILE" ]] || {
+      echo "Missing Sparkle private key file: $CODEXBAR_SPARKLE_PRIVATE_KEY_FILE" >&2
+      exit 1
+    }
+    printf '%s\n' --ed-key-file "$CODEXBAR_SPARKLE_PRIVATE_KEY_FILE"
+  fi
+}
+
+codexbar_require_sparkle_signing_key() {
+  local sign_tool probe
+  sign_tool=$(codexbar_resolve_sign_update_tool)
+  [[ -n "$sign_tool" ]] || sign_tool=$(find "$ROOT/.build" -name sign_update -type f -path '*sparkle*' 2>/dev/null | head -1 || true)
+  [[ -n "$sign_tool" ]] || {
+    echo "Could not find Sparkle sign_update tool. Run: swift build -c release" >&2
+    exit 1
+  }
+  probe=$(mktemp "${TMPDIR:-/tmp}/codexbar-sparkle-probe.XXXXXX")
+  printf 'probe' >"$probe"
+  if ! SIG_OUT=$("$sign_tool" $(codexbar_sparkle_sign_args) -p "$probe" 2>&1); then
+    rm -f "$probe"
+    cat <<EOF >&2
+ERROR: Sparkle signing key is not available.
+
+Your app expects SUPublicEDKey=$CODEXBAR_SU_PUBLIC_ED_KEY
+but sign_update could not sign with a matching private key:
+$SIG_OUT
+
+Fix one of:
+  1. Export the matching private key to a file and set in .fork-release.env:
+       CODEXBAR_SPARKLE_PRIVATE_KEY_FILE=/path/to/ed25519-private-key
+  2. Import the private key into your login Keychain with Sparkle generate_keys
+  3. If the private key is lost, generate a new pair, update CODEXBAR_SU_PUBLIC_ED_KEY,
+     rebuild CodexBar.app, and have users reinstall once before auto-update works again.
+EOF
+    exit 1
+  fi
+  rm -f "$probe"
+}
+
 # Resolve the Sparkle sign_update tool (present after a build).
-SIGN_TOOL=$(find "$ROOT/.build/artifacts/sparkle" -name sign_update -type f 2>/dev/null | head -1 || true)
+SIGN_TOOL=$(codexbar_resolve_sign_update_tool || true)
 
 echo "==> Fork release $TAG → $CODEXBAR_FORK_REPO (arches: $ARCHES_VALUE)"
+codexbar_require_sparkle_signing_key
 
 # 1. Build + sign (+ notarize) — or reuse the app already on disk.
-if [[ "$SKIP_BUILD" == "1" ]]; then
+if [[ "$APPCAST_ONLY" == "1" ]]; then
+  echo "==> Appcast-only mode (no rebuild)"
+  if [[ ! -f "$ZIP_NAME" ]]; then
+    echo "    local zip missing — downloading from GitHub release $TAG"
+    gh release download "$TAG" --repo "$CODEXBAR_FORK_REPO" --pattern "$ZIP_NAME" --clobber
+  fi
+elif [[ "$SKIP_BUILD" == "1" ]]; then
   echo "==> Reusing existing CodexBar.app (no rebuild, no notarization) — publishing it as-is"
   /usr/bin/ditto --norsrc -c -k --keepParent CodexBar.app "$ZIP_NAME"
 elif [[ "$SKIP_NOTARIZE" == "1" ]]; then
@@ -93,14 +148,26 @@ fi
 
 [[ -f "$ZIP_NAME" ]] || { echo "Expected build artifact missing: $ZIP_NAME" >&2; exit 1; }
 
-# 2. Sparkle signature for the zip (uses the private key in your Keychain).
+# 2. Sparkle signature for the zip (Keychain or CODEXBAR_SPARKLE_PRIVATE_KEY_FILE).
 [[ -n "$SIGN_TOOL" ]] || SIGN_TOOL=$(find "$ROOT/.build" -name sign_update -type f -path '*sparkle*' 2>/dev/null | head -1 || true)
 [[ -n "$SIGN_TOOL" ]] || { echo "Could not find Sparkle sign_update tool under .build" >&2; exit 1; }
 echo "==> Signing update with your Sparkle key"
-SIG_LINE=$("$SIGN_TOOL" "$ZIP_NAME")
+SIGN_ARGS=()
+while IFS= read -r sign_arg; do
+  SIGN_ARGS+=("$sign_arg")
+done < <(codexbar_sparkle_sign_args)
+if ! SIG_LINE=$("$SIGN_TOOL" "${SIGN_ARGS[@]}" "$ZIP_NAME" 2>&1); then
+  echo "$SIG_LINE" >&2
+  echo "ERROR: sign_update failed — private key does not match CODEXBAR_SU_PUBLIC_ED_KEY?" >&2
+  exit 1
+fi
 ED_SIG=$(printf '%s' "$SIG_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
 LENGTH=$(printf '%s' "$SIG_LINE" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
 [[ -n "$ED_SIG" && -n "$LENGTH" ]] || { echo "Failed to parse sign_update output: $SIG_LINE" >&2; exit 1; }
+if ! "$SIGN_TOOL" "${SIGN_ARGS[@]}" --verify "$ZIP_NAME" "$ED_SIG" >/dev/null; then
+  echo "ERROR: signed zip failed local Sparkle verification" >&2
+  exit 1
+fi
 
 # 3. Release notes from the top CHANGELOG section.
 NOTES_MD=$(awk '/^## /{c++} c==1{print} c==2{exit}' CHANGELOG.md | sed '1d')
@@ -121,20 +188,22 @@ print("\n".join(out))')
 PUBDATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
 DOWNLOAD_URL="https://github.com/$CODEXBAR_FORK_REPO/releases/download/$TAG/$ZIP_NAME"
 
-# 4. Publish the GitHub release with assets.
-echo "==> Publishing GitHub release $TAG"
-ASSETS=("$ZIP_NAME")
-[[ -f "$DSYM_ZIP" ]] && ASSETS+=("$DSYM_ZIP")
-if gh release view "$TAG" --repo "$CODEXBAR_FORK_REPO" >/dev/null 2>&1; then
-  echo "    release exists — uploading/clobbering assets"
-  gh release upload "$TAG" "${ASSETS[@]}" --repo "$CODEXBAR_FORK_REPO" --clobber
-else
-  DRAFT_FLAG=()
-  [[ "$DRAFT" == "1" ]] && DRAFT_FLAG=(--draft)
-  # macOS ships bash 3.2, where "${arr[@]}" on an empty array trips `set -u`
-  # ("unbound variable"). The ${arr[@]+...} guard expands to nothing when empty.
-  printf '%s\n' "$NOTES_MD" | gh release create "$TAG" "${ASSETS[@]}" \
-    --repo "$CODEXBAR_FORK_REPO" --title "CodexBar $VERSION" --notes-file - "${DRAFT_FLAG[@]+"${DRAFT_FLAG[@]}"}"
+# 4. Publish the GitHub release with assets (skip when only refreshing appcast).
+if [[ "$APPCAST_ONLY" != "1" ]]; then
+  echo "==> Publishing GitHub release $TAG"
+  ASSETS=("$ZIP_NAME")
+  [[ -f "$DSYM_ZIP" ]] && ASSETS+=("$DSYM_ZIP")
+  if gh release view "$TAG" --repo "$CODEXBAR_FORK_REPO" >/dev/null 2>&1; then
+    echo "    release exists — uploading/clobbering assets"
+    gh release upload "$TAG" "${ASSETS[@]}" --repo "$CODEXBAR_FORK_REPO" --clobber
+  else
+    DRAFT_FLAG=()
+    [[ "$DRAFT" == "1" ]] && DRAFT_FLAG=(--draft)
+    # macOS ships bash 3.2, where "${arr[@]}" on an empty array trips `set -u`
+    # ("unbound variable"). The ${arr[@]+...} guard expands to nothing when empty.
+    printf '%s\n' "$NOTES_MD" | gh release create "$TAG" "${ASSETS[@]}" \
+      --repo "$CODEXBAR_FORK_REPO" --title "CodexBar $VERSION" --notes-file - "${DRAFT_FLAG[@]+"${DRAFT_FLAG[@]}"}"
+  fi
 fi
 
 # 5. Generate appcast.xml (single latest entry — all Sparkle needs to offer an update).
@@ -179,6 +248,12 @@ gh api --method PUT "repos/$CODEXBAR_FORK_REPO/contents/appcast.xml" \
   "${SHA_ARGS[@]+"${SHA_ARGS[@]}"}" \
   -f "content=$APPCAST_B64" \
   --jq '"    committed " + .commit.sha[0:7] + " to main"'
+
+echo "==> Verifying published feed"
+if ! "$ROOT/Scripts/check-fork-sparkle-feed.sh"; then
+  echo "ERROR: published appcast still looks wrong — see messages above" >&2
+  exit 1
+fi
 
 cat <<DONE
 
