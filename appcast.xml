@@ -7,7 +7,7 @@
     <language>en</language>
     <item>
       <title>CodexBar 0.41.0</title>
-      <pubDate>Tue, 07 Jul 2026 04:28:52 +0000</pubDate>
+      <pubDate>Tue, 07 Jul 2026 04:56:33 +0000</pubDate>
       <sparkle:version>100</sparkle:version>
       <sparkle:shortVersionString>0.41.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
@@ -44,7 +44,7 @@
 <li>Menu bar: detect Tahoe&#x27;s blocked no-window state at startup when macOS still records the icon as enabled, so affected users receive recovery guidance instead of a silently missing icon (#1945). Thanks @mmyyfirstb!</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.41.0/CodexBar-macos-universal-0.41.0.zip" sparkle:edSignature="JKsVCoYmU391uhxVlmxtLVsF2W2+zK43QjD8+n4K4H0AN3+nKnMvXIJix28j2bEW6i8NoSVRhrsFuTfWnWOcDg==" length="44650365" type="application/octet-stream" />
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.41.0/CodexBar-macos-universal-0.41.0.zip" sparkle:edSignature="jvn4Z0JPI/asK0I/ikDzP4NKCDeOyaEqF240CtKsqlc5kkEWFURsqnqYctzLM4km2HXRo+hdSSMy8WlqNgXeCw==" length="44649304" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
