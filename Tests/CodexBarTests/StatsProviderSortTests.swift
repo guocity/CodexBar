@@ -142,4 +142,151 @@ struct StatsProviderSortTests {
         #expect(historical.count == 1)
         #expect(historical[0].date == self.now.addingTimeInterval(-3600))
     }
+
+    @Test
+    func `session window emits at most one historical reset within five hours`() {
+        let pastResets = (1...4).map { hour in
+            self.now.addingTimeInterval(TimeInterval(-hour * 3600))
+        }
+        let entries = pastResets.enumerated().map { index, reset in
+            StatsEntry(
+                capturedAt: self.now.addingTimeInterval(TimeInterval(-(4 - index) * 3600)),
+                usedPercent: 10,
+                resetsAt: reset)
+        } + [StatsEntry(
+            capturedAt: self.now.addingTimeInterval(-60),
+            usedPercent: 10,
+            resetsAt: self.now.addingTimeInterval(3600))]
+        let provider = StatsProvider(
+            id: "codex",
+            name: "Codex",
+            baseColor: .systemGreen,
+            windows: [StatsWindow(
+                name: "primary",
+                displayName: "Session",
+                windowMinutes: 300,
+                entries: entries)])
+        let historical = statsHistoricalResets([provider], before: self.now)
+        #expect(historical.count == 1)
+        #expect(historical[0].date == pastResets[0])
+    }
+
+    @Test
+    func `session window keeps separate historical resets five hours apart`() {
+        let entries = [
+            StatsEntry(
+                capturedAt: self.now.addingTimeInterval(-11 * 3600),
+                usedPercent: 20,
+                resetsAt: self.now.addingTimeInterval(-10 * 3600)),
+            StatsEntry(
+                capturedAt: self.now.addingTimeInterval(-6 * 3600),
+                usedPercent: 15,
+                resetsAt: self.now.addingTimeInterval(-5 * 3600)),
+            StatsEntry(
+                capturedAt: self.now.addingTimeInterval(-60),
+                usedPercent: 10,
+                resetsAt: self.now.addingTimeInterval(3600)),
+        ]
+        let provider = StatsProvider(
+            id: "codex",
+            name: "Codex",
+            baseColor: .systemGreen,
+            windows: [StatsWindow(
+                name: "primary",
+                displayName: "Session",
+                windowMinutes: 300,
+                entries: entries)])
+        let historical = statsHistoricalResets([provider], before: self.now)
+        #expect(historical.count == 2)
+        #expect(historical.map(\.date) == [
+            self.now.addingTimeInterval(-10 * 3600),
+            self.now.addingTimeInterval(-5 * 3600),
+        ])
+    }
+
+    @Test
+    func `coalescing helper collapses drift samples inside one window span`() {
+        let fiveHours = TimeInterval(300 * 60)
+        let base = self.now.addingTimeInterval(-fiveHours)
+        let drifted = (0..<6).map { offset in
+            base.addingTimeInterval(TimeInterval(offset * 600))
+        }
+        let coalesced = statsCoalescedResetDates(drifted, windowMinutes: 300)
+        #expect(coalesced == [base])
+    }
+
+    @Test
+    func `stats history freezes reset boundary when usage is zero`() {
+        let frozen = Date(timeIntervalSince1970: 1_700_010_000)
+        let drifted = Date(timeIntervalSince1970: 1_700_020_000)
+        let prior = [
+            StatsEntry(capturedAt: self.now.addingTimeInterval(-120), usedPercent: 0, resetsAt: frozen),
+        ]
+        #expect(statsRecordedResetBoundary(usedPercent: 0, liveReset: drifted, priorEntries: prior) == frozen)
+        #expect(statsRecordedResetBoundary(usedPercent: 5, liveReset: drifted, priorEntries: prior) == drifted)
+    }
+
+    @Test
+    func `upcoming reset ignores zero usage drift from history polls`() {
+        let window = StatsWindow(
+            name: "primary",
+            displayName: "Session",
+            windowMinutes: 300,
+            entries: [
+                StatsEntry(
+                    capturedAt: self.now.addingTimeInterval(-3600),
+                    usedPercent: 20,
+                    resetsAt: self.now.addingTimeInterval(3600)),
+                StatsEntry(
+                    capturedAt: self.now.addingTimeInterval(-60),
+                    usedPercent: 0,
+                    resetsAt: self.now.addingTimeInterval(7200)),
+            ])
+        #expect(statsUpcomingReset(window, from: self.now) == self.now.addingTimeInterval(3600))
+    }
+
+    @Test
+    func `unused antigravity quota pools do not emit phantom historical reset lines`() {
+        let pastResets = (1...4).map { offset in
+            self.now.addingTimeInterval(TimeInterval(-offset * 3600))
+        }
+        func zeroPool(id: String, displayName: String, windowMinutes: Int) -> StatsWindow {
+            let entries = pastResets.enumerated().map { index, reset in
+                StatsEntry(
+                    capturedAt: self.now.addingTimeInterval(TimeInterval(-(4 - index) * 3600)),
+                    usedPercent: 0,
+                    resetsAt: reset)
+            } + [StatsEntry(
+                capturedAt: self.now.addingTimeInterval(-60),
+                usedPercent: 0,
+                resetsAt: self.now.addingTimeInterval(3600))]
+            return StatsWindow(
+                name: id,
+                displayName: displayName,
+                windowMinutes: windowMinutes,
+                entries: entries)
+        }
+        let provider = StatsProvider(
+            id: "antigravity",
+            name: "Antigravity",
+            baseColor: .systemPurple,
+            windows: [
+                zeroPool(id: "antigravity-quota-summary-gemini-5h", displayName: "Gemini 5-hour", windowMinutes: 300),
+                zeroPool(id: "antigravity-quota-summary-gemini-weekly", displayName: "Gemini weekly", windowMinutes: 10080),
+                zeroPool(id: "antigravity-quota-summary-3p-5h", displayName: "Claude/GPT 5-hour", windowMinutes: 300),
+                zeroPool(id: "antigravity-quota-summary-3p-weekly", displayName: "Claude/GPT weekly", windowMinutes: 10080),
+            ])
+        let historical = statsHistoricalResets([provider], before: self.now)
+        #expect(historical.isEmpty)
+    }
+
+    @Test
+    func `antigravity quota pool history names match recorder slugs`() {
+        #expect(StatsUsage.antigravityHistoryNameForTests(
+            title: "Gemini 5-hour",
+            id: "antigravity-quota-summary-gemini-5h") == "gemini-5-hour")
+        #expect(StatsUsage.antigravityHistoryNameForTests(
+            title: "Claude/GPT weekly",
+            id: "antigravity-quota-summary-3p-weekly") == "claude-gpt-weekly")
+    }
 }

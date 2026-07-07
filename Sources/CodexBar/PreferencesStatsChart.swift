@@ -144,11 +144,12 @@ final class StatsMultiLineChart: NSView {
             let hasUsage = points.contains { $0.value > 0.5 }
             var resetTimes: [TimeInterval] = []
             if hasUsage {
-                resetTimes = self.historicalResets
+                var resetDates = self.historicalResets
                     .filter { $0.providerId == series.providerId && $0.windowName == series.windowName }
-                    .map { $0.date.timeIntervalSince1970 }
-                if let upcoming = series.upcomingReset { resetTimes.append(upcoming.timeIntervalSince1970) }
-                resetTimes.sort()
+                    .map(\.date)
+                if let upcoming = series.upcomingReset { resetDates.append(upcoming) }
+                resetTimes = statsCoalescedResetDates(resetDates, windowMinutes: series.windowMinutes)
+                    .map(\.timeIntervalSince1970)
             }
             return (series, points, resetTimes)
         }
@@ -465,7 +466,12 @@ final class StatsMultiLineChart: NSView {
         self.resetMarkers.removeAll()
         let nowX = min(max(xFor(nowTS), chartRect.minX), chartRect.maxX)
 
+        let usageSeriesKeys = Set(
+            self.preparedSeries
+                .filter { $0.points.contains { $0.value > 0.5 } }
+                .map { "\($0.series.providerId)\u{1f}\($0.series.windowName)" })
         for reset in self.historicalResets {
+            guard usageSeriesKeys.contains("\(reset.providerId)\u{1f}\(reset.windowName)") else { continue }
             let ts = reset.date.timeIntervalSince1970
             guard ts >= tMin, ts <= tMax else { continue }
             let x = xFor(ts)
@@ -488,7 +494,9 @@ final class StatsMultiLineChart: NSView {
         }
 
         var drawnResetMinutes = Set<Int>()
-        for series in self.series {
+        for prepared in self.preparedSeries {
+            let series = prepared.series
+            guard prepared.points.contains(where: { $0.value > 0.5 }) else { continue }
             guard let reset = series.upcomingReset else { continue }
             let ts = reset.timeIntervalSince1970
             guard ts >= tMin, ts <= tMax else { continue }

@@ -279,7 +279,10 @@ struct StatsUsage {
                 entries.append(StatsEntry(
                     capturedAt: updatedAt,
                     usedPercent: max(0, min(100, snap.usedPercent)),
-                    resetsAt: snap.resetsAt))
+                    resetsAt: statsRecordedResetBoundary(
+                        usedPercent: snap.usedPercent,
+                        liveReset: snap.resetsAt,
+                        priorEntries: entries)))
             }
             windows.append(StatsWindow(
                 name: snap.id,
@@ -301,12 +304,20 @@ struct StatsUsage {
     }
 
     private static func entries(_ entries: [PlanUtilizationHistoryEntry]) -> [StatsEntry] {
-        entries
-            .map { StatsEntry(
-                capturedAt: $0.capturedAt,
-                usedPercent: max(0, min(100, $0.usedPercent)),
-                resetsAt: $0.resetsAt) }
-            .sorted { $0.capturedAt < $1.capturedAt }
+        let sorted = entries.sorted { $0.capturedAt < $1.capturedAt }
+        var result: [StatsEntry] = []
+        result.reserveCapacity(sorted.count)
+        for entry in sorted {
+            let usedPercent = max(0, min(100, entry.usedPercent))
+            result.append(StatsEntry(
+                capturedAt: entry.capturedAt,
+                usedPercent: usedPercent,
+                resetsAt: statsRecordedResetBoundary(
+                    usedPercent: usedPercent,
+                    liveReset: entry.resetsAt,
+                    priorEntries: result)))
+        }
+        return result
     }
 
     private static func seriesID(_ history: PlanUtilizationSeriesHistory) -> String {
@@ -406,13 +417,42 @@ struct StatsUsage {
         defaultWindowMinutes: Int = 0) -> SnapshotWindow
     {
         let minutes = named.window.windowMinutes ?? defaultWindowMinutes
+        let historyName = Self.isAntigravityQuotaSummaryWindow(named.id)
+            ? Self.antigravityHistoryName(for: named)
+            : Self.genericHistoryName(windowMinutes: minutes)
         return SnapshotWindow(
             id: named.id,
             title: named.title,
             windowMinutes: minutes,
             usedPercent: named.window.usedPercent,
             resetsAt: named.window.resetsAt,
-            historyName: Self.genericHistoryName(windowMinutes: minutes))
+            historyName: historyName)
+    }
+
+    private static func isAntigravityQuotaSummaryWindow(_ id: String) -> Bool {
+        id.hasPrefix("antigravity-quota-summary-")
+    }
+
+    /// Matches `UsageStore.antigravitySeriesName(for:)` so each quota pool attaches its own history.
+    private static func antigravityHistoryName(for named: NamedRateWindow) -> String {
+        let slug = Self.seriesSlug(named.title)
+        return slug.isEmpty ? named.id : slug
+    }
+
+    /// Lowercases `raw` and collapses every run of non-alphanumeric characters into a single dash.
+    private static func seriesSlug(_ raw: String) -> String {
+        var result = ""
+        var pendingDash = false
+        for character in raw.lowercased() {
+            if character.isLetter || character.isNumber {
+                if pendingDash, !result.isEmpty { result.append("-") }
+                pendingDash = false
+                result.append(character)
+            } else {
+                pendingDash = true
+            }
+        }
+        return result
     }
 
     /// The series name the recorder assigns. Codex/Claude (and Copilot) record by role
@@ -450,11 +490,31 @@ struct StatsUsage {
     }
 }
 
+extension StatsUsage {
+    /// Test seam: Antigravity quota pools must map onto the same series slugs the recorder uses.
+    internal static func antigravityHistoryNameForTests(title: String, id: String) -> String {
+        Self.antigravityHistoryName(for: NamedRateWindow(
+            id: id,
+            title: title,
+            window: RateWindow(usedPercent: 0, windowMinutes: 300, resetsAt: nil, resetDescription: nil)))
+    }
+}
+
 // MARK: - Reset / formatting helpers
 
-/// The next reset for a window: the furthest `resetsAt` still in the future, else `nil` (inactive).
+/// The next reset for a window: the furthest `resetsAt` still in the future from a usage-bearing
+/// reading, else `nil`. At 0% the live API keeps rolling `resetsAt` forward on every poll — ignore
+/// that drift and do not treat it as an active upcoming reset.
 func statsUpcomingReset(_ window: StatsWindow, from now: Date) -> Date? {
-    let future = window.entries.compactMap(\.resetsAt).filter { $0 > now }
+    let resetSources: [StatsEntry]
+    if let latest = window.latest, latest.usedPercent > 0.5 {
+        resetSources = window.entries
+    } else if let lastUsed = window.entries.last(where: { $0.usedPercent > 0.5 }) {
+        resetSources = [lastUsed]
+    } else {
+        return nil
+    }
+    let future = resetSources.compactMap(\.resetsAt).filter { $0 > now }
     return future.max()
 }
 
@@ -500,6 +560,34 @@ func statsWindowHasRecordedUsage(_ window: StatsWindow) -> Bool {
     window.entries.contains { $0.usedPercent > 0.5 }
 }
 
+/// Mirrors `UsageStore` history recording: at 0% the live API keeps nudging `resetsAt` forward,
+/// but the stored series must keep the last boundary instead.
+func statsRecordedResetBoundary(
+    usedPercent: Double,
+    liveReset: Date?,
+    priorEntries: [StatsEntry]) -> Date?
+{
+    if usedPercent > 0.5 {
+        return liveReset
+    }
+    return priorEntries.last?.resetsAt ?? liveReset
+}
+
+/// At most one reset marker per quota-window length. Frequent polls nudge `resetsAt` slightly, so
+/// without spacing every sampled boundary becomes its own stripe (especially on Codex's ~5h session).
+func statsCoalescedResetDates(_ dates: [Date], windowMinutes: Int) -> [Date] {
+    guard windowMinutes > 0 else { return dates.sorted() }
+    let minSpacing = TimeInterval(windowMinutes * 60)
+    var result: [Date] = []
+    for date in dates.sorted() {
+        if let last = result.last, date.timeIntervalSince(last) < minSpacing {
+            continue
+        }
+        result.append(date)
+    }
+    return result
+}
+
 /// Past reset boundaries per provider+window, for the thin historical marker lines.
 func statsHistoricalResets(_ providers: [StatsProvider], before now: Date) -> [StatsHistoricalReset] {
     var result: [StatsHistoricalReset] = []
@@ -507,10 +595,8 @@ func statsHistoricalResets(_ providers: [StatsProvider], before now: Date) -> [S
         for (index, window) in provider.windows.enumerated() {
             guard statsWindowHasRecordedUsage(window) else { continue }
             let color = provider.color(forWindowIndex: index)
-            var seen = Set<Int>()
-            for date in window.entries.compactMap(\.resetsAt) where date <= now {
-                let key = Int(date.timeIntervalSince1970.rounded())
-                guard seen.insert(key).inserted else { continue }
+            let pastDates = window.entries.compactMap(\.resetsAt).filter { $0 <= now }
+            for date in statsCoalescedResetDates(pastDates, windowMinutes: window.windowMinutes) {
                 result.append(StatsHistoricalReset(
                     date: date, color: color, providerId: provider.id, windowName: window.name,
                     name: "\(provider.name) \(window.displayName)"))
