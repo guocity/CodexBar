@@ -77,4 +77,69 @@ struct StatsProviderSortTests {
         let sorted = statsSortedProviders(providers, mode: .weeklyReset, now: self.now)
         #expect(sorted.map(\.id) == ["b", "a"])
     }
+
+    @Test
+    func `zero usage window has no recorded usage`() {
+        let window = StatsWindow(
+            name: "primary",
+            displayName: "Session",
+            windowMinutes: 300,
+            entries: [
+                StatsEntry(capturedAt: self.now.addingTimeInterval(-3600), usedPercent: 0, resetsAt: self.now.addingTimeInterval(-1800)),
+                StatsEntry(capturedAt: self.now.addingTimeInterval(-60), usedPercent: 0, resetsAt: self.now.addingTimeInterval(3600)),
+            ])
+        #expect(!statsWindowHasRecordedUsage(window))
+    }
+
+    @Test
+    func `unused provider does not emit phantom historical reset lines`() {
+        let pastResets = (1...5).map { offset in
+            self.now.addingTimeInterval(TimeInterval(-offset * 3600))
+        }
+        let entries = pastResets.enumerated().map { index, reset in
+            StatsEntry(
+                capturedAt: self.now.addingTimeInterval(TimeInterval(-(5 - index) * 3600)),
+                usedPercent: 0,
+                resetsAt: reset)
+        } + [StatsEntry(
+            capturedAt: self.now.addingTimeInterval(-60),
+            usedPercent: 0,
+            resetsAt: self.now.addingTimeInterval(3600))]
+        let provider = StatsProvider(
+            id: "codex",
+            name: "Codex",
+            baseColor: .systemGreen,
+            windows: [StatsWindow(
+                name: "primary",
+                displayName: "Session",
+                windowMinutes: 300,
+                entries: entries)])
+        let historical = statsHistoricalResets([provider], before: self.now)
+        #expect(historical.isEmpty)
+    }
+
+    @Test
+    func `used provider still emits historical reset lines`() {
+        let provider = StatsProvider(
+            id: "codex",
+            name: "Codex",
+            baseColor: .systemGreen,
+            windows: [StatsWindow(
+                name: "primary",
+                displayName: "Session",
+                windowMinutes: 300,
+                entries: [
+                    StatsEntry(
+                        capturedAt: self.now.addingTimeInterval(-7200),
+                        usedPercent: 40,
+                        resetsAt: self.now.addingTimeInterval(-3600)),
+                    StatsEntry(
+                        capturedAt: self.now.addingTimeInterval(-60),
+                        usedPercent: 10,
+                        resetsAt: self.now.addingTimeInterval(3600)),
+                ])])
+        let historical = statsHistoricalResets([provider], before: self.now)
+        #expect(historical.count == 1)
+        #expect(historical[0].date == self.now.addingTimeInterval(-3600))
+    }
 }

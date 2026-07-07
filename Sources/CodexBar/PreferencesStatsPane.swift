@@ -494,11 +494,18 @@ func statsSortedProviders(_ providers: [StatsProvider], mode: StatsSortMode, now
     }.map(\.element)
 }
 
+/// Whether a window has ever recorded meaningful usage. Unused providers keep rolling their reset
+/// boundary forward on every refresh; those phantom past resets must not clutter the chart.
+func statsWindowHasRecordedUsage(_ window: StatsWindow) -> Bool {
+    window.entries.contains { $0.usedPercent > 0.5 }
+}
+
 /// Past reset boundaries per provider+window, for the thin historical marker lines.
 func statsHistoricalResets(_ providers: [StatsProvider], before now: Date) -> [StatsHistoricalReset] {
     var result: [StatsHistoricalReset] = []
     for provider in providers {
         for (index, window) in provider.windows.enumerated() {
+            guard statsWindowHasRecordedUsage(window) else { continue }
             let color = provider.color(forWindowIndex: index)
             var seen = Set<Int>()
             for date in window.entries.compactMap(\.resetsAt) where date <= now {
