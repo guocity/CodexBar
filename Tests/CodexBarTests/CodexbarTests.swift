@@ -101,9 +101,9 @@ struct CodexBarTests {
         let windows = IconRemainingResolver.resolvedWindows(snapshot: snapshot, style: .antigravity)
 
         #expect(windows.primary?.windowMinutes == 300)
-        #expect(windows.primary?.remainingPercent == 3)
+        #expect(windows.primary?.remainingPercent == 2)
         #expect(windows.secondary?.windowMinutes == 10080)
-        #expect(windows.secondary?.remainingPercent == 16)
+        #expect(windows.secondary?.remainingPercent == 1)
     }
 
     @Test
@@ -139,7 +139,7 @@ struct CodexBarTests {
     }
 
     @Test
-    func `antigravity quota summary icon prefers gemini ids over display titles`() {
+    func `antigravity quota summary icon uses most constrained quota summary lanes`() {
         let snapshot = UsageSnapshot(
             primary: nil,
             secondary: nil,
@@ -166,12 +166,12 @@ struct CodexBarTests {
 
         let windows = IconRemainingResolver.resolvedWindows(snapshot: snapshot, style: .antigravity)
 
-        #expect(windows.primary?.remainingPercent == 60)
-        #expect(windows.secondary?.remainingPercent == 70)
+        #expect(windows.primary?.remainingPercent == 2)
+        #expect(windows.secondary?.remainingPercent == 1)
     }
 
     @Test
-    func `antigravity quota summary icon does not borrow missing gemini weekly from claude gpt`() {
+    func `antigravity quota summary icon can pair gemini session with claude gpt weekly`() {
         let snapshot = UsageSnapshot(
             primary: nil,
             secondary: nil,
@@ -191,11 +191,11 @@ struct CodexBarTests {
         let windows = IconRemainingResolver.resolvedWindows(snapshot: snapshot, style: .antigravity)
 
         #expect(windows.primary?.remainingPercent == 60)
-        #expect(windows.secondary == nil)
+        #expect(windows.secondary?.remainingPercent == 1)
     }
 
     @Test
-    func `antigravity quota summary icon treats unknown gemini rows as present`() {
+    func `antigravity quota summary icon ignores unknown rows while ranking known lanes`() {
         let snapshot = UsageSnapshot(
             primary: nil,
             secondary: nil,
@@ -216,7 +216,42 @@ struct CodexBarTests {
         let windows = IconRemainingResolver.resolvedWindows(snapshot: snapshot, style: .antigravity)
 
         #expect(windows.primary == nil)
-        #expect(windows.secondary == nil)
+        #expect(windows.secondary?.remainingPercent == 1)
+    }
+
+    @Test
+    func `antigravity used icon percent matches constrained claude gpt lane`() {
+        let snapshot = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            tertiary: nil,
+            extraRateWindows: [
+                NamedRateWindow(
+                    id: "antigravity-quota-summary-gemini-5h",
+                    title: "Gemini Session",
+                    window: RateWindow(usedPercent: 20, windowMinutes: 300, resetsAt: nil, resetDescription: nil)),
+                NamedRateWindow(
+                    id: "antigravity-quota-summary-gemini-weekly",
+                    title: "Gemini Weekly",
+                    window: RateWindow(usedPercent: 30, windowMinutes: 10080, resetsAt: nil, resetDescription: nil)),
+                NamedRateWindow(
+                    id: "antigravity-quota-summary-3p-5h",
+                    title: "Claude + GPT Session",
+                    window: RateWindow(usedPercent: 95, windowMinutes: 300, resetsAt: nil, resetDescription: nil)),
+                NamedRateWindow(
+                    id: "antigravity-quota-summary-3p-weekly",
+                    title: "Claude + GPT Weekly",
+                    window: RateWindow(usedPercent: 40, windowMinutes: 10080, resetsAt: nil, resetDescription: nil)),
+            ],
+            updatedAt: Date())
+
+        let percents = IconRemainingResolver.resolvedPercents(
+            snapshot: snapshot,
+            style: .antigravity,
+            showUsed: true)
+
+        #expect(percents.primary == 95)
+        #expect(percents.secondary == 40)
     }
 
     @Test
@@ -599,6 +634,35 @@ struct CodexBarTests {
         let remaining = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .codex)
         #expect(remaining.primary == 75)
         #expect(remaining.secondary == nil)
+    }
+
+    @Test
+    func `codex icon caps session only until exhausted weekly lane resets`() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let weeklyReset = now.addingTimeInterval(3600)
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(
+                usedPercent: 1,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(1800),
+                resetDescription: nil),
+            secondary: RateWindow(
+                usedPercent: 100,
+                windowMinutes: 10080,
+                resetsAt: weeklyReset,
+                resetDescription: nil),
+            updatedAt: now.addingTimeInterval(-7200))
+
+        let capped = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .codex, now: now)
+        let reset = IconRemainingResolver.resolvedRemaining(
+            snapshot: snapshot,
+            style: .codex,
+            now: weeklyReset)
+
+        #expect(capped.primary == 0)
+        #expect(capped.secondary == 0)
+        #expect(reset.primary == 99)
+        #expect(reset.secondary == nil)
     }
 
     @Test

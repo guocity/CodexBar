@@ -13,6 +13,7 @@ struct UsageCommandContext {
     let verbose: Bool
     let useColor: Bool
     let resetStyle: ResetTimeDisplayStyle
+    let weeklyWorkDays: Int?
     let jsonOnly: Bool
     let includeAllCodexAccounts: Bool
     let fetcher: UsageFetcher
@@ -23,18 +24,39 @@ struct UsageCommandContext {
     /// between fetches instead of resetting after each one-shot fetch.
     var persistCLISessions: Bool = false
     var persistentCLISessionIdleWindow: TimeInterval?
+    var cardsLayout: Bool = false
 }
 
 struct UsageCommandOutput {
     var sections: [String] = []
     var payload: [ProviderPayload] = []
+    var cards: [CLICardModel] = []
+    var cardFailures: [CLICardFailure] = []
     var exitCode: ExitCode = .success
+}
+
+private struct UsageSuccessRenderInput {
+    let provider: UsageProvider
+    let accountLabel: String?
+    let cacheAccountKey: String?
+    let version: String?
+    let source: String
+    let status: ProviderStatusPayload?
+    let usage: UsageSnapshot
+    let credits: CreditsSnapshot?
+    let antigravityPlanInfo: AntigravityPlanInfoSummary?
+    let dashboard: OpenAIDashboardSnapshot?
+    let effectiveSourceMode: ProviderSourceMode
+    let command: UsageCommandContext
+    let notes: [String]
 }
 
 extension UsageCommandOutput {
     mutating func merge(_ other: UsageCommandOutput) {
         self.sections.append(contentsOf: other.sections)
         self.payload.append(contentsOf: other.payload)
+        self.cards.append(contentsOf: other.cards)
+        self.cardFailures.append(contentsOf: other.cardFailures)
         if other.exitCode != .success {
             self.exitCode = other.exitCode
         }
@@ -61,11 +83,17 @@ extension CodexBarCLI {
         let antigravityPlanDebug = values.flags.contains("antigravityPlanDebug")
         let augmentDebug = values.flags.contains("augmentDebug")
         let webDebugDumpHTML = values.flags.contains("webDebugDumpHtml")
-        let webTimeout = Self.decodeWebTimeout(from: values) ?? 60
+        let webTimeout: TimeInterval
+        do {
+            webTimeout = try Self.decodeWebTimeout(from: values) ?? 60
+        } catch {
+            Self.exit(code: .failure, message: "Error: \(error.localizedDescription)", output: output, kind: .args)
+        }
         let verbose = values.flags.contains("verbose")
         let noColor = values.flags.contains("noColor")
         let useColor = Self.shouldUseColor(noColor: noColor, format: format)
         let resetStyle = Self.resetTimeDisplayStyleFromDefaults()
+        let weeklyWorkDays = Self.weeklyProgressWorkDaysFromDefaults()
         let providerList = provider.asList
 
         let tokenSelection: TokenAccountCLISelection
@@ -131,6 +159,7 @@ extension CodexBarCLI {
             verbose: verbose,
             useColor: useColor,
             resetStyle: resetStyle,
+            weeklyWorkDays: weeklyWorkDays,
             jsonOnly: output.jsonOnly,
             includeAllCodexAccounts: tokenSelection.allAccounts && providerList == [.codex],
             fetcher: fetcher,
@@ -235,10 +264,98 @@ extension CodexBarCLI {
                 status: status,
                 error: error,
                 kind: .provider))
+        } else if command.cardsLayout {
+            output.cardFailures.append(CLICardFailure(
+                provider: provider,
+                accountLabel: nil,
+                message: error.localizedDescription))
         } else if !command.jsonOnly {
             Self.writeStderr("Error: \(error.localizedDescription)\n")
         }
         return output
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    private static func makeUsagePayload(
+        provider: UsageProvider,
+        accountLabel: String?,
+        cacheAccountKey: String?,
+        version: String?,
+        source: String,
+        status: ProviderStatusPayload?,
+        usage: UsageSnapshot,
+        credits: CreditsSnapshot?,
+        antigravityPlanInfo: AntigravityPlanInfoSummary?,
+        dashboard: OpenAIDashboardSnapshot?,
+        weeklyWorkDays: Int?) -> ProviderPayload
+    {
+        ProviderPayload(
+            provider: provider,
+            account: accountLabel,
+            cacheAccountKey: cacheAccountKey,
+            version: version,
+            source: source,
+            status: status,
+            usage: usage,
+            credits: credits,
+            antigravityPlanInfo: antigravityPlanInfo,
+            openaiDashboard: dashboard,
+            error: nil,
+            pace: CLIRenderer.providerPacePayload(provider: provider, snapshot: usage, weeklyWorkDays: weeklyWorkDays))
+    }
+
+    private static func appendSuccessRenderOutput(
+        _ input: UsageSuccessRenderInput,
+        output: inout UsageCommandOutput)
+    {
+        switch input.command.format {
+        case .text:
+            if input.command.cardsLayout {
+                output.cards.append(CLICardsRenderer.makeCard(CLICardBuildInput(
+                    provider: input.provider,
+                    snapshot: input.usage,
+                    credits: input.credits,
+                    source: input.source,
+                    status: input.status,
+                    notes: input.notes,
+                    useColor: input.command.useColor,
+                    resetStyle: input.command.resetStyle,
+                    weeklyWorkDays: input.command.weeklyWorkDays,
+                    now: Date())))
+            } else {
+                var text = CLIRenderer.renderText(
+                    provider: input.provider,
+                    snapshot: input.usage,
+                    credits: input.credits,
+                    context: RenderContext(
+                        header: Self.makeHeader(
+                            provider: input.provider,
+                            version: input.version,
+                            source: input.source),
+                        status: input.status,
+                        useColor: input.command.useColor,
+                        resetStyle: input.command.resetStyle,
+                        weeklyWorkDays: input.command.weeklyWorkDays,
+                        notes: input.notes))
+                if let dashboard = input.dashboard, input.provider == .codex, input.effectiveSourceMode.usesWeb {
+                    text += "\n" + Self.renderOpenAIWebDashboardText(dashboard)
+                }
+                output.sections.append(text)
+            }
+        case .json:
+            output.payload.append(self.makeUsagePayload(
+                provider: input.provider,
+                accountLabel: input.accountLabel,
+                cacheAccountKey: input.cacheAccountKey,
+                version: input.version,
+                source: input.source,
+                status: input.status,
+                usage: input.usage,
+                credits: input.credits,
+                antigravityPlanInfo: input.antigravityPlanInfo,
+                dashboard: input.dashboard,
+                weeklyWorkDays: input.command.weeklyWorkDays))
+        }
     }
 
     private static func fetchUsageOutput(
@@ -305,9 +422,7 @@ extension CodexBarCLI {
             providerManualTokenUpdater: tokenContext.manualTokenUpdater(),
             persistsCLISessions: Self.persistsCLISessions(provider: provider, command: command),
             persistentCLISessionIdleWindow: command.persistentCLISessionIdleWindow)
-        let outcome = await Self.fetchProviderUsage(
-            provider: provider,
-            context: fetchContext)
+        let outcome = await Self.fetchProviderUsage(provider: provider, context: fetchContext)
         if command.verbose, !command.jsonOnly {
             Self.printFetchAttempts(provider: provider, attempts: outcome.attempts)
         }
@@ -334,40 +449,21 @@ extension CodexBarCLI {
                     context: fetchContext)
             }
 
-            let descriptor = ProviderDescriptorRegistry.descriptor(for: provider)
-            let shouldDetectVersion = descriptor.cli.versionDetector != nil
-                && result.strategyKind != ProviderFetchKind.webDashboard
+            let shouldDetectVersion = Self.shouldDetectVersion(provider: provider, result: result)
             let version = Self.normalizeVersion(
                 raw: shouldDetectVersion
                     ? Self.detectVersion(for: provider, browserDetection: command.browserDetection)
                     : nil)
             let source = result.sourceLabel
-            let header = Self.makeHeader(provider: provider, version: version, source: source)
             let notes = Self.usageTextNotes(
                 provider: provider,
                 sourceMode: effectiveSourceMode,
                 resolvedSourceLabel: source)
 
-            switch command.format {
-            case .text:
-                var text = CLIRenderer.renderText(
+            Self.appendSuccessRenderOutput(
+                UsageSuccessRenderInput(
                     provider: provider,
-                    snapshot: usage,
-                    credits: result.credits,
-                    context: RenderContext(
-                        header: header,
-                        status: status,
-                        useColor: command.useColor,
-                        resetStyle: command.resetStyle,
-                        notes: notes))
-                if let dashboard, provider == .codex, effectiveSourceMode.usesWeb {
-                    text += "\n" + Self.renderOpenAIWebDashboardText(dashboard)
-                }
-                output.sections.append(text)
-            case .json:
-                output.payload.append(ProviderPayload(
-                    provider: provider,
-                    account: account?.label ?? codexVisibleAccount?.menuDisplayName,
+                    accountLabel: account?.label ?? codexVisibleAccount?.menuDisplayName,
                     cacheAccountKey: cacheAccountKey,
                     version: version,
                     source: source,
@@ -375,9 +471,11 @@ extension CodexBarCLI {
                     usage: usage,
                     credits: result.credits,
                     antigravityPlanInfo: antigravityPlanInfo,
-                    openaiDashboard: dashboard,
-                    error: nil))
-            }
+                    dashboard: dashboard,
+                    effectiveSourceMode: effectiveSourceMode,
+                    command: command,
+                    notes: notes),
+                output: &output)
         case let .failure(error):
             output.exitCode = Self.mapError(error)
             if command.format == .json {
@@ -389,6 +487,11 @@ extension CodexBarCLI {
                     status: status,
                     error: error,
                     kind: .provider))
+            } else if command.cardsLayout {
+                output.cardFailures.append(CLICardFailure(
+                    provider: provider,
+                    accountLabel: account?.label ?? codexVisibleAccount?.menuDisplayName,
+                    message: error.localizedDescription))
             } else if !command.jsonOnly {
                 if let accountLabel = account?.label ?? codexVisibleAccount?.menuDisplayName {
                     Self.writeStderr(
@@ -407,6 +510,13 @@ extension CodexBarCLI {
         }
 
         return await Self.finishUsageOutput(output, provider: provider, command: command)
+    }
+
+    static func shouldDetectVersion(provider: UsageProvider, result: ProviderFetchResult) -> Bool {
+        let descriptor = ProviderDescriptorRegistry.descriptor(for: provider)
+        guard descriptor.cli.versionDetector != nil else { return false }
+        guard result.strategyKind != .webDashboard else { return false }
+        return !(provider == .claude && result.strategyKind == .oauth)
     }
 
     private static func holdsAntigravitySession(
@@ -503,6 +613,11 @@ extension CodexBarCLI {
                 status: status,
                 error: error,
                 kind: .runtime))
+        } else if command.cardsLayout {
+            output.cardFailures.append(CLICardFailure(
+                provider: provider,
+                accountLabel: account.label,
+                message: error.localizedDescription))
         } else if !command.jsonOnly {
             Self.writeStderr("Error: \(error.localizedDescription)\n")
         }
@@ -551,6 +666,10 @@ extension CodexBarCLI {
         if provider == .codex, sourceMode == .auto {
             return false
         }
+        if provider == .claude, sourceMode == .auto {
+            // Claude's cross-platform planner skips its unavailable web step and falls back to the CLI.
+            return false
+        }
         if provider == .opencodego {
             if sourceMode == .auto || settings?.opencodego?.cookieSource == .manual {
                 return false
@@ -558,6 +677,25 @@ extension CodexBarCLI {
         }
         if provider == .commandcode,
            settings?.commandcode?.cookieSource == .manual
+        {
+            return false
+        }
+        #if os(Linux)
+        if provider == .cursor,
+           settings?.cursor?.cookieSource != .off
+        {
+            // Linux uses Cursor app auth and manual cookies; browser import remains macOS-only.
+            return false
+        }
+        #endif
+        if provider == .sakana,
+           sourceMode == .auto || sourceMode == .web,
+           environment.map({ SakanaSettingsReader.cookieHeader(environment: $0) != nil }) == true
+        {
+            return false
+        }
+        if provider == .qoder,
+           settings?.qoder?.cookieSource == .manual
         {
             return false
         }

@@ -11,6 +11,10 @@ extension ProvidersPane {
         self.providerSubtitle(provider)
     }
 
+    func _test_providerSidebarSubtitle(_ provider: UsageProvider) -> String {
+        self.providerSidebarSubtitle(provider)
+    }
+
     func _test_moveProviders(fromOffsets: IndexSet, toOffset: Int) {
         self.moveProviders(fromOffsets: fromOffsets, toOffset: toOffset)
     }
@@ -69,6 +73,10 @@ extension ProvidersPane {
 
     func _test_menuCardModel(for provider: UsageProvider) -> UsageMenuCardView.Model {
         self.menuCardModel(for: provider)
+    }
+
+    func _test_openAIWebDiagnostic(for provider: UsageProvider) -> String? {
+        self.openAIWebDiagnostic(for: provider)
     }
 
     func _test_providerErrorDisplay(for provider: UsageProvider) -> ProviderErrorDisplay? {
@@ -167,6 +175,7 @@ enum ProvidersPaneTestHarness {
             isEnabled: enabledBinding,
             subtitle: "Subtitle",
             model: model,
+            openAIWebDiagnostic: pane._test_openAIWebDiagnostic(for: .codex),
             settingsPickers: [descriptors.picker],
             settingsToggles: [descriptors.toggle],
             settingsFields: [descriptors.fieldPlain, descriptors.fieldSecure],
@@ -177,7 +186,7 @@ enum ProvidersPaneTestHarness {
             onRefresh: {},
             showsSupplementarySettingsContent: true,
             supplementarySettingsContent: {
-                ProviderSettingsSection(title: "Accounts") {
+                Section("Accounts") {
                     Text("Supplementary")
                 }
             }).body
@@ -252,7 +261,9 @@ enum ProvidersPaneTestHarness {
             activeIndex: { 0 },
             setActiveIndex: { _ in },
             showsOrganizationField: false,
-            addAccount: { _, _, _ in },
+            showsTeamModeControls: false,
+            addAccount: { _, _, _, _, _ in },
+            updateAccount: { _, _, _, _ in },
             removeAccount: { _ in },
             primaryAddActionTitle: nil,
             primaryAddAction: nil,

@@ -88,6 +88,24 @@ struct CLIServeRouterTests {
     }
 
     @Test
+    func `health response reports ok status and build version`() throws {
+        let response = CodexBarCLI.serveHealthResponse(version: "1.2.3")
+        #expect(response.status == .ok)
+        let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
+        #expect(object?["status"] as? String == "ok")
+        #expect(object?["version"] as? String == "1.2.3")
+    }
+
+    @Test
+    func `health response omits version detail when unavailable`() throws {
+        let response = CodexBarCLI.serveHealthResponse(version: nil)
+        #expect(response.status == .ok)
+        let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
+        #expect(object?["status"] as? String == "ok")
+        #expect(object?.keys.contains("version") == false)
+    }
+
+    @Test
     func `serve numeric options reject malformed values`() {
         #expect(CodexBarCLI.decodeServePort(from: ParsedValues(
             positional: [],
@@ -138,6 +156,10 @@ struct CLIServeRouterTests {
         #expect(CodexBarCLI.decodeServeRequestTimeout(from: ParsedValues(
             positional: [],
             options: ["requestTimeout": ["-0.5"]],
+            flags: [])) == nil)
+        #expect(CodexBarCLI.decodeServeRequestTimeout(from: ParsedValues(
+            positional: [],
+            options: ["requestTimeout": ["inf"]],
             flags: [])) == nil)
         #expect(CodexBarCLI.decodeServeRequestTimeout(from: ParsedValues(
             positional: [],
@@ -201,6 +223,79 @@ struct CLIServeRouterTests {
         #expect(CodexBarCLI.shouldCacheServeResponse(success))
         #expect(!CodexBarCLI.shouldCacheServeResponse(providerError))
         #expect(!CodexBarCLI.shouldCacheServeResponse(routeError))
+    }
+
+    @Test
+    func `serve provider timeout stays below the request deadline`() throws {
+        let thirtySecondTimeout = try #require(CodexBarCLI.serveProviderTimeout(requestTimeout: 30))
+        let tenSecondTimeout = try #require(CodexBarCLI.serveProviderTimeout(requestTimeout: 10))
+        #expect(abs(thirtySecondTimeout - 24) < 1e-9)
+        #expect(abs(tenSecondTimeout - 8) < 1e-9)
+        // Outer deadline disabled (0) or non-finite: add no serve-level provider bound.
+        #expect(CodexBarCLI.serveProviderTimeout(requestTimeout: 0) == nil)
+        #expect(CodexBarCLI.serveProviderTimeout(requestTimeout: .infinity) == nil)
+        // Finite deadlines stay strictly below the request timeout at every
+        // value, including sub-second ones.
+        let oneSecondTimeout = try #require(CodexBarCLI.serveProviderTimeout(requestTimeout: 1))
+        let halfSecondTimeout = try #require(CodexBarCLI.serveProviderTimeout(requestTimeout: 0.5))
+        #expect(oneSecondTimeout < 1)
+        #expect(abs(halfSecondTimeout - 0.4) < 1e-9)
+        // Oversized finite deadlines share the outer 24-hour cap and cannot
+        // overflow Duration conversion.
+        let oversizedTimeout = try #require(CodexBarCLI.serveProviderTimeout(
+            requestTimeout: .greatestFiniteMagnitude))
+        #expect(abs(oversizedTimeout - 69120) < 1e-9)
+        #expect(oversizedTimeout < 86400)
+    }
+
+    @Test
+    func `serve usage collection bounds a hung provider without blocking others`() async {
+        let providers: [UsageProvider] = [.codex, .claude, .gemini]
+        let start = Date()
+        let output = await CodexBarCLI.serveCollectUsageOutputs(
+            providers: providers,
+            providerTimeout: 0.1)
+        { provider in
+            if provider == .claude {
+                try? await Task.sleep(for: .seconds(30))
+                return UsageCommandOutput(sections: ["late:\(provider.rawValue)"])
+            }
+            return UsageCommandOutput(sections: ["ok:\(provider.rawValue)"])
+        }
+        let elapsed = Date().timeIntervalSince(start)
+
+        // The hung provider must not serialize or stall the others.
+        #expect(elapsed < 5)
+        // Fast providers render in caller order; the hung one yields no section.
+        #expect(output.sections == ["ok:codex", "ok:gemini"])
+        // The hung provider degrades to a single provider error row.
+        #expect(output.payload.count == 1)
+        #expect(output.payload.first?.provider == UsageProvider.claude.rawValue)
+        #expect(output.payload.first?.error != nil)
+        #expect(output.payload.first?.error?.kind == .provider)
+        // The timeout row is account-agnostic: it carries no cache key, so the
+        // cache's keyed last-good merge intentionally does not reconstruct it
+        // (a timeout cannot prove which account is active).
+        #expect(output.payload.first?.cacheAccountKey == nil)
+        #expect(output.payload.first?.account == nil)
+        #expect(output.exitCode == .failure)
+    }
+
+    @Test
+    func `serve usage collection adds no join bound when request deadline is disabled`() async {
+        let output = await CodexBarCLI.serveCollectUsageOutputs(
+            providers: [.codex, .claude],
+            providerTimeout: nil)
+        { provider in
+            if provider == .codex {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            return UsageCommandOutput(sections: ["ok:\(provider.rawValue)"])
+        }
+
+        #expect(output.sections == ["ok:codex", "ok:claude"])
+        #expect(output.payload.isEmpty)
+        #expect(output.exitCode == .success)
     }
 
     @Test

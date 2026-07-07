@@ -5,6 +5,141 @@ import Testing
 @testable import CodexBarCLI
 
 @Suite(.serialized)
+struct AlibabaTokenPlanRegionSelectionTests {
+    @Test @MainActor
+    func `fresh app settings default to International`() {
+        let settings = testSettingsStore(suiteName: "AlibabaTokenPlanRegionSelectionTests-fresh")
+
+        #expect(settings.alibabaTokenPlanAPIRegion == .international)
+    }
+
+    @Test @MainActor
+    func `legacy app settings without region remain China mainland`() {
+        var config = CodexBarConfig.makeDefault()
+        config.setProviderConfig(ProviderConfig(id: .alibabatokenplan, region: nil))
+        let settings = testSettingsStore(
+            suiteName: "AlibabaTokenPlanRegionSelectionTests-legacy",
+            config: config)
+
+        #expect(settings.alibabaTokenPlanAPIRegion == .chinaMainland)
+    }
+
+    @Test @MainActor
+    func `app settings trim configured region`() {
+        var config = CodexBarConfig.makeDefault()
+        config.setProviderConfig(ProviderConfig(id: .alibabatokenplan, region: " intl "))
+        let settings = testSettingsStore(
+            suiteName: "AlibabaTokenPlanRegionSelectionTests-trimmed",
+            config: config)
+
+        #expect(settings.alibabaTokenPlanAPIRegion == .international)
+    }
+
+    @Test
+    func `CLI honors explicit region and keeps legacy config on China mainland`() throws {
+        let selection = TokenAccountCLISelection(label: nil, index: nil, allAccounts: false)
+        let internationalContext = try TokenAccountCLIContext(
+            selection: selection,
+            config: CodexBarConfig(providers: [
+                ProviderConfig(id: .alibabatokenplan, region: AlibabaTokenPlanAPIRegion.international.rawValue),
+            ]),
+            verbose: false)
+        let legacyContext = try TokenAccountCLIContext(
+            selection: selection,
+            config: CodexBarConfig(providers: [
+                ProviderConfig(id: .alibabatokenplan, region: nil),
+            ]),
+            verbose: false)
+
+        #expect(internationalContext.settingsSnapshot(for: .alibabatokenplan, account: nil)?
+            .alibabaTokenPlan?.apiRegion == .international)
+        #expect(legacyContext.settingsSnapshot(for: .alibabatokenplan, account: nil)?
+            .alibabaTokenPlan?.apiRegion == .chinaMainland)
+    }
+}
+
+@Suite(.serialized)
+struct ZaiTokenAccountEnvironmentPrecedenceTests {
+    @Test
+    func `zai CLI settings snapshot defaults to personal without account scope`() throws {
+        let config = CodexBarConfig(providers: [
+            ProviderConfig(id: .zai),
+        ])
+        let selection = TokenAccountCLISelection(label: nil, index: nil, allAccounts: false)
+        let tokenContext = try TokenAccountCLIContext(
+            selection: selection,
+            config: config,
+            verbose: false,
+            baseEnvironment: [
+                ZaiSettingsReader.bigModelOrganizationKey: " org-env ",
+                ZaiSettingsReader.bigModelProjectKey: " proj-env ",
+            ])
+
+        let snapshot = try #require(tokenContext.settingsSnapshot(for: .zai, account: nil)?.zai)
+
+        #expect(snapshot.usageScope == .personal)
+        #expect(snapshot.teamContext == nil)
+    }
+
+    @Test
+    func `zai CLI settings snapshot uses selected team account scope`() throws {
+        let account = ProviderTokenAccount(
+            id: UUID(),
+            label: "Team",
+            token: "account-token",
+            addedAt: 0,
+            lastUsed: nil,
+            usageScope: " team ",
+            organizationID: " org-account ",
+            workspaceID: " proj-account ")
+        let config = CodexBarConfig(providers: [
+            ProviderConfig(id: .zai),
+        ])
+        let tokenContext = try TokenAccountCLIContext(
+            selection: TokenAccountCLISelection(label: nil, index: nil, allAccounts: false),
+            config: config,
+            verbose: false,
+            baseEnvironment: [
+                ZaiSettingsReader.bigModelOrganizationKey: "org-env",
+                ZaiSettingsReader.bigModelProjectKey: "proj-env",
+            ])
+
+        let snapshot = try #require(tokenContext.settingsSnapshot(for: .zai, account: account)?.zai)
+
+        #expect(snapshot.usageScope == .team)
+        #expect(snapshot.teamContext?.organizationID == "org-account")
+        #expect(snapshot.teamContext?.projectID == "proj-account")
+    }
+
+    @Test
+    func `zai CLI personal account scope clears inherited team context`() throws {
+        let account = ProviderTokenAccount(
+            id: UUID(),
+            label: "Personal",
+            token: "account-token",
+            addedAt: 0,
+            lastUsed: nil,
+            usageScope: "personal")
+        let config = CodexBarConfig(providers: [
+            ProviderConfig(id: .zai),
+        ])
+        let tokenContext = try TokenAccountCLIContext(
+            selection: TokenAccountCLISelection(label: nil, index: nil, allAccounts: false),
+            config: config,
+            verbose: false,
+            baseEnvironment: [
+                ZaiSettingsReader.bigModelOrganizationKey: "org-env",
+                ZaiSettingsReader.bigModelProjectKey: "proj-env",
+            ])
+
+        let snapshot = try #require(tokenContext.settingsSnapshot(for: .zai, account: account)?.zai)
+
+        #expect(snapshot.usageScope == .personal)
+        #expect(snapshot.teamContext == nil)
+    }
+}
+
+@Suite(.serialized)
 @MainActor
 struct TokenAccountEnvironmentPrecedenceTests {
     @Test

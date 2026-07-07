@@ -1,4 +1,5 @@
 import CodexBarCore
+import Foundation
 import Testing
 @testable import CodexBarCLI
 
@@ -9,8 +10,23 @@ struct CLIDiagnoseCommandTests {
 
         #expect(help.contains("codexbar diagnose --provider <name|all> --format json"))
         #expect(help.contains("codexbar diagnose --provider all --format json"))
+        #expect(help.contains("--redact"))
+        #expect(help.contains("--output <path>"))
         #expect(help.contains("safe JSON export"))
         #expect(help.contains("raw API tokens"))
+    }
+
+    @Test
+    func `diagnose output writer creates parent directories`() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexBarDiagnoseTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let output = root.appendingPathComponent("nested/diagnostic.json")
+        try CodexBarCLI.writeDiagnosticExport(#"{"provider":"minimax"}"#, to: output.path)
+
+        let contents = try String(contentsOf: output, encoding: .utf8)
+        #expect(contents == #"{"provider":"minimax"}"#)
     }
 
     private func makeSettingsWithMiniMaxCookie(_ manualCookieHeader: String) -> ProviderSettingsSnapshot {
@@ -93,6 +109,19 @@ struct CLIDiagnoseCommandTests {
             account: nil,
             config: nil,
             environment: [ChutesSettingsReader.apiKeyEnvironmentKey: "chutes-test"],
+            settings: nil)
+
+        #expect(summary.configured)
+        #expect(summary.modes == ["api"])
+    }
+
+    @Test
+    func `generic diagnose auth summary detects CrossModel environment credentials`() {
+        let summary = CodexBarCLI._diagnosticAuthSummaryForTesting(
+            provider: .crossmodel,
+            account: nil,
+            config: nil,
+            environment: [CrossModelSettingsReader.envKey: "cm-test"],
             settings: nil)
 
         #expect(summary.configured)

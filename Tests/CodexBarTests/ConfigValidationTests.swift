@@ -4,6 +4,47 @@ import Testing
 
 struct ConfigValidationTests {
     @Test
+    func `fresh config defaults Alibaba Token Plan to International`() throws {
+        let config = CodexBarConfig.makeDefault()
+        let provider = try #require(config.providerConfig(for: .alibabatokenplan))
+        let issues = CodexBarConfigValidator.validate(config)
+
+        #expect(provider.region == AlibabaTokenPlanAPIRegion.international.rawValue)
+        #expect(!issues.contains(where: { $0.provider == .alibabatokenplan }))
+    }
+
+    @Test
+    func `normalization preserves legacy Alibaba Token Plan region`() throws {
+        let config = CodexBarConfig(providers: [
+            ProviderConfig(id: .alibabatokenplan, region: nil),
+        ]).normalized()
+        let provider = try #require(config.providerConfig(for: .alibabatokenplan))
+
+        #expect(provider.region == nil)
+    }
+
+    @Test
+    func `normalization adds missing Alibaba Token Plan as China mainland`() throws {
+        let config = CodexBarConfig(providers: [
+            ProviderConfig(id: .codex),
+        ]).normalized()
+        let provider = try #require(config.providerConfig(for: .alibabatokenplan))
+
+        #expect(provider.region == AlibabaTokenPlanAPIRegion.chinaMainland.rawValue)
+    }
+
+    @Test
+    func `reports invalid Alibaba Token Plan region`() {
+        var config = CodexBarConfig.makeDefault()
+        config.setProviderConfig(ProviderConfig(id: .alibabatokenplan, region: "nowhere"))
+        let issues = CodexBarConfigValidator.validate(config)
+
+        #expect(issues.contains(where: {
+            $0.provider == .alibabatokenplan && $0.code == "invalid_region"
+        }))
+    }
+
+    @Test
     func `reports unsupported source`() {
         var config = CodexBarConfig.makeDefault()
         config.setProviderConfig(ProviderConfig(id: .codex, source: .api))
@@ -99,6 +140,42 @@ struct ConfigValidationTests {
         let issues = CodexBarConfigValidator.validate(config)
 
         #expect(!issues.contains(where: { $0.provider == .openai && $0.code == "workspace_unused" }))
+    }
+
+    @Test
+    func `allows doubao coding plan credential fields`() {
+        var config = CodexBarConfig.makeDefault()
+        config.setProviderConfig(ProviderConfig(
+            id: .doubao,
+            apiKey: "AKLT-config",
+            secretKey: "sk-config",
+            region: "cn-shanghai"))
+        let issues = CodexBarConfigValidator.validate(config)
+
+        #expect(!issues.contains(where: { $0.provider == .doubao && $0.code == "secret_key_unused" }))
+        #expect(!issues.contains(where: { $0.provider == .doubao && $0.code == "region_unused" }))
+    }
+
+    @Test
+    func `warns when zai team token account is missing BigModel context`() {
+        let accounts = ProviderTokenAccountData(
+            version: 1,
+            accounts: [
+                ProviderTokenAccount(
+                    id: UUID(),
+                    label: "Team",
+                    token: "token",
+                    addedAt: 0,
+                    lastUsed: nil,
+                    usageScope: "team",
+                    organizationID: "org_abc"),
+            ],
+            activeIndex: 0)
+        var config = CodexBarConfig.makeDefault()
+        config.setProviderConfig(ProviderConfig(id: .zai, tokenAccounts: accounts))
+        let issues = CodexBarConfigValidator.validate(config)
+
+        #expect(issues.contains(where: { $0.provider == .zai && $0.code == "zai_team_context_missing" }))
     }
 
     @Test

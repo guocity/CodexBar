@@ -9,6 +9,24 @@ struct KimiCodeAPIUsageResponse: Codable {
     let limits: [KimiRateLimit]?
 }
 
+struct KimiSubscriptionStatsResponse: Codable {
+    let subscriptionBalance: KimiSubscriptionBalance?
+    let ratelimitCode7d: KimiSubscriptionRateLimit?
+}
+
+struct KimiSubscriptionBalance: Codable, Sendable {
+    let feature: String?
+    let type: String?
+    let amountUsedRatio: Double?
+    let expireTime: String?
+}
+
+struct KimiSubscriptionRateLimit: Codable, Sendable {
+    let ratio: Double?
+    let enabled: Bool?
+    let resetTime: String?
+}
+
 struct KimiUsage: Codable {
     let scope: String
     let detail: KimiUsageDetail

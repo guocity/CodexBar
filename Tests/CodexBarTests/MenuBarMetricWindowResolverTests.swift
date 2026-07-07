@@ -5,6 +5,25 @@ import Testing
 
 struct MenuBarMetricWindowResolverTests {
     @Test
+    func `gemini metrics fall back to Flash when Pro is unavailable`() {
+        let snapshot = UsageSnapshot(
+            primary: nil,
+            secondary: RateWindow(usedPercent: 95, windowMinutes: 1440, resetsAt: nil, resetDescription: nil),
+            tertiary: RateWindow(usedPercent: 40, windowMinutes: 1440, resetsAt: nil, resetDescription: nil),
+            updatedAt: Date())
+
+        for preference in [MenuBarMetricPreference.automatic, .primary, .average] {
+            let window = MenuBarMetricWindowResolver.rateWindow(
+                preference: preference,
+                provider: .gemini,
+                snapshot: snapshot,
+                supportsAverage: true)
+
+            #expect(window?.usedPercent == 95, "Failed preference: \(preference)")
+        }
+    }
+
+    @Test
     func `automatic metric uses zai 5-hour token lane when it is most constrained`() {
         let snapshot = UsageSnapshot(
             primary: RateWindow(usedPercent: 12, windowMinutes: 10080, resetsAt: nil, resetDescription: nil),
@@ -401,9 +420,14 @@ struct MenuBarMetricWindowResolverTests {
     }
 
     @Test
-    func `automatic metric uses claude web spend limit placeholder`() {
+    func `automatic metric uses marked claude web spend limit placeholder`() {
         let snapshot = UsageSnapshot(
-            primary: RateWindow(usedPercent: 0, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
+            primary: RateWindow(
+                usedPercent: 0,
+                windowMinutes: 300,
+                resetsAt: nil,
+                resetDescription: nil,
+                isSyntheticPlaceholder: true),
             secondary: nil,
             providerCost: ProviderCostSnapshot(
                 used: 67.03,
@@ -420,6 +444,52 @@ struct MenuBarMetricWindowResolverTests {
             supportsAverage: false)
 
         #expect(abs((window?.usedPercent ?? 0) - 6.703) < 0.0001)
+    }
+
+    @Test
+    func `combined metric keeps real zero claude session when spend limit exists`() {
+        let primary = RateWindow(usedPercent: 0, windowMinutes: 300, resetsAt: nil, resetDescription: nil)
+        let snapshot = UsageSnapshot(
+            primary: primary,
+            secondary: nil,
+            providerCost: ProviderCostSnapshot(
+                used: 67.03,
+                limit: 1000,
+                currencyCode: "USD",
+                period: "Monthly",
+                updatedAt: Date()),
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .primaryAndSecondary,
+            provider: .claude,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window == primary)
+    }
+
+    @Test
+    func `automatic metric keeps real zero claude session when spend limit exists`() {
+        let primary = RateWindow(usedPercent: 0, windowMinutes: 300, resetsAt: nil, resetDescription: nil)
+        let snapshot = UsageSnapshot(
+            primary: primary,
+            secondary: nil,
+            providerCost: ProviderCostSnapshot(
+                used: 67.03,
+                limit: 1000,
+                currencyCode: "USD",
+                period: "Monthly",
+                updatedAt: Date()),
+            updatedAt: Date())
+
+        let window = MenuBarMetricWindowResolver.rateWindow(
+            preference: .automatic,
+            provider: .claude,
+            snapshot: snapshot,
+            supportsAverage: false)
+
+        #expect(window == primary)
     }
 
     @Test

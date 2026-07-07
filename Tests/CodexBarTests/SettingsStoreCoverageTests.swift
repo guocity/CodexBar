@@ -195,6 +195,31 @@ struct SettingsStoreCoverageTests {
     }
 
     @Test
+    func `zai token account update preserves team metadata`() throws {
+        let settings = Self.makeSettingsStore()
+
+        settings.addTokenAccount(
+            provider: .zai,
+            label: "Team",
+            token: "token-1",
+            usageScope: "team",
+            organizationID: "org-team",
+            workspaceID: "proj-team")
+
+        let original = try #require(settings.selectedTokenAccount(for: .zai))
+        settings.updateTokenAccount(
+            provider: .zai,
+            accountID: original.id,
+            label: "Team Updated",
+            token: "token-2")
+
+        let updated = try #require(settings.selectedTokenAccount(for: .zai))
+        #expect(updated.usageScope == "team")
+        #expect(updated.organizationID == "org-team")
+        #expect(updated.workspaceID == "proj-team")
+    }
+
+    @Test
     func `copilot token accounts clear legacy api key fallback`() throws {
         let settings = Self.makeSettingsStore()
         settings.copilotAPIToken = "legacy-token"
@@ -365,6 +390,62 @@ struct SettingsStoreCoverageTests {
         #expect(SettingsStore.hasAnyTokenCostUsageSources(
             env: ["CLAUDE_CONFIG_DIR": claudeRoot.path],
             fileManager: fileManager))
+
+        let metadataOnlyHome = fileManager.temporaryDirectory.appendingPathComponent(
+            "claude-desktop-metadata-\(UUID().uuidString)",
+            isDirectory: true)
+        let metadataFile = metadataOnlyHome
+            .appendingPathComponent("Library/Application Support/Claude/claude-code-sessions", isDirectory: true)
+            .appendingPathComponent("account-id/org-id/local_session.json", isDirectory: false)
+        try fileManager.createDirectory(at: metadataFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"cliSessionId":"desktop-cli-session"}"#.utf8).write(to: metadataFile)
+
+        #expect(!SettingsStore.hasAnyTokenCostUsageSources(
+            env: [:],
+            fileManager: fileManager,
+            homeDirectory: metadataOnlyHome))
+
+        let desktopHome = fileManager.temporaryDirectory.appendingPathComponent(
+            "claude-desktop-\(UUID().uuidString)",
+            isDirectory: true)
+        let desktopProjects = desktopHome
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("Claude", isDirectory: true)
+            .appendingPathComponent("local-agent-mode-sessions", isDirectory: true)
+            .appendingPathComponent("workspace-id", isDirectory: true)
+            .appendingPathComponent("session-id", isDirectory: true)
+            .appendingPathComponent("local_agent", isDirectory: true)
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+        try fileManager.createDirectory(at: desktopProjects, withIntermediateDirectories: true)
+        let desktopFile = desktopProjects
+            .appendingPathComponent("project-a", isDirectory: true)
+            .appendingPathComponent("session-a.jsonl", isDirectory: false)
+        try fileManager.createDirectory(at: desktopFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        fileManager.createFile(atPath: desktopFile.path, contents: Data("{}".utf8))
+
+        #expect(SettingsStore.hasAnyTokenCostUsageSources(
+            env: [:],
+            fileManager: fileManager,
+            homeDirectory: desktopHome))
+
+        let desktopCodeHome = fileManager.temporaryDirectory.appendingPathComponent(
+            "claude-desktop-code-\(UUID().uuidString)",
+            isDirectory: true)
+        let desktopCodeFile = desktopCodeHome
+            .appendingPathComponent("Library/Application Support/Claude/claude-code-sessions", isDirectory: true)
+            .appendingPathComponent("account-id/org-id/.claude/projects/project-a", isDirectory: true)
+            .appendingPathComponent("session-a.jsonl", isDirectory: false)
+        try fileManager.createDirectory(
+            at: desktopCodeFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        fileManager.createFile(atPath: desktopCodeFile.path, contents: Data("{}".utf8))
+
+        #expect(SettingsStore.hasAnyTokenCostUsageSources(
+            env: [:],
+            fileManager: fileManager,
+            homeDirectory: desktopCodeHome))
     }
 
     @Test
@@ -446,9 +527,9 @@ struct SettingsStoreCoverageTests {
     }
 
     @Test
-    func `claude keychain read strategy defaults to security CLI experimental`() {
+    func `claude keychain read strategy defaults to security framework`() {
         let settings = Self.makeSettingsStore()
-        #expect(settings.claudeOAuthKeychainReadStrategy == .securityCLIExperimental)
+        #expect(settings.claudeOAuthKeychainReadStrategy == .securityFramework)
     }
 
     @Test
@@ -459,13 +540,56 @@ struct SettingsStoreCoverageTests {
         let configStore = testConfigStore(suiteName: suite)
 
         let first = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
-        first.claudeOAuthKeychainReadStrategy = .securityCLIExperimental
+        first.claudeOAuthKeychainReadStrategy = .securityFramework
         #expect(
             defaults.string(forKey: "claudeOAuthKeychainReadStrategy")
-                == ClaudeOAuthKeychainReadStrategy.securityCLIExperimental.rawValue)
+                == ClaudeOAuthKeychainReadStrategy.securityFramework.rawValue)
 
         let second = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
-        #expect(second.claudeOAuthKeychainReadStrategy == .securityCLIExperimental)
+        #expect(second.claudeOAuthKeychainReadStrategy == .securityFramework)
+    }
+
+    @Test
+    func `claude legacy security CLI read strategy preserves no prompt intent`() throws {
+        let suite = "SettingsStoreCoverageTests-claude-keychain-read-strategy-migration"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defaults.set(
+            ClaudeOAuthKeychainReadStrategy.securityCLIExperimental.rawValue,
+            forKey: "claudeOAuthKeychainReadStrategy")
+        let configStore = testConfigStore(suiteName: suite)
+
+        let settings = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+
+        #expect(settings.claudeOAuthKeychainReadStrategy == .securityFramework)
+        #expect(settings.claudeOAuthKeychainPromptMode == .never)
+        #expect(settings.claudeOAuthPromptFreeCredentialsEnabled)
+        #expect(
+            defaults.string(forKey: "claudeOAuthKeychainReadStrategy")
+                == ClaudeOAuthKeychainReadStrategy.securityFramework.rawValue)
+        #expect(
+            defaults.string(forKey: "claudeOAuthKeychainPromptMode")
+                == ClaudeOAuthKeychainPromptMode.never.rawValue)
+    }
+
+    @Test
+    func `claude legacy security CLI migration preserves explicit prompt policy`() throws {
+        let suite = "SettingsStoreCoverageTests-claude-keychain-explicit-prompt-migration"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defaults.set(
+            ClaudeOAuthKeychainReadStrategy.securityCLIExperimental.rawValue,
+            forKey: "claudeOAuthKeychainReadStrategy")
+        defaults.set(
+            ClaudeOAuthKeychainPromptMode.always.rawValue,
+            forKey: "claudeOAuthKeychainPromptMode")
+        let configStore = testConfigStore(suiteName: suite)
+
+        let settings = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+
+        #expect(settings.claudeOAuthKeychainReadStrategy == .securityFramework)
+        #expect(settings.claudeOAuthKeychainPromptMode == .always)
+        #expect(!settings.claudeOAuthPromptFreeCredentialsEnabled)
     }
 
     @Test
@@ -481,15 +605,17 @@ struct SettingsStoreCoverageTests {
     }
 
     @Test
-    func `claude prompt free credentials toggle maps to read strategy`() {
+    func `claude prompt free credentials toggle maps to never prompt policy`() {
         let settings = Self.makeSettingsStore()
-        #expect(settings.claudeOAuthPromptFreeCredentialsEnabled == true)
+        #expect(settings.claudeOAuthPromptFreeCredentialsEnabled == false)
+
+        settings.claudeOAuthPromptFreeCredentialsEnabled = true
+        #expect(settings.claudeOAuthKeychainReadStrategy == .securityFramework)
+        #expect(settings.claudeOAuthKeychainPromptMode == .never)
 
         settings.claudeOAuthPromptFreeCredentialsEnabled = false
         #expect(settings.claudeOAuthKeychainReadStrategy == .securityFramework)
-
-        settings.claudeOAuthPromptFreeCredentialsEnabled = true
-        #expect(settings.claudeOAuthKeychainReadStrategy == .securityCLIExperimental)
+        #expect(settings.claudeOAuthKeychainPromptMode == .onlyOnUserAction)
     }
 
     @Test

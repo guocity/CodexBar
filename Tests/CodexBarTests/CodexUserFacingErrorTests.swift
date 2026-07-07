@@ -85,6 +85,20 @@ struct CodexUserFacingErrorTests {
     }
 
     @Test
+    func `localized cached credits failure preserves cached suffix while sanitizing body`() {
+        let result = CodexBarLocalizationOverride.$appLanguage.withValue("zh-Hant") {
+            let store = self.makeUsageStore(suite: "CodexUserFacingErrorTests-localized-cached-credits")
+            store.lastCreditsError =
+                "Last Codex credits refresh failed: Codex connection failed: failed to fetch codex rate limits: "
+                    + "GET https://chatgpt.com/backend-api/wham/usage failed: 500 Cached values from 2m ago."
+
+            return store.userFacingLastCreditsError
+        }
+
+        #expect(result == "Codex 使用量暫時無法取得。請嘗試重新整理。 使用 2m ago 的快取值。")
+    }
+
+    @Test
     func `cached missing codex CLI failure preserves cached suffix`() {
         let store = self.makeUsageStore(suite: "CodexUserFacingErrorTests-cached-missing-cli")
         store.lastCreditsError =
@@ -127,6 +141,23 @@ struct CodexUserFacingErrorTests {
         #expect(
             store.userFacingLastOpenAIDashboardError ==
                 "OpenAI web refresh timed out. Refresh OpenAI cookies and try again.")
+    }
+
+    @Test
+    func `localized cached open A I web timeout preserves cached suffix`() {
+        let result = CodexBarLocalizationOverride.$appLanguage.withValue("zh-Hant") {
+            let store = self.makeUsageStore(suite: "CodexUserFacingErrorTests-localized-openai-web-timeout")
+            store.lastOpenAIDashboardError =
+                "Last OpenAI dashboard refresh failed: "
+                    + "The operation couldn’t be completed. (NSURLErrorDomain error -1001.). "
+                    + "Cached values from 2m ago."
+
+            return store.userFacingLastOpenAIDashboardError
+        }
+
+        #expect(
+            result ==
+                "OpenAI Web 重新整理逾時。請重新整理 OpenAI Cookie 後再試一次。 使用 2m ago 的快取值。")
     }
 
     @Test
@@ -174,6 +205,38 @@ struct CodexUserFacingErrorTests {
                 "OpenAI web refresh was interrupted. Refresh OpenAI cookies and try again.")
         #expect(
             model.creditsText == "Codex usage is temporarily unavailable. Try refreshing. Cached values from 1m ago.")
+    }
+
+    @Test
+    func `menu card hides optional codex setup diagnostics kept by providers pane`() throws {
+        let settings = self.makeSettingsStore(suite: "CodexUserFacingErrorTests-menu-diagnostics")
+        let store = self.makeUsageStore(settings: settings)
+        store.lastCreditsError = UsageError.noRateLimitsFound.errorDescription
+        store.lastOpenAIDashboardError =
+            "No matching OpenAI web session found. Sign in to chatgpt.com, then refresh OpenAI cookies."
+
+        let fetcher = UsageFetcher(environment: [:])
+        let menuModel = try withStatusItemControllerForTesting(
+            store: store,
+            settings: settings,
+            fetcher: fetcher)
+        { controller in
+            try #require(controller.menuCardModel(for: .codex))
+        }
+        let pane = ProvidersPane(settings: settings, store: store)
+        let settingsModel = pane._test_menuCardModel(for: .codex)
+        let settingsDiagnostic = pane._test_openAIWebDiagnostic(for: .codex)
+        let settingsInfoRows = ProviderMetricsInlineView.infoRows(
+            for: settingsModel,
+            openAIWebDiagnostic: settingsDiagnostic)
+
+        #expect(menuModel.creditsText == nil)
+        #expect(menuModel.creditsHintText == nil)
+        #expect(settingsModel.creditsText == UsageError.noRateLimitsFound.errorDescription)
+        #expect(settingsModel.creditsHintText?.contains("No matching OpenAI web session found") == true)
+        #expect(settingsInfoRows.contains { row in
+            row.id == .openAIWeb && row.value.contains("No matching OpenAI web session found")
+        })
     }
 
     @Test

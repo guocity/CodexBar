@@ -44,6 +44,32 @@ struct StatusItemBalanceDisplayTests {
     }
 
     @Test
+    func `menu bar display text uses crossmodel balance currency`() {
+        let settings = self.makeSettings(
+            suiteName: "StatusItemBalanceDisplayTests-crossmodel-eur-balance",
+            provider: .crossmodel)
+        settings.setMenuBarMetricPreference(.automatic, for: .crossmodel)
+        let (store, controller) = self.makeStoreAndController(settings: settings)
+        defer { controller.releaseStatusItemsForTesting() }
+        let snapshot = CrossModelUsageSnapshot(
+            currency: "EUR",
+            balance: 8.059489,
+            uncollected: 0,
+            daily: nil,
+            weekly: nil,
+            monthly: nil,
+            updatedAt: Date())
+            .toUsageSnapshot()
+
+        store._setSnapshotForTesting(snapshot, provider: .crossmodel)
+        store._setErrorForTesting(nil, provider: .crossmodel)
+
+        let displayText = controller.menuBarDisplayText(for: .crossmodel, snapshot: snapshot)
+
+        #expect(displayText == "€8.06")
+    }
+
+    @Test
     func `menu bar display text uses zen balance when open code has no subscription`() {
         let settings = self.makeSettings(
             suiteName: "StatusItemBalanceDisplayTests-opencodego-zen-only",
@@ -321,6 +347,76 @@ struct StatusItemBalanceDisplayTests {
     }
 
     @Test
+    func `menu bar display text uses mistral monthly plan when selected`() {
+        let settings = self.makeSettings(
+            suiteName: "StatusItemBalanceDisplayTests-mistral-monthly-plan",
+            provider: .mistral)
+        settings.setMenuBarMetricPreference(.monthlyPlan, for: .mistral)
+        let (store, controller) = self.makeStoreAndController(settings: settings)
+        defer { controller.releaseStatusItemsForTesting() }
+        let snapshot = MistralUsageSnapshot(
+            totalCost: 1.2345,
+            currency: "EUR",
+            currencySymbol: "€",
+            totalInputTokens: 10000,
+            totalOutputTokens: 5000,
+            totalCachedTokens: 0,
+            modelCount: 2,
+            startDate: nil,
+            endDate: nil,
+            updatedAt: Date())
+            .toUsageSnapshot()
+            .with(extraRateWindows: [
+                NamedRateWindow(
+                    id: "mistral-monthly-plan",
+                    title: "Monthly Plan",
+                    window: RateWindow(
+                        usedPercent: 42,
+                        windowMinutes: nil,
+                        resetsAt: nil,
+                        resetDescription: nil)),
+            ])
+
+        store._setSnapshotForTesting(snapshot, provider: .mistral)
+        store._setErrorForTesting(nil, provider: .mistral)
+
+        let displayText = controller.menuBarDisplayText(for: .mistral, snapshot: snapshot)
+
+        #expect(snapshot.identity?.loginMethod == "API spend: €1.2345 this month")
+        #expect(displayText == "42%")
+    }
+
+    @Test
+    func `menu bar display text falls back to mistral spend when monthly plan is missing`() {
+        let settings = self.makeSettings(
+            suiteName: "StatusItemBalanceDisplayTests-mistral-monthly-plan-missing",
+            provider: .mistral)
+        settings.setMenuBarMetricPreference(.monthlyPlan, for: .mistral)
+        let (store, controller) = self.makeStoreAndController(settings: settings)
+        defer { controller.releaseStatusItemsForTesting() }
+        let snapshot = MistralUsageSnapshot(
+            totalCost: 1.2345,
+            currency: "EUR",
+            currencySymbol: "€",
+            totalInputTokens: 10000,
+            totalOutputTokens: 5000,
+            totalCachedTokens: 0,
+            modelCount: 2,
+            startDate: nil,
+            endDate: nil,
+            updatedAt: Date())
+            .toUsageSnapshot()
+
+        store._setSnapshotForTesting(snapshot, provider: .mistral)
+        store._setErrorForTesting(nil, provider: .mistral)
+
+        let displayText = controller.menuBarDisplayText(for: .mistral, snapshot: snapshot)
+
+        #expect(snapshot.identity?.loginMethod == "API spend: €1.2345 this month")
+        #expect(displayText == "€1.2345")
+    }
+
+    @Test
     func `menu bar display text uses kimi k2 api key credits`() {
         let settings = self.makeSettings(
             suiteName: "StatusItemBalanceDisplayTests-kimik2-credits",
@@ -534,7 +630,7 @@ struct StatusItemBalanceDisplayTests {
     }
 
     @Test
-    func `mistral primary window is nil even when billing end date is set`() {
+    func `mistral primary window is nil without credits even when billing end date is set`() {
         let endDate = Date(timeIntervalSinceNow: 3600)
         let snapshot = MistralUsageSnapshot(
             totalCost: 0.5,
@@ -548,7 +644,7 @@ struct StatusItemBalanceDisplayTests {
             endDate: endDate,
             updatedAt: Date()).toUsageSnapshot()
 
-        // Mistral doesn't expose a reset time — primary is always nil.
+        // Billing end date alone is not a quota window; credits are what populate primary.
         #expect(snapshot.primary == nil)
     }
 
@@ -558,6 +654,22 @@ struct StatusItemBalanceDisplayTests {
         #expect(StatusItemController.buttonTitle("42%", hasImage: false) == "42%")
         #expect(StatusItemController.buttonTitle(nil, hasImage: true).isEmpty)
         #expect(StatusItemController.buttonTitle("", hasImage: true).isEmpty)
+    }
+
+    @Test
+    func `debug button title stays visible with or without a usage value`() {
+        #expect(StatusItemController.buttonTitle(nil, hasImage: true, isDebugApp: true) == " D")
+        #expect(StatusItemController.buttonTitle("42%", hasImage: true, isDebugApp: true) == " 42% D")
+        #expect(StatusItemController.buttonTitle("42%", hasImage: false, isDebugApp: true) == "42% D")
+    }
+
+    @Test
+    func `debug bundle identity updates status item accessibility`() {
+        #expect(StatusItemController.isDebugApp(bundleIdentifier: "com.steipete.codexbar.debug"))
+        #expect(!StatusItemController.isDebugApp(bundleIdentifier: "com.steipete.codexbar"))
+        #expect(!StatusItemController.isDebugApp(bundleIdentifier: nil))
+        #expect(StatusItemController.statusItemAccessibilityTitle(isDebugApp: true) == "CodexBar Debug")
+        #expect(StatusItemController.statusItemAccessibilityTitle(isDebugApp: false) == "CodexBar")
     }
 
     private func makeSettings(suiteName: String, provider: UsageProvider) -> SettingsStore {

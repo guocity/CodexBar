@@ -65,6 +65,49 @@ private final class CookieTimeoutProbe: @unchecked Sendable {
 
 struct OpenAIDashboardBrowserCookieImporterTests {
     @Test
+    func `profile denial names exact running component`() {
+        let hint = OpenAIDashboardBrowserCookieImporter.browserProfileAccessHint(
+            for: .chrome,
+            issue: .accessDenied,
+            processName: "CodexBarCLI",
+            executablePath: "/Applications/CodexBar.app/Contents/Helpers/CodexBarCLI")
+
+        #expect(hint.contains("macOS denied Chrome profile access"))
+        #expect(hint.contains("CodexBarCLI (/Applications/CodexBar.app/Contents/Helpers/CodexBarCLI)"))
+        #expect(hint.contains("Full Disk Access"))
+    }
+
+    @Test
+    func `profile denial names app bundle for menu refresh`() {
+        let hint = OpenAIDashboardBrowserCookieImporter.browserProfileAccessHint(
+            for: .chrome,
+            issue: .accessDenied,
+            processName: "CodexBar",
+            executablePath: "/Applications/CodexBar.app/Contents/MacOS/CodexBar")
+
+        #expect(hint.contains("CodexBar.app (/Applications/CodexBar.app)"))
+    }
+
+    @Test
+    func `browser cookie timeout remains distinct from permission denial`() {
+        let error = OpenAIDashboardBrowserCookieImporter.browserCookieLoadTimeoutError(
+            for: .chrome,
+            processName: "CodexBarCLI",
+            executablePath: "/Applications/CodexBar.app/Contents/Helpers/CodexBarCLI")
+
+        if case .browserCookieLoadTimedOut = error {
+            // Expected: a shared deadline does not prove macOS denied access.
+        } else {
+            Issue.record("Expected browser cookie load timeout")
+        }
+        #expect(error.localizedDescription.contains("Chrome did not finish before the web timeout"))
+        #expect(!error.localizedDescription.contains("access denied"))
+        #expect(error.localizedDescription.contains("CodexBarCLI"))
+        #expect(error.localizedDescription.contains("Keychain prompt"))
+        #expect(error.localizedDescription.contains("Full Disk Access"))
+    }
+
+    @Test
     func `shared deadline clamps each local timeout to remaining budget`() throws {
         let start = Date(timeIntervalSinceReferenceDate: 1000)
         let deadline = start.addingTimeInterval(30)
@@ -143,6 +186,30 @@ struct OpenAIDashboardBrowserCookieImporterTests {
 
         #expect(value)
         #expect(timeoutProbe.firedAt == nil)
+    }
+
+    @Test
+    func `bounded cookie loads preserve explicit retry context`() async throws {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+        let start = Date()
+
+        for deadline in [nil, Date().addingTimeInterval(1)] {
+            BrowserCookieAccessGate.resetForTesting()
+            BrowserCookieAccessGate.recordDenied(for: .arc, now: start)
+
+            let allowed = try await BrowserCookieAccessGate.withExplicitRetry {
+                try await ProviderInteractionContext.$current.withValue(.userInitiated) {
+                    try await OpenAIDashboardBrowserCookieImporter.runBoundedCookieLoad(deadline: deadline) {
+                        KeychainAccessGate.withTaskOverrideForTesting(false) {
+                            ProviderInteractionContext.current == .userInitiated &&
+                                BrowserCookieAccessGate.shouldAttempt(.arc, now: start.addingTimeInterval(1))
+                        }
+                    }
+                }
+            }
+            #expect(allowed)
+        }
     }
 
     @Test

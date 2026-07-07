@@ -14,24 +14,27 @@ enum UsagePaceText {
         case weekly
     }
 
-    static func weeklySummary(pace: UsagePace, now: Date = .init()) -> String {
-        let detail = self.weeklyDetail(pace: pace, now: now)
+    static func weeklySummary(provider: UsageProvider, pace: UsagePace, now: Date = .init()) -> String {
+        let detail = self.weeklyDetail(provider: provider, pace: pace, now: now)
         if let rightLabel = detail.rightLabel {
             return L("Pace: %@ · %@", detail.leftLabel, rightLabel)
         }
         return L("Pace: %@", detail.leftLabel)
     }
 
-    static func weeklyDetail(pace: UsagePace, now: Date = .init()) -> WeeklyDetail {
+    static func weeklyDetail(provider: UsageProvider, pace: UsagePace, now: Date = .init()) -> WeeklyDetail {
         WeeklyDetail(
             leftLabel: self.detailLeftLabel(for: pace),
-            rightLabel: self.detailRightLabel(for: pace, context: .weekly, now: now),
+            rightLabel: self.detailRightLabel(for: pace, provider: provider, context: .weekly, now: now),
             expectedUsedPercent: pace.expectedUsedPercent,
             stage: pace.stage)
     }
 
     private static func detailLeftLabel(for pace: UsagePace) -> String {
         let deltaValue = Int(abs(pace.deltaPercent).rounded())
+        if deltaValue == 0 {
+            return L("On pace")
+        }
         switch pace.stage {
         case .onTrack:
             return L("On pace")
@@ -42,10 +45,15 @@ enum UsagePaceText {
         }
     }
 
-    private static func detailRightLabel(for pace: UsagePace, context: DetailContext, now: Date) -> String? {
+    private static func detailRightLabel(
+        for pace: UsagePace,
+        provider: UsageProvider,
+        context: DetailContext,
+        now: Date) -> String?
+    {
         let etaLabel: String?
         if pace.willLastToReset {
-            etaLabel = L("Lasts until reset")
+            etaLabel = self.combinedLastsLabel(for: pace, provider: provider)
         } else if let etaSeconds = pace.etaSeconds {
             let etaText = Self.durationText(seconds: etaSeconds, now: now)
             if context == .session {
@@ -69,6 +77,22 @@ enum UsagePaceText {
         return riskLabel
     }
 
+    private static func combinedLastsLabel(for pace: UsagePace, provider: UsageProvider) -> String {
+        guard provider == .codex else { return L("Lasts until reset") }
+        guard let speedLabel = self.speedHintLabel(for: pace) else {
+            return L("Lasts until reset")
+        }
+        return L("%@ · %@", L("Lasts until reset"), speedLabel)
+    }
+
+    private static func speedHintLabel(for pace: UsagePace) -> String? {
+        guard pace.deltaPercent < -15,
+              let multiplier = pace.speedMultiplierToReset,
+              multiplier >= 1.5
+        else { return nil }
+        return L("1.5× headroom")
+    }
+
     private static func durationText(seconds: TimeInterval, now: Date) -> String {
         let date = now.addingTimeInterval(seconds)
         let countdown = UsageFormatter.resetCountdownDescription(from: date, now: now)
@@ -84,8 +108,10 @@ enum UsagePaceText {
     }
 
     static func sessionPace(provider: UsageProvider, window: RateWindow, now: Date) -> UsagePace? {
-        guard provider == .codex || provider == .claude || provider == .ollama else { return nil }
+        guard provider == .codex || provider == .claude || provider == .ollama || provider == .antigravity
+        else { return nil }
         if provider == .ollama, window.windowMinutes == nil { return nil }
+        if provider == .antigravity, let windowMinutes = window.windowMinutes, windowMinutes != 300 { return nil }
         guard window.remainingPercent > 0 else { return nil }
         guard let pace = UsagePace.weekly(window: window, now: now, defaultWindowMinutes: 300) else { return nil }
         guard pace.expectedUsedPercent >= 3 else { return nil }
@@ -96,7 +122,7 @@ enum UsagePaceText {
         guard let pace = sessionPace(provider: provider, window: window, now: now) else { return nil }
         return WeeklyDetail(
             leftLabel: Self.detailLeftLabel(for: pace),
-            rightLabel: Self.detailRightLabel(for: pace, context: .session, now: now),
+            rightLabel: Self.detailRightLabel(for: pace, provider: provider, context: .session, now: now),
             expectedUsedPercent: pace.expectedUsedPercent,
             stage: pace.stage)
     }

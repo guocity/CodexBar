@@ -91,6 +91,10 @@ struct TokenAccountCLIContext {
         codexActiveSourceOverride: CodexActiveSource? = nil) -> ProviderSettingsSnapshot?
     {
         let config = self.providerConfig(for: provider)
+        if provider == .qoder {
+            let settings = self.cookieSettings(provider: provider, account: account, config: config)
+            return self.makeSnapshot(qoder: self.makeProviderCookieSettings(settings))
+        }
         if let snapshot = self.makeCookieBackedSnapshot(provider: provider, account: account, config: config) {
             return snapshot
         }
@@ -121,7 +125,10 @@ struct TokenAccountCLIContext {
                     organizationID: account?.sanitizedOrganizationID))
         case .zai:
             return self.makeSnapshot(
-                zai: ProviderSettingsSnapshot.ZaiProviderSettings(apiRegion: self.resolveZaiRegion(config)))
+                zai: ProviderSettingsSnapshot.ZaiProviderSettings(
+                    apiRegion: self.resolveZaiRegion(config),
+                    usageScope: Self.zaiUsageScope(for: account),
+                    teamContext: Self.zaiTeamContext(for: account)))
         case .moonshot:
             return self.makeSnapshot(
                 moonshot: ProviderSettingsSnapshot.MoonshotProviderSettings(
@@ -171,7 +178,11 @@ struct TokenAccountCLIContext {
                     manualCookieHeader: cookieSettings.manualCookieHeader,
                     apiRegion: self.resolveAlibabaCodingPlanRegion(config)))
         case .alibabatokenplan:
-            return self.makeSnapshot(alibabaTokenPlan: self.makeProviderCookieSettings(cookieSettings))
+            return self.makeSnapshot(
+                alibabaTokenPlan: ProviderSettingsSnapshot.AlibabaTokenPlanProviderSettings(
+                    cookieSource: cookieSettings.cookieSource,
+                    manualCookieHeader: cookieSettings.manualCookieHeader,
+                    apiRegion: self.resolveAlibabaTokenPlanRegion(config)))
         case .factory:
             return self.makeSnapshot(factory: self.makeProviderCookieSettings(cookieSettings))
         case .minimax:
@@ -241,6 +252,7 @@ struct TokenAccountCLIContext {
         mimo: ProviderSettingsSnapshot.MiMoProviderSettings? = nil,
         abacus: ProviderSettingsSnapshot.AbacusProviderSettings? = nil,
         mistral: ProviderSettingsSnapshot.MistralProviderSettings? = nil,
+        qoder: ProviderSettingsSnapshot.QoderProviderSettings? = nil,
         stepfun: ProviderSettingsSnapshot.StepFunProviderSettings? = nil) -> ProviderSettingsSnapshot
     {
         ProviderSettingsSnapshot.make(
@@ -267,6 +279,7 @@ struct TokenAccountCLIContext {
             mimo: mimo,
             abacus: abacus,
             mistral: mistral,
+            qoder: qoder,
             stepfun: stepfun)
     }
 
@@ -360,7 +373,9 @@ struct TokenAccountCLIContext {
             addedAt: existing.addedAt,
             lastUsed: existing.lastUsed,
             externalIdentifier: existing.externalIdentifier,
-            organizationID: existing.organizationID)
+            usageScope: existing.usageScope,
+            organizationID: existing.organizationID,
+            workspaceID: existing.workspaceID)
         providerConfig.tokenAccounts = ProviderTokenAccountData(
             version: data.version,
             accounts: accounts,
@@ -552,6 +567,22 @@ struct TokenAccountCLIContext {
         return ZaiAPIRegion(rawValue: raw) ?? .global
     }
 
+    private static func zaiUsageScope(for account: ProviderTokenAccount?) -> ZaiUsageScope {
+        guard let raw = account?.sanitizedUsageScope?.lowercased(),
+              let scope = ZaiUsageScope(rawValue: raw)
+        else {
+            return .personal
+        }
+        return scope
+    }
+
+    private static func zaiTeamContext(for account: ProviderTokenAccount?) -> ZaiBigModelTeamContext? {
+        guard self.zaiUsageScope(for: account) == .team else { return nil }
+        return ZaiBigModelTeamContext(
+            organizationID: account?.sanitizedOrganizationID,
+            projectID: account?.sanitizedWorkspaceID)
+    }
+
     private func resolveMiniMaxRegion(_ config: ProviderConfig?) -> MiniMaxAPIRegion {
         guard let raw = config?.region?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty
@@ -577,6 +608,15 @@ struct TokenAccountCLIContext {
             return .international
         }
         return AlibabaCodingPlanAPIRegion(rawValue: raw) ?? .international
+    }
+
+    private func resolveAlibabaTokenPlanRegion(_ config: ProviderConfig?) -> AlibabaTokenPlanAPIRegion {
+        guard let raw = config?.region?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty
+        else {
+            return .chinaMainland
+        }
+        return AlibabaTokenPlanAPIRegion(rawValue: raw) ?? .chinaMainland
     }
 
     private static func kiloUsageDataSource(from source: ProviderSourceMode?) -> KiloUsageDataSource {

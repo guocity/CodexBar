@@ -5,6 +5,47 @@ import Testing
 
 struct MenuCardAntigravityTests {
     @Test
+    func `antigravity identity only snapshot shows limits unavailable`() throws {
+        let now = Date(timeIntervalSince1970: 1_742_771_200)
+        let metadata = try #require(ProviderDefaults.metadata[.antigravity])
+        let snapshot = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            updatedAt: now,
+            identity: ProviderIdentitySnapshot(
+                providerID: .antigravity,
+                accountEmail: "user@example.com",
+                accountOrganization: nil,
+                loginMethod: "Paid"))
+
+        let model = UsageMenuCardView.Model.make(.init(
+            provider: .antigravity,
+            metadata: metadata,
+            snapshot: snapshot,
+            credits: nil,
+            creditsError: nil,
+            dashboard: nil,
+            dashboardError: nil,
+            tokenSnapshot: nil,
+            tokenError: nil,
+            account: AccountInfo(email: nil, plan: nil),
+            isRefreshing: false,
+            lastError: nil,
+            usageBarsShowUsed: false,
+            resetTimeDisplayStyle: .countdown,
+            tokenCostUsageEnabled: false,
+            showOptionalCreditsAndExtraUsage: true,
+            hidePersonalInfo: false,
+            now: now))
+
+        #expect(model.metrics.isEmpty)
+        #expect(model.placeholder == "Limits not available")
+        #expect(model.subtitleStyle == .info)
+        #expect(model.email == "user@example.com")
+        #expect(model.planText == "Paid")
+    }
+
+    @Test
     func `antigravity metrics omit missing groups`() throws {
         let now = Date()
         let identity = ProviderIdentitySnapshot(
@@ -48,6 +89,53 @@ struct MenuCardAntigravityTests {
         #expect(model.metrics.map(\.title) == ["Gemini Models"])
         #expect(model.metrics[0].percent == 95)
         #expect(model.metrics[0].percentLabel == "95% left")
+    }
+
+    @Test
+    func `legacy antigravity family row renders session pace without mutating duration`() throws {
+        let now = Date(timeIntervalSince1970: 0)
+        let window = RateWindow(
+            usedPercent: 80,
+            windowMinutes: nil,
+            resetsAt: now.addingTimeInterval(2 * 3600),
+            resetDescription: nil)
+        let snapshot = UsageSnapshot(
+            primary: window,
+            secondary: nil,
+            tertiary: nil,
+            updatedAt: now,
+            identity: ProviderIdentitySnapshot(
+                providerID: .antigravity,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: "Pro"))
+        let metadata = try #require(ProviderDefaults.metadata[.antigravity])
+
+        let model = UsageMenuCardView.Model.make(.init(
+            provider: .antigravity,
+            metadata: metadata,
+            snapshot: snapshot,
+            credits: nil,
+            creditsError: nil,
+            dashboard: nil,
+            dashboardError: nil,
+            tokenSnapshot: nil,
+            tokenError: nil,
+            account: AccountInfo(email: nil, plan: nil),
+            isRefreshing: false,
+            lastError: nil,
+            usageBarsShowUsed: false,
+            resetTimeDisplayStyle: .countdown,
+            tokenCostUsageEnabled: false,
+            showOptionalCreditsAndExtraUsage: true,
+            hidePersonalInfo: false,
+            now: now))
+
+        #expect(snapshot.primary?.windowMinutes == nil)
+        #expect(model.metrics.map(\.detailLeftText) == ["20% in deficit"])
+        #expect(model.metrics.map(\.detailRightText) == ["Projected empty in 45m"])
+        #expect(model.metrics[0].pacePercent == 40)
+        #expect(model.metrics[0].paceOnTop == false)
     }
 
     @Test
@@ -320,6 +408,72 @@ struct MenuCardAntigravityTests {
             "64% left",
         ])
         #expect(model.metrics[2].resetText == "Resets in 3 hours")
+    }
+
+    @Test
+    func `antigravity quota summary rows render pace details`() throws {
+        let now = Date(timeIntervalSince1970: 0)
+        let snapshot = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            tertiary: nil,
+            extraRateWindows: [
+                NamedRateWindow(
+                    id: "antigravity-quota-summary-gemini-5h",
+                    title: "Gemini Models Five Hour Limit",
+                    window: RateWindow(
+                        usedPercent: 80,
+                        windowMinutes: 300,
+                        resetsAt: now.addingTimeInterval(2 * 3600),
+                        resetDescription: nil)),
+                NamedRateWindow(
+                    id: "antigravity-quota-summary-gemini-weekly",
+                    title: "Gemini Models Weekly Limit",
+                    window: RateWindow(
+                        usedPercent: 50,
+                        windowMinutes: 10080,
+                        resetsAt: now.addingTimeInterval(4 * 24 * 3600),
+                        resetDescription: nil)),
+            ],
+            updatedAt: now,
+            identity: ProviderIdentitySnapshot(
+                providerID: .antigravity,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: "Pro"))
+        let metadata = try #require(ProviderDefaults.metadata[.antigravity])
+
+        let model = UsageMenuCardView.Model.make(.init(
+            provider: .antigravity,
+            metadata: metadata,
+            snapshot: snapshot,
+            credits: nil,
+            creditsError: nil,
+            dashboard: nil,
+            dashboardError: nil,
+            tokenSnapshot: nil,
+            tokenError: nil,
+            account: AccountInfo(email: nil, plan: nil),
+            isRefreshing: false,
+            lastError: nil,
+            usageBarsShowUsed: false,
+            resetTimeDisplayStyle: .countdown,
+            tokenCostUsageEnabled: false,
+            showOptionalCreditsAndExtraUsage: false,
+            hidePersonalInfo: false,
+            now: now))
+
+        #expect(model.metrics.map(\.detailLeftText) == [
+            "20% in deficit",
+            "7% in deficit",
+        ])
+        #expect(model.metrics.map(\.detailRightText) == [
+            "Projected empty in 45m",
+            "Runs out in 3d",
+        ])
+        #expect(model.metrics[0].pacePercent == 40)
+        #expect(abs((model.metrics[1].pacePercent ?? 0) - (400.0 / 7.0)) < 0.01)
+        #expect(model.metrics.map(\.paceOnTop) == [false, false])
     }
 
     @Test

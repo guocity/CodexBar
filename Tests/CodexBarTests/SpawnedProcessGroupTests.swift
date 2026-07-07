@@ -15,6 +15,13 @@ struct SpawnedProcessGroupTests {
         #expect(descriptors == [3, 4])
     }
 
+    #if canImport(Darwin)
+    @Test
+    func `Darwin device identifier preserves signed bit pattern`() {
+        #expect(SpawnedProcessGroup.darwinDeviceIdentifier(-805_306_367) == 3_489_660_929)
+    }
+    #endif
+
     @Test
     func `musl close-from selects numeric descriptors at or above minimum`() throws {
         let descriptors = try PosixSpawnFileActionsCloseFrom.descriptorsToClose(startingAt: 4) { path in
@@ -192,8 +199,10 @@ struct SpawnedProcessGroupTests {
 
         var childPID: pid_t?
         for _ in 0..<100 {
-            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8) {
-                childPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let parsedPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            {
+                childPID = parsedPID
                 break
             }
             try await Task.sleep(for: .milliseconds(20))
@@ -259,8 +268,10 @@ struct SpawnedProcessGroupTests {
 
         var childPID: pid_t?
         for _ in 0..<100 {
-            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8) {
-                childPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let parsedPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            {
+                childPID = parsedPID
                 break
             }
             try await Task.sleep(for: .milliseconds(20))
@@ -353,8 +364,10 @@ struct SpawnedProcessGroupTests {
 
         var childPID: pid_t?
         for _ in 0..<100 {
-            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8) {
-                childPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let parsedPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            {
+                childPID = parsedPID
                 break
             }
             try await Task.sleep(for: .milliseconds(20))
@@ -403,8 +416,10 @@ struct SpawnedProcessGroupTests {
         }
         var childPID: pid_t?
         for _ in 0..<100 {
-            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8) {
-                childPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let parsedPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            {
+                childPID = parsedPID
                 break
             }
             try await Task.sleep(for: .milliseconds(20))
@@ -467,8 +482,10 @@ struct SpawnedProcessGroupTests {
         }
         var childPID: pid_t?
         for _ in 0..<100 {
-            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8) {
-                childPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let parsedPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            {
+                childPID = parsedPID
                 break
             }
             try await Task.sleep(for: .milliseconds(20))
@@ -576,8 +593,10 @@ struct SpawnedProcessGroupTests {
 
         var childPID: pid_t?
         for _ in 0..<100 {
-            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8) {
-                childPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let text = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let parsedPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            {
+                childPID = parsedPID
                 break
             }
             try await Task.sleep(for: .milliseconds(20))

@@ -5,11 +5,13 @@ public struct WidgetSnapshot: Codable, Sendable {
         public let id: String
         public let title: String
         public let percentLeft: Double?
+        public let window: RateWindow?
 
-        public init(id: String, title: String, percentLeft: Double?) {
+        public init(id: String, title: String, percentLeft: Double?, window: RateWindow? = nil) {
             self.id = id
             self.title = title
             self.percentLeft = percentLeft
+            self.window = window
         }
     }
 
@@ -24,6 +26,7 @@ public struct WidgetSnapshot: Codable, Sendable {
         public let codeReviewRemainingPercent: Double?
         public let tokenUsage: TokenUsageSummary?
         public let dailyUsage: [DailyUsagePoint]
+        public let providerCost: ProviderCostSnapshot?
 
         public init(
             provider: UsageProvider,
@@ -35,7 +38,8 @@ public struct WidgetSnapshot: Codable, Sendable {
             creditsRemaining: Double?,
             codeReviewRemainingPercent: Double?,
             tokenUsage: TokenUsageSummary?,
-            dailyUsage: [DailyUsagePoint])
+            dailyUsage: [DailyUsagePoint],
+            providerCost: ProviderCostSnapshot? = nil)
         {
             self.provider = provider
             self.updatedAt = updatedAt
@@ -47,6 +51,7 @@ public struct WidgetSnapshot: Codable, Sendable {
             self.codeReviewRemainingPercent = codeReviewRemainingPercent
             self.tokenUsage = tokenUsage
             self.dailyUsage = dailyUsage
+            self.providerCost = providerCost
         }
     }
 
@@ -120,17 +125,25 @@ public struct WidgetSnapshot: Codable, Sendable {
 
     public let entries: [ProviderEntry]
     public let enabledProviders: [UsageProvider]
+    public let usageBarsShowUsed: Bool
     public let generatedAt: Date
 
-    public init(entries: [ProviderEntry], enabledProviders: [UsageProvider]? = nil, generatedAt: Date) {
+    public init(
+        entries: [ProviderEntry],
+        enabledProviders: [UsageProvider]? = nil,
+        usageBarsShowUsed: Bool = false,
+        generatedAt: Date)
+    {
         self.entries = entries
         self.enabledProviders = enabledProviders ?? entries.map(\.provider)
+        self.usageBarsShowUsed = usageBarsShowUsed
         self.generatedAt = generatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case entries
         case enabledProviders
+        case usageBarsShowUsed
         case generatedAt
     }
 
@@ -140,12 +153,14 @@ public struct WidgetSnapshot: Codable, Sendable {
         self.generatedAt = try container.decode(Date.self, forKey: .generatedAt)
         self.enabledProviders = try container.decodeIfPresent([UsageProvider].self, forKey: .enabledProviders)
             ?? self.entries.map(\.provider)
+        self.usageBarsShowUsed = try container.decodeIfPresent(Bool.self, forKey: .usageBarsShowUsed) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(self.entries, forKey: .entries)
         try container.encode(self.enabledProviders, forKey: .enabledProviders)
+        try container.encode(self.usageBarsShowUsed, forKey: .usageBarsShowUsed)
         try container.encode(self.generatedAt, forKey: .generatedAt)
     }
 }

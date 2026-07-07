@@ -111,6 +111,7 @@ extension StatusItemController {
             from: dashboard?.usageBreakdown ?? [])
         var parts = [
             "costEnabled=\(self.settings.costUsageEnabled ? "1" : "0")",
+            "costStyle=\(self.settings.costSummaryDisplayStyle.rawValue)",
             "openAIAttached=\(self.store.openAIDashboardAttachmentAuthorized ? "1" : "0")",
             "openAILogin=\(self.store.openAIDashboardRequiresLogin ? "1" : "0")",
             "openAIUpdated=\(Self.millisecondsSinceEpoch(dashboard?.updatedAt))",
@@ -118,6 +119,7 @@ extension StatusItemController {
             "openAIUsage=\(Self.dashboardBreakdownReadinessSignature(dashboardUsageBreakdown))",
             "credits=\(self.store.credits == nil ? "0" : "1")",
             "planHistoryRevision=\(self.store.planUtilizationHistoryRevision)",
+            "claudeSwapRevision=\(self.store.claudeSwapRevision)",
         ]
 
         for provider in self.store.enabledProvidersForDisplay() {
@@ -128,6 +130,7 @@ extension StatusItemController {
                 [
                     provider.rawValue,
                     "token=\(tokenSignature)",
+                    "statusComponents=\(self.statusComponentsRenderSignature(for: provider))",
                     "refreshing=\(self.store.shouldShowRefreshingMenuCardIndicator(for: provider) ? "1" : "0")",
                     "usageHistory=\(usageHistoryVisible ? "1" : "0")",
                 ].joined(separator: ":"))
@@ -164,6 +167,27 @@ extension StatusItemController {
                 ].joined(separator: ",")
             }
             .joined(separator: ";")
+        let projects = snapshot.projects
+            .map { project in
+                let sources = project.sources
+                    .map { source in
+                        [
+                            source.name,
+                            source.path ?? "",
+                            "\(source.totalTokens ?? -1)",
+                            Self.formatOptionalDoubleForSignature(source.totalCostUSD),
+                        ].joined(separator: ",")
+                    }
+                    .joined(separator: "|")
+                return [
+                    project.name,
+                    project.path ?? "",
+                    "\(project.totalTokens ?? -1)",
+                    Self.formatOptionalDoubleForSignature(project.totalCostUSD),
+                    sources,
+                ].joined(separator: ",")
+            }
+            .joined(separator: ";")
         return [
             "sessionTokens=\(snapshot.sessionTokens ?? -1)",
             "sessionCost=\(Self.formatOptionalDoubleForSignature(snapshot.sessionCostUSD))",
@@ -171,6 +195,7 @@ extension StatusItemController {
             "lastCost=\(Self.formatOptionalDoubleForSignature(snapshot.last30DaysCostUSD))",
             "updated=\(Int(snapshot.updatedAt.timeIntervalSince1970 * 1000))",
             "daily=\(daily)",
+            "projects=\(projects)",
         ].joined(separator: ",")
     }
 
