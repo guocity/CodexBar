@@ -216,33 +216,38 @@ struct StatsProviderSortTests {
     }
 
     @Test
-    func `stats history freezes reset boundary when usage is zero`() {
+    func `stats history freezes past reset drift at zero usage but keeps upcoming`() {
         let frozen = Date(timeIntervalSince1970: 1_700_010_000)
-        let drifted = Date(timeIntervalSince1970: 1_700_020_000)
+        let pastDrift = Date(timeIntervalSince1970: 1_700_010_500)
+        let future = Date(timeIntervalSince1970: 1_700_020_000)
         let prior = [
             StatsEntry(capturedAt: self.now.addingTimeInterval(-120), usedPercent: 0, resetsAt: frozen),
         ]
-        #expect(statsRecordedResetBoundary(usedPercent: 0, liveReset: drifted, priorEntries: prior) == frozen)
-        #expect(statsRecordedResetBoundary(usedPercent: 5, liveReset: drifted, priorEntries: prior) == drifted)
+        #expect(statsRecordedResetBoundary(
+            usedPercent: 0,
+            liveReset: pastDrift,
+            priorEntries: prior,
+            capturedAt: self.now) == frozen)
+        #expect(statsRecordedResetBoundary(
+            usedPercent: 0,
+            liveReset: future,
+            priorEntries: prior,
+            capturedAt: self.now) == future)
     }
 
     @Test
-    func `upcoming reset ignores zero usage drift from history polls`() {
+    func `upcoming reset stays visible at zero usage when window is still active`() {
         let window = StatsWindow(
-            name: "primary",
-            displayName: "Session",
-            windowMinutes: 300,
+            name: "secondary",
+            displayName: "Weekly",
+            windowMinutes: 10080,
             entries: [
                 StatsEntry(
                     capturedAt: self.now.addingTimeInterval(-3600),
-                    usedPercent: 20,
-                    resetsAt: self.now.addingTimeInterval(3600)),
-                StatsEntry(
-                    capturedAt: self.now.addingTimeInterval(-60),
                     usedPercent: 0,
-                    resetsAt: self.now.addingTimeInterval(7200)),
+                    resetsAt: self.now.addingTimeInterval(6 * 86400)),
             ])
-        #expect(statsUpcomingReset(window, from: self.now) == self.now.addingTimeInterval(3600))
+        #expect(statsUpcomingReset(window, from: self.now) == self.now.addingTimeInterval(6 * 86400))
     }
 
     @Test

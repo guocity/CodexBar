@@ -142,15 +142,17 @@ final class StatsMultiLineChart: NSView {
         self.preparedSeries = self.series.map { series in
             let points = series.points.sorted { $0.ts < $1.ts }
             let hasUsage = points.contains { $0.value > 0.5 }
-            var resetTimes: [TimeInterval] = []
+            var resetDates: [Date] = []
             if hasUsage {
-                var resetDates = self.historicalResets
+                resetDates = self.historicalResets
                     .filter { $0.providerId == series.providerId && $0.windowName == series.windowName }
                     .map(\.date)
-                if let upcoming = series.upcomingReset { resetDates.append(upcoming) }
-                resetTimes = statsCoalescedResetDates(resetDates, windowMinutes: series.windowMinutes)
-                    .map(\.timeIntervalSince1970)
             }
+            if let upcoming = series.upcomingReset {
+                resetDates.append(upcoming)
+            }
+            let resetTimes = statsCoalescedResetDates(resetDates, windowMinutes: series.windowMinutes)
+                .map(\.timeIntervalSince1970)
             return (series, points, resetTimes)
         }
 
@@ -496,7 +498,6 @@ final class StatsMultiLineChart: NSView {
         var drawnResetMinutes = Set<Int>()
         for prepared in self.preparedSeries {
             let series = prepared.series
-            guard prepared.points.contains(where: { $0.value > 0.5 }) else { continue }
             guard let reset = series.upcomingReset else { continue }
             let ts = reset.timeIntervalSince1970
             guard ts >= tMin, ts <= tMax else { continue }

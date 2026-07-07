@@ -282,7 +282,8 @@ struct StatsUsage {
                     resetsAt: statsRecordedResetBoundary(
                         usedPercent: snap.usedPercent,
                         liveReset: snap.resetsAt,
-                        priorEntries: entries)))
+                        priorEntries: entries,
+                        capturedAt: updatedAt)))
             }
             windows.append(StatsWindow(
                 name: snap.id,
@@ -315,7 +316,8 @@ struct StatsUsage {
                 resetsAt: statsRecordedResetBoundary(
                     usedPercent: usedPercent,
                     liveReset: entry.resetsAt,
-                    priorEntries: result)))
+                    priorEntries: result,
+                    capturedAt: entry.capturedAt)))
         }
         return result
     }
@@ -502,19 +504,9 @@ extension StatsUsage {
 
 // MARK: - Reset / formatting helpers
 
-/// The next reset for a window: the furthest `resetsAt` still in the future from a usage-bearing
-/// reading, else `nil`. At 0% the live API keeps rolling `resetsAt` forward on every poll — ignore
-/// that drift and do not treat it as an active upcoming reset.
+/// The next reset for a window: the furthest `resetsAt` still in the future, else `nil` (inactive).
 func statsUpcomingReset(_ window: StatsWindow, from now: Date) -> Date? {
-    let resetSources: [StatsEntry]
-    if let latest = window.latest, latest.usedPercent > 0.5 {
-        resetSources = window.entries
-    } else if let lastUsed = window.entries.last(where: { $0.usedPercent > 0.5 }) {
-        resetSources = [lastUsed]
-    } else {
-        return nil
-    }
-    let future = resetSources.compactMap(\.resetsAt).filter { $0 > now }
+    let future = window.entries.compactMap(\.resetsAt).filter { $0 > now }
     return future.max()
 }
 
@@ -560,14 +552,18 @@ func statsWindowHasRecordedUsage(_ window: StatsWindow) -> Bool {
     window.entries.contains { $0.usedPercent > 0.5 }
 }
 
-/// Mirrors `UsageStore` history recording: at 0% the live API keeps nudging `resetsAt` forward,
-/// but the stored series must keep the last boundary instead.
+/// At 0% the live API nudges past `resetsAt` samples on every poll. Freeze only boundaries that
+/// are already past at capture time; keep future resets so weekly/session countdowns stay visible.
 func statsRecordedResetBoundary(
     usedPercent: Double,
     liveReset: Date?,
-    priorEntries: [StatsEntry]) -> Date?
+    priorEntries: [StatsEntry],
+    capturedAt: Date) -> Date?
 {
     if usedPercent > 0.5 {
+        return liveReset
+    }
+    if let liveReset, liveReset > capturedAt {
         return liveReset
     }
     return priorEntries.last?.resetsAt ?? liveReset
