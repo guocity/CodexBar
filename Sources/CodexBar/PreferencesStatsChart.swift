@@ -34,6 +34,8 @@ final class StatsMultiLineChart: NSView {
     }
 
     private var series: [Series] = []
+    /// Pre-sorted points and per-series reset timestamps, rebuilt in `setData` so `draw` stays cheap.
+    private var preparedSeries: [(series: Series, points: [StatsSample], resetTimes: [TimeInterval])] = []
     private var now = Date()
     private var historicalResets: [StatsHistoricalReset] = []
     private let fixedYMax: Double?
@@ -137,8 +139,22 @@ final class StatsMultiLineChart: NSView {
         self.series = series.filter { !$0.points.isEmpty }
         self.now = now
         self.historicalResets = historicalResets
+        self.preparedSeries = self.series.map { series in
+            let points = series.points.sorted { $0.ts < $1.ts }
+            let hasUsage = points.contains { $0.value > 0.5 }
+            var resetTimes: [TimeInterval] = []
+            if hasUsage {
+                resetTimes = self.historicalResets
+                    .filter { $0.providerId == series.providerId && $0.windowName == series.windowName }
+                    .map { $0.date.timeIntervalSince1970 }
+                if let upcoming = series.upcomingReset { resetTimes.append(upcoming.timeIntervalSince1970) }
+                resetTimes.sort()
+            }
+            return (series, points, resetTimes)
+        }
 
         guard !self.series.isEmpty else {
+            self.preparedSeries = []
             self.needsDisplay = true
             return
         }
@@ -516,9 +532,10 @@ final class StatsMultiLineChart: NSView {
         NSColor.systemRed.setStroke()
         nowLine.stroke()
 
-        self.projected.removeAll()
-        for series in self.series {
-            let pts = series.points.sorted { $0.ts < $1.ts }
+        self.projected.removeAll(keepingCapacity: true)
+        for prepared in self.preparedSeries {
+            let series = prepared.series
+            let pts = prepared.points
             let isHighlighted = self.highlightedSeriesKey == nil
                 || (self.highlightedSeriesKey?.providerId == series.providerId
                     && self.highlightedSeriesKey?.windowName == series.windowName)
@@ -540,25 +557,28 @@ final class StatsMultiLineChart: NSView {
                 NSBezierPath(ovalIn: CGRect(x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3)).fill()
                 continue
             }
-            var resetTimes = self.historicalResets
-                .filter { $0.providerId == series.providerId && $0.windowName == series.windowName }
-                .map(\.date.timeIntervalSince1970)
-            if let upcoming = series.upcomingReset { resetTimes.append(upcoming.timeIntervalSince1970) }
-            resetTimes.sort()
+            let resetTimes = prepared.resetTimes
             let yZero = yFor(0)
 
             let path = NSBezierPath()
             path.move(to: CGPoint(x: xFor(pts[0].ts.timeIntervalSince1970), y: yFor(pts[0].value)))
-            for i in 1..<pts.count {
-                let a = pts[i - 1], b = pts[i]
-                let aTS = a.ts.timeIntervalSince1970, bTS = b.ts.timeIntervalSince1970
-                if let reset = resetTimes.first(where: { $0 > aTS && $0 < bTS }) {
-                    let rx = xFor(reset)
-                    path.line(to: CGPoint(x: rx, y: yFor(a.value)))
-                    path.line(to: CGPoint(x: rx, y: yZero))
-                    path.line(to: CGPoint(x: xFor(bTS), y: yFor(b.value)))
-                } else {
-                    path.line(to: CGPoint(x: xFor(bTS), y: yFor(b.value)))
+            if resetTimes.isEmpty {
+                for i in 1..<pts.count {
+                    let b = pts[i]
+                    path.line(to: CGPoint(x: xFor(b.ts.timeIntervalSince1970), y: yFor(b.value)))
+                }
+            } else {
+                for i in 1..<pts.count {
+                    let a = pts[i - 1], b = pts[i]
+                    let aTS = a.ts.timeIntervalSince1970, bTS = b.ts.timeIntervalSince1970
+                    if let reset = resetTimes.first(where: { $0 > aTS && $0 < bTS }) {
+                        let rx = xFor(reset)
+                        path.line(to: CGPoint(x: rx, y: yFor(a.value)))
+                        path.line(to: CGPoint(x: rx, y: yZero))
+                        path.line(to: CGPoint(x: xFor(bTS), y: yFor(b.value)))
+                    } else {
+                        path.line(to: CGPoint(x: xFor(bTS), y: yFor(b.value)))
+                    }
                 }
             }
             let isSession = series.windowName.lowercased().contains("session") || series.windowMinutes < 1440
