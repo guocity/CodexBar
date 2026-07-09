@@ -153,8 +153,13 @@ struct GeneralPane: View {
                         subtitle: L("predictive_pace_warnings_subtitle"))
                 }
 
-                if self.settings.quotaWarningNotificationsEnabled {
-                    GlobalQuotaWarningSettingsView(settings: self.settings)
+                let warningSettingsVisibility = QuotaWarningSettingsVisibility(
+                    thresholdWarningsEnabled: self.settings.quotaWarningNotificationsEnabled,
+                    predictiveWarningsEnabled: self.settings.predictivePaceWarningNotificationsEnabled)
+                if warningSettingsVisibility.showsDeliveryControls {
+                    GlobalQuotaWarningSettingsView(
+                        settings: self.settings,
+                        showsThresholdControls: warningSettingsVisibility.showsThresholdControls)
                 }
             } header: {
                 Text(L("section_notifications"))

@@ -1,34 +1,52 @@
 import CodexBarCore
 import SwiftUI
 
+struct QuotaWarningSettingsVisibility: Equatable {
+    let showsThresholdControls: Bool
+    let showsDeliveryControls: Bool
+
+    init(thresholdWarningsEnabled: Bool, predictiveWarningsEnabled: Bool) {
+        self.showsThresholdControls = thresholdWarningsEnabled
+        self.showsDeliveryControls = thresholdWarningsEnabled || predictiveWarningsEnabled
+    }
+}
+
 @MainActor
 struct GlobalQuotaWarningSettingsView: View {
     @Bindable var settings: SettingsStore
+    let showsThresholdControls: Bool
+
+    init(settings: SettingsStore, showsThresholdControls: Bool = true) {
+        self.settings = settings
+        self.showsThresholdControls = showsThresholdControls
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 16) {
-                Toggle(isOn: Binding(
-                    get: { self.settings.quotaWarningWindowEnabled(.session) },
-                    set: { self.settings.setQuotaWarningWindowEnabled(.session, enabled: $0) }))
-                {
-                    Text(L("quota_warning_session_capitalized"))
-                        .font(.footnote)
-                }
-                .toggleStyle(.checkbox)
+            if self.showsThresholdControls {
+                HStack(spacing: 16) {
+                    Toggle(isOn: Binding(
+                        get: { self.settings.quotaWarningWindowEnabled(.session) },
+                        set: { self.settings.setQuotaWarningWindowEnabled(.session, enabled: $0) }))
+                    {
+                        Text(L("quota_warning_session_capitalized"))
+                            .font(.footnote)
+                    }
+                    .toggleStyle(.checkbox)
 
-                Toggle(isOn: Binding(
-                    get: { self.settings.quotaWarningWindowEnabled(.weekly) },
-                    set: { self.settings.setQuotaWarningWindowEnabled(.weekly, enabled: $0) }))
-                {
-                    Text(L("quota_warning_weekly_capitalized"))
-                        .font(.footnote)
+                    Toggle(isOn: Binding(
+                        get: { self.settings.quotaWarningWindowEnabled(.weekly) },
+                        set: { self.settings.setQuotaWarningWindowEnabled(.weekly, enabled: $0) }))
+                    {
+                        Text(L("quota_warning_weekly_capitalized"))
+                            .font(.footnote)
+                    }
+                    .toggleStyle(.checkbox)
                 }
-                .toggleStyle(.checkbox)
+
+                self.windowThresholdField(.session)
+                self.windowThresholdField(.weekly)
             }
-
-            self.windowThresholdField(.session)
-            self.windowThresholdField(.weekly)
 
             Toggle(isOn: self.$settings.quotaWarningSoundEnabled) {
                 Text(L("quota_warning_sound"))

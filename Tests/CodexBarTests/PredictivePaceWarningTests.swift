@@ -70,6 +70,42 @@ struct PredictivePaceWarningTests {
     }
 
     @Test
+    func `predictive pace preference refreshes background work only when it changes`() {
+        let settings = self.makeSettings(suiteName: "PredictivePaceWarningTests-settings-revision")
+        let initialRevision = settings.backgroundWorkSettingsRevision
+
+        settings.predictivePaceWarningNotificationsEnabled = true
+        #expect(settings.backgroundWorkSettingsRevision == initialRevision + 1)
+
+        settings.predictivePaceWarningNotificationsEnabled = true
+        #expect(settings.backgroundWorkSettingsRevision == initialRevision + 1)
+
+        settings.predictivePaceWarningNotificationsEnabled = false
+        #expect(settings.backgroundWorkSettingsRevision == initialRevision + 2)
+    }
+
+    @Test
+    func `predictive only settings expose delivery controls without threshold editors`() {
+        let disabled = QuotaWarningSettingsVisibility(
+            thresholdWarningsEnabled: false,
+            predictiveWarningsEnabled: false)
+        #expect(!disabled.showsThresholdControls)
+        #expect(!disabled.showsDeliveryControls)
+
+        let predictiveOnly = QuotaWarningSettingsVisibility(
+            thresholdWarningsEnabled: false,
+            predictiveWarningsEnabled: true)
+        #expect(!predictiveOnly.showsThresholdControls)
+        #expect(predictiveOnly.showsDeliveryControls)
+
+        let thresholdWarnings = QuotaWarningSettingsVisibility(
+            thresholdWarningsEnabled: true,
+            predictiveWarningsEnabled: false)
+        #expect(thresholdWarnings.showsThresholdControls)
+        #expect(thresholdWarnings.showsDeliveryControls)
+    }
+
+    @Test
     func `trigger only accepts at risk pace with positive eta and confident probability`() {
         #expect(PredictivePaceWarningNotificationLogic.shouldNotify(pace: self.pace(
             willLastToReset: false,
@@ -160,6 +196,47 @@ struct PredictivePaceWarningTests {
     }
 
     @Test
+    func `provider account and window risk episodes are isolated`() {
+        let keys = [
+            PredictivePaceWarningStateKey(
+                provider: .claude,
+                accountDiscriminator: "account-a",
+                window: .session,
+                resetWindowID: "300:1780000000"),
+            PredictivePaceWarningStateKey(
+                provider: .claude,
+                accountDiscriminator: "account-a",
+                window: .weekly,
+                resetWindowID: "10080:1780000000"),
+            PredictivePaceWarningStateKey(
+                provider: .claude,
+                accountDiscriminator: "account-b",
+                window: .session,
+                resetWindowID: "300:1780000000"),
+            PredictivePaceWarningStateKey(
+                provider: .codex,
+                accountDiscriminator: "account-a",
+                window: .session,
+                resetWindowID: "300:1780000000"),
+        ]
+        var notifiedKeys: Set<PredictivePaceWarningStateKey> = []
+
+        for key in keys {
+            #expect(PredictivePaceWarningNotificationLogic.recordObservation(
+                key: key,
+                pace: self.pace(willLastToReset: false, etaSeconds: 60),
+                notifiedKeys: &notifiedKeys))
+        }
+        for key in keys {
+            #expect(!PredictivePaceWarningNotificationLogic.recordObservation(
+                key: key,
+                pace: self.pace(willLastToReset: false, etaSeconds: 60),
+                notifiedKeys: &notifiedKeys))
+        }
+        #expect(notifiedKeys == Set(keys))
+    }
+
+    @Test
     func `store posts once for Claude session and weekly risk then re-arms after recovery`() {
         let now = Date(timeIntervalSince1970: 1_780_000_000)
         let settings = self.makeSettings(suiteName: "PredictivePaceWarningTests-claude-store")
@@ -192,6 +269,74 @@ struct PredictivePaceWarningTests {
         store.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: atRisk)
 
         #expect(notifier.predictivePosts.map(\.event.window) == [.session, .weekly, .session, .weekly])
+    }
+
+    @Test
+    func `missing incomplete and failed observations preserve warned state`() async {
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+        let settings = self.makeSettings(suiteName: "PredictivePaceWarningTests-preserve-state")
+        settings.predictivePaceWarningNotificationsEnabled = true
+        let notifier = NotifierSpy()
+        let store = self.makeStore(settings: settings, notifier: notifier)
+        let atRisk = self.snapshot(
+            now: now,
+            sessionUsed: 80,
+            weeklyUsed: 90,
+            accountEmail: "person@example.com")
+
+        store.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: atRisk)
+        #expect(notifier.predictivePosts.map(\.event.window) == [.session, .weekly])
+
+        let incomplete = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            updatedAt: now,
+            identity: ProviderIdentitySnapshot(
+                providerID: .claude,
+                accountEmail: "person@example.com",
+                accountOrganization: nil,
+                loginMethod: nil))
+        store.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: incomplete)
+
+        let missingIdentity = self.snapshot(
+            now: now,
+            sessionUsed: 80,
+            weeklyUsed: 90,
+            accountEmail: nil)
+        store.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: missingIdentity)
+
+        await store.applySelectedOutcome(
+            ProviderFetchOutcome(
+                result: .failure(ProviderFetchError.noAvailableStrategy(.claude)),
+                attempts: []),
+            provider: .claude,
+            account: nil,
+            fallbackSnapshot: atRisk)
+
+        store.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: atRisk)
+        #expect(notifier.predictivePosts.map(\.event.window) == [.session, .weekly])
+    }
+
+    @Test
+    func `new store starts with memory only warning state`() {
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+        let settings = self.makeSettings(suiteName: "PredictivePaceWarningTests-memory-only")
+        settings.predictivePaceWarningNotificationsEnabled = true
+        let snapshot = self.snapshot(
+            now: now,
+            sessionUsed: 80,
+            weeklyUsed: 20,
+            accountEmail: "person@example.com")
+        let firstNotifier = NotifierSpy()
+        let firstStore = self.makeStore(settings: settings, notifier: firstNotifier)
+        firstStore.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: snapshot)
+        firstStore.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: snapshot)
+        #expect(firstNotifier.predictivePosts.count == 1)
+
+        let secondNotifier = NotifierSpy()
+        let secondStore = self.makeStore(settings: settings, notifier: secondNotifier)
+        secondStore.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: snapshot)
+        #expect(secondNotifier.predictivePosts.count == 1)
     }
 
     @Test
@@ -287,7 +432,7 @@ struct PredictivePaceWarningTests {
         let now = Date(timeIntervalSince1970: 1_780_000_000)
         let settings = self.makeSettings(suiteName: "PredictivePaceWarningTests-selected-claude-oauth-owner")
         settings.predictivePaceWarningNotificationsEnabled = true
-        settings.addTokenAccount(provider: .claude, label: "Selected", token: "Bearer sk-ant-oat-selected")
+        settings.addTokenAccount(provider: .claude, label: "Selected", token: "token")
         let account = try #require(settings.selectedTokenAccount(for: .claude))
         let notifier = NotifierSpy()
         let store = self.makeStore(settings: settings, notifier: notifier)
@@ -354,6 +499,33 @@ struct PredictivePaceWarningTests {
         store.handlePredictivePaceWarningTransitions(
             provider: .zai,
             snapshot: self.snapshot(now: now, sessionUsed: 80, weeklyUsed: 90, accountEmail: "person@example.com"))
+
+        #expect(notifier.predictivePosts.isEmpty)
+    }
+
+    @Test
+    func `store ignores unsupported tertiary windows`() {
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+        let settings = self.makeSettings(suiteName: "PredictivePaceWarningTests-window-scope")
+        settings.predictivePaceWarningNotificationsEnabled = true
+        let notifier = NotifierSpy()
+        let store = self.makeStore(settings: settings, notifier: notifier)
+        let snapshot = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            tertiary: RateWindow(
+                usedPercent: 90,
+                windowMinutes: 30 * 24 * 60,
+                resetsAt: now.addingTimeInterval(2 * 24 * 3600),
+                resetDescription: nil),
+            updatedAt: now,
+            identity: ProviderIdentitySnapshot(
+                providerID: .claude,
+                accountEmail: "person@example.com",
+                accountOrganization: nil,
+                loginMethod: nil))
+
+        store.handlePredictivePaceWarningTransitions(provider: .claude, snapshot: snapshot)
 
         #expect(notifier.predictivePosts.isEmpty)
     }
