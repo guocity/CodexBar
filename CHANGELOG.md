@@ -10,6 +10,7 @@
 - Settings: keep visual-only preference changes on cached UI paths instead of refreshing provider quotas, while preserving refreshes for data-affecting settings. Thanks @Zihao-Qi!
 - Ollama: recognize current WorkOS AuthKit sessions during browser-cookie discovery and manual cookie validation. Thanks @joeVenner!
 - Ollama: classify current WorkOS sign-in redirects as expired sessions, enabling cookie-candidate fallback instead of a parser error. Thanks @joeVenner!
+- Widgets: show token-cost rows with their own age when they lag a fresh quota snapshot, and retry fast token-scan failures without waiting out the hourly cache. Thanks @irresi!
 
 ## 0.41.0 — 2026-07-06
 
