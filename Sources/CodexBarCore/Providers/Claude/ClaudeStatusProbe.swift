@@ -219,7 +219,7 @@ extension ClaudeStatusProbe {
         let labelContext = LabelSearchContext(text: usagePanelText)
 
         var sessionPct = self.extractPercent(labelSubstring: "Current session", context: labelContext)
-        var weeklyPct = self.extractPercent(labelSubstring: "Current week (all models)", context: labelContext)
+        let weeklyPct = self.extractPercent(labelSubstring: "Current week (all models)", context: labelContext)
         let opusLabels = [
             "Current week (Opus)",
             "Current week (Sonnet only)",
@@ -236,13 +236,10 @@ extension ClaudeStatusProbe {
             labelContext.contains(self.normalizedForLabelSearch($0))
         }
 
-        if sessionPct == nil || (hasAllModelsWeeklyLabel && weeklyPct == nil) {
+        if sessionPct == nil {
             let ordered = self.allPercents(usagePanelText)
             if sessionPct == nil, ordered.indices.contains(0) {
                 sessionPct = ordered[0]
-            }
-            if hasAllModelsWeeklyLabel, weeklyPct == nil, ordered.indices.contains(1) {
-                weeklyPct = ordered[1]
             }
         }
 
@@ -349,6 +346,10 @@ extension ClaudeStatusProbe {
             // so scan a larger window than the original 3–4 lines.
             let window = lines.dropFirst(idx).prefix(12)
             for candidate in window {
+                let normalized = self.normalizedForLabelSearch(candidate)
+                if normalized.hasPrefix("current"), !normalized.contains(label) {
+                    break
+                }
                 if let pct = self.percentFromLine(candidate) {
                     return pct
                 }

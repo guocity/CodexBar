@@ -144,6 +144,26 @@ struct ClaudeCLIScopedWeeklyUsageTests {
     }
 
     @Test
+    func `incomplete all models panel does not consume scoped percentage`() throws {
+        let cliUsage = """
+        Current session
+        9% used
+
+        Current week (all models)
+        rendering
+
+        Current week (Fable)
+        42% used
+        """
+
+        let snapshot = try ClaudeStatusProbe.parse(text: cliUsage)
+
+        #expect(snapshot.weeklyPercentLeft == nil)
+        #expect(snapshot.extraRateWindows.map(\.title) == ["Fable only"])
+        #expect(snapshot.extraRateWindows.first?.window.usedPercent == 42)
+    }
+
+    @Test
     func `later complete scoped panel replaces earlier complete value`() throws {
         let cliUsage = """
         Current session
