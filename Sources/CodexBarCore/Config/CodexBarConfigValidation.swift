@@ -28,6 +28,16 @@ public struct CodexBarConfigIssue: Codable, Sendable, Equatable {
 }
 
 public enum CodexBarConfigValidator {
+    private static let enterpriseHostProviders: [UsageProvider] = [
+        .azureopenai,
+        .clawrouter,
+        .copilot,
+        .kimi,
+        .litellm,
+        .llmproxy,
+        .wayfinder,
+    ]
+
     private static let workspaceIDProviders: [UsageProvider] = [
         .azureopenai,
         .openai,
@@ -91,6 +101,7 @@ public enum CodexBarConfigValidator {
         }
 
         if let source = entry.source, source == .api,
+           self.providerRequiresAPIKey(provider),
            entry.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
         {
             issues.append(CodexBarConfigIssue(
@@ -161,8 +172,7 @@ public enum CodexBarConfigValidator {
                 provider: provider,
                 field: "enterpriseHost",
                 code: "enterprise_host_unused",
-                message: "enterpriseHost is set but only azureopenai, copilot, kimi, " +
-                    "llmproxy, and litellm support enterpriseHost."))
+                message: "enterpriseHost is set but only \(self.enterpriseHostProviderList) support enterpriseHost."))
         }
 
         if let tokenAccounts = entry.tokenAccounts, !tokenAccounts.accounts.isEmpty,
@@ -233,12 +243,15 @@ public enum CodexBarConfigValidator {
     }
 
     private static func providerSupportsEnterpriseHost(_ provider: UsageProvider) -> Bool {
-        switch provider {
-        case .azureopenai, .copilot, .kimi, .llmproxy, .litellm, .clawrouter:
-            true
-        default:
-            false
-        }
+        self.enterpriseHostProviders.contains(provider)
+    }
+
+    private static func providerRequiresAPIKey(_ provider: UsageProvider) -> Bool {
+        provider != .wayfinder
+    }
+
+    private static var enterpriseHostProviderList: String {
+        self.formattedProviderList(self.enterpriseHostProviders)
     }
 
     private static func validateRegion(_ entry: ProviderConfig, issues: inout [CodexBarConfigIssue]) {
