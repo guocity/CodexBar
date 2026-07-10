@@ -513,6 +513,14 @@ extension SettingsStore {
         }
     }
 
+    var codexSparkUsageVisible: Bool {
+        get { self.defaultsState.codexSparkUsageVisible }
+        set {
+            self.defaultsState.codexSparkUsageVisible = newValue
+            self.userDefaults.set(newValue, forKey: "codexSparkUsageVisible")
+        }
+    }
+
     var openAIWebAccessEnabled: Bool {
         get { self.defaultsState.openAIWebAccessEnabled }
         set {

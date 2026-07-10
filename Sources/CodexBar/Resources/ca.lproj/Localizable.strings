@@ -1161,3 +1161,5 @@
 "section_diagnostics" = "Diagnòstics";
 "section_updates" = "Actualitzacions";
 "section_links" = "Enllaços";
+"Show Codex Spark usage" = "Mostreu l'ús de Codex Spark";
+"Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "Mostreu les files de quota de Codex Spark al menú i a la previsualització del proveïdor. Cal activar «Mostreu crèdits + ús addicional» a la configuració de Pantalla.";

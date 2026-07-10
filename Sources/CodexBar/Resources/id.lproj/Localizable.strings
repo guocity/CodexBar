@@ -1161,3 +1161,5 @@
 "section_diagnostics" = "Diagnostik";
 "section_updates" = "Pembaruan";
 "section_links" = "Tautan";
+"Show Codex Spark usage" = "Tampilkan penggunaan Codex Spark";
+"Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "Menampilkan baris kuota Codex Spark di menu dan pratinjau penyedia. Mengharuskan “Tampilkan kredit + penggunaan ekstra” diaktifkan di pengaturan Tampilan.";

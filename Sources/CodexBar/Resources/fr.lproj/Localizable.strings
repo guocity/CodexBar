@@ -1155,3 +1155,5 @@
 "section_diagnostics" = "Diagnostics";
 "section_updates" = "Mises à jour";
 "section_links" = "Liens";
+"Show Codex Spark usage" = "Afficher l’utilisation de Codex Spark";
+"Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "Affiche les lignes de quota Codex Spark dans le menu et l’aperçu du fournisseur. Nécessite d’activer « Afficher les crédits + utilisation supplémentaire » dans les réglages Affichage.";

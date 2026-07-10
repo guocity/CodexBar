@@ -1159,3 +1159,5 @@
 "section_diagnostics" = "Tanılama";
 "section_updates" = "Güncellemeler";
 "section_links" = "Bağlantılar";
+"Show Codex Spark usage" = "Codex Spark kullanımını göster";
+"Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "Codex Spark kota satırlarını menüde ve sağlayıcı önizlemesinde gösterir. Görünüm ayarlarında “Krediler + ekstra kullanımı göster” seçeneğinin etkin olmasını gerektirir.";

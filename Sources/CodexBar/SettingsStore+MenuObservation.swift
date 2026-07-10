@@ -48,6 +48,7 @@ extension SettingsStore {
         _ = self.claudeWebExtrasEnabled
         _ = self.copilotBudgetExtrasEnabled
         _ = self.showOptionalCreditsAndExtraUsage
+        _ = self.codexSparkUsageVisible
         _ = self.openAIWebAccessEnabled
         _ = self.openAIWebBatterySaverEnabled
         _ = self.providerStorageFootprintsEnabled

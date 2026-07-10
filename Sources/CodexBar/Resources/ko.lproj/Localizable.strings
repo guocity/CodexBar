@@ -1124,3 +1124,5 @@
 "section_diagnostics" = "진단";
 "section_updates" = "업데이트";
 "section_links" = "링크";
+"Show Codex Spark usage" = "Codex Spark 사용량 표시";
+"Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "메뉴와 공급자 미리보기에 Codex Spark 할당량 행을 표시합니다. 표시 설정에서 ‘크레딧 + 추가 사용량 표시’를 활성화해야 합니다.";
