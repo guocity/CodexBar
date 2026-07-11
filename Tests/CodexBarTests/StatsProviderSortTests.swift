@@ -85,8 +85,14 @@ struct StatsProviderSortTests {
             displayName: "Session",
             windowMinutes: 300,
             entries: [
-                StatsEntry(capturedAt: self.now.addingTimeInterval(-3600), usedPercent: 0, resetsAt: self.now.addingTimeInterval(-1800)),
-                StatsEntry(capturedAt: self.now.addingTimeInterval(-60), usedPercent: 0, resetsAt: self.now.addingTimeInterval(3600)),
+                StatsEntry(
+                    capturedAt: self.now.addingTimeInterval(-3600),
+                    usedPercent: 0,
+                    resetsAt: self.now.addingTimeInterval(-1800)),
+                StatsEntry(
+                    capturedAt: self.now.addingTimeInterval(-60),
+                    usedPercent: 0,
+                    resetsAt: self.now.addingTimeInterval(3600)),
             ])
         #expect(!statsWindowHasRecordedUsage(window))
     }
@@ -277,9 +283,15 @@ struct StatsProviderSortTests {
             baseColor: .systemPurple,
             windows: [
                 zeroPool(id: "antigravity-quota-summary-gemini-5h", displayName: "Gemini 5-hour", windowMinutes: 300),
-                zeroPool(id: "antigravity-quota-summary-gemini-weekly", displayName: "Gemini weekly", windowMinutes: 10080),
+                zeroPool(
+                    id: "antigravity-quota-summary-gemini-weekly",
+                    displayName: "Gemini weekly",
+                    windowMinutes: 10080),
                 zeroPool(id: "antigravity-quota-summary-3p-5h", displayName: "Claude/GPT 5-hour", windowMinutes: 300),
-                zeroPool(id: "antigravity-quota-summary-3p-weekly", displayName: "Claude/GPT weekly", windowMinutes: 10080),
+                zeroPool(
+                    id: "antigravity-quota-summary-3p-weekly",
+                    displayName: "Claude/GPT weekly",
+                    windowMinutes: 10080),
             ])
         let historical = statsHistoricalResets([provider], before: self.now)
         #expect(historical.isEmpty)
@@ -316,11 +328,31 @@ struct StatsProviderSortTests {
     }
 
     @Test
+    func `upcoming reset prefers latest live sample over stale far-future history`() {
+        let now = self.now
+        let staleYearAhead = now.addingTimeInterval(361 * 86400)
+        let liveReset = now.addingTimeInterval(39 * 60)
+        let entries = [
+            StatsEntry(capturedAt: now.addingTimeInterval(-86400), usedPercent: 12, resetsAt: staleYearAhead),
+            StatsEntry(capturedAt: now.addingTimeInterval(-120), usedPercent: 58, resetsAt: liveReset),
+        ]
+        let window = StatsWindow(
+            name: "primary",
+            displayName: "Session",
+            windowMinutes: 300,
+            entries: entries)
+        #expect(statsUpcomingReset(window, from: now) == liveReset)
+    }
+
+    @Test
     func `live snapshot upsert appends when history sample is older than one second`() {
         let now = self.now
         let upcomingReset = now.addingTimeInterval(3600)
         var entries = [
-            StatsEntry(capturedAt: now.addingTimeInterval(-120), usedPercent: 4, resetsAt: now.addingTimeInterval(1800)),
+            StatsEntry(
+                capturedAt: now.addingTimeInterval(-120),
+                usedPercent: 4,
+                resetsAt: now.addingTimeInterval(1800)),
         ]
         statsUpsertLiveEntry(
             entries: &entries,

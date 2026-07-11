@@ -491,8 +491,8 @@ struct StatsUsage {
 
 extension StatsUsage {
     /// Test seam: Antigravity quota pools must map onto the same series slugs the recorder uses.
-    internal static func antigravityHistoryNameForTests(title: String, id: String) -> String {
-        Self.antigravityHistoryName(for: NamedRateWindow(
+    static func antigravityHistoryNameForTests(title: String, id: String) -> String {
+        self.antigravityHistoryName(for: NamedRateWindow(
             id: id,
             title: title,
             window: RateWindow(usedPercent: 0, windowMinutes: 300, resetsAt: nil, resetDescription: nil)))
@@ -501,10 +501,14 @@ extension StatsUsage {
 
 // MARK: - Reset / formatting helpers
 
-/// The next reset for a window: the furthest `resetsAt` still in the future, else `nil` (inactive).
+/// The next reset for a window: the most recent sample's future `resetsAt`, else `nil` (inactive).
+///
+/// Prefer the latest entry — after `statsUpsertLiveEntry` that is the live snapshot — so a few
+/// stale far-future history rows (seen with Claude year-ahead parse glitches) cannot override the
+/// countdown the menu already shows correctly.
 func statsUpcomingReset(_ window: StatsWindow, from now: Date) -> Date? {
-    let future = window.entries.compactMap(\.resetsAt).filter { $0 > now }
-    return future.max()
+    guard let latest = window.latest?.resetsAt, latest > now else { return nil }
+    return latest
 }
 
 /// The soonest upcoming reset across a provider's windows whose duration falls in
@@ -512,8 +516,8 @@ func statsUpcomingReset(_ window: StatsWindow, from now: Date) -> Date? {
 /// provider has no such active window. Used to order providers in the Stats pane.
 ///
 /// For an unused provider the matching window keeps rolling forward, so each reading records a
-/// fresh reset boundary; `statsUpcomingReset` already collapses those to the single latest one,
-/// and this returns that same displayed value so the sort matches what the row shows.
+/// fresh reset boundary on the latest sample; `statsUpcomingReset` reads that same displayed value
+/// so the sort matches what the row shows.
 func statsProviderReset(_ provider: StatsProvider, in windowMinutes: ClosedRange<Int>, from now: Date) -> Date? {
     provider.windows
         .filter { windowMinutes.contains($0.windowMinutes) }
@@ -1264,11 +1268,77 @@ private final class StatsClickableTitle: NSView {
     }
 }
 
+/// Countdown reset label that swaps to the absolute reset time while the pointer hovers it.
+private final class StatsResetLabel: NSTextField {
+    private var countdownText = "—"
+    private var absoluteText: String?
+    private var trackingArea: NSTrackingArea?
+    private var isHovering = false
+
+    init() {
+        super.init(frame: .zero)
+        self.isEditable = false
+        self.isBordered = false
+        self.drawsBackground = false
+        self.refusesFirstResponder = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setResetTexts(countdown: String, absolute: String?) {
+        self.countdownText = countdown
+        self.absoluteText = absolute
+        self.toolTip = nil
+        self.refreshDisplayedText()
+    }
+
+    func setInactiveText(_ text: String) {
+        self.countdownText = text
+        self.absoluteText = nil
+        self.toolTip = nil
+        self.isHovering = false
+        self.refreshDisplayedText()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = self.trackingArea { self.removeTrackingArea(existing) }
+        let area = NSTrackingArea(
+            rect: self.bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil)
+        self.addTrackingArea(area)
+        self.trackingArea = area
+    }
+
+    override func mouseEntered(with _: NSEvent) {
+        self.isHovering = true
+        self.refreshDisplayedText()
+    }
+
+    override func mouseExited(with _: NSEvent) {
+        self.isHovering = false
+        self.refreshDisplayedText()
+    }
+
+    private func refreshDisplayedText() {
+        if self.isHovering, let absolute = self.absoluteText {
+            self.stringValue = absolute
+        } else {
+            self.stringValue = self.countdownText
+        }
+    }
+}
+
 @MainActor
 private final class StatsSummaryPanel {
     let section: NSView
     private let provider: StatsProvider
-    private var windowFields: [String: (used: NSTextField, reset: NSTextField, updated: NSTextField)] = [:]
+    private var windowFields: [String: (used: NSTextField, reset: StatsResetLabel, updated: NSTextField)] = [:]
     private var windowRows: [String: StatsClickableRow] = [:]
 
     init(
@@ -1308,7 +1378,7 @@ private final class StatsSummaryPanel {
             usedField.font = .systemFont(ofSize: 12, weight: .semibold)
             usedField.widthAnchor.constraint(equalToConstant: 46).isActive = true
 
-            let resetField = NSTextField(labelWithString: "—")
+            let resetField = StatsResetLabel()
             resetField.font = .systemFont(ofSize: 11, weight: .regular)
             resetField.textColor = .secondaryLabelColor
             resetField.lineBreakMode = .byTruncatingTail
@@ -1364,12 +1434,13 @@ private final class StatsSummaryPanel {
             guard let fields = self.windowFields[window.name], let latest = window.latest else { continue }
             fields.used.stringValue = "\(Int(latest.usedPercent.rounded()))%"
             if let upcoming = statsUpcomingReset(window, from: now) {
-                fields.reset.stringValue = "\(L("resets")) \(statsCountdown(to: upcoming, from: now))"
-                fields.reset.toolTip = statsAbsoluteDate(upcoming)
+                let countdown = "\(L("resets")) \(statsCountdown(to: upcoming, from: now))"
+                let absolute = "\(L("resets")) \(statsAbsoluteDate(upcoming))"
+                fields.reset.setResetTexts(countdown: countdown, absolute: absolute)
             } else {
-                fields.reset.toolTip = nil
-                fields.reset.stringValue = "\(L("inactive")) · \(L("last seen")) "
-                    + statsRelativeAge(latest.capturedAt, from: now)
+                fields.reset.setInactiveText(
+                    "\(L("inactive")) · \(L("last seen")) "
+                        + statsRelativeAge(latest.capturedAt, from: now))
             }
             fields.updated.stringValue = statsRelativeAge(latest.capturedAt, from: now)
         }

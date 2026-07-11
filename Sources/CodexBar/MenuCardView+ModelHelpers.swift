@@ -254,7 +254,7 @@ extension UsageMenuCardView.Model {
         UsageFormatter.resetLine(for: window, style: style, now: now)
     }
 
-    /// When the menu shows a countdown reset line, hover reveals the absolute reset time.
+    /// When the menu shows a countdown reset line, hover swaps the label to the absolute reset time.
     static func resetHelpText(
         for window: RateWindow,
         style: ResetTimeDisplayStyle,

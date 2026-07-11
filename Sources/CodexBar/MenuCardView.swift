@@ -37,7 +37,7 @@ struct UsageMenuCardView: View {
             let percentStyle: PercentStyle
             let statusText: String?
             let resetText: String?
-            /// Absolute reset time shown on hover when the visible label is a countdown.
+            /// Absolute reset time shown in place of the countdown while hovering.
             let resetHelpText: String?
             let detailText: String?
             let detailLeftText: String?
@@ -474,6 +474,7 @@ private struct MetricRow: View {
     let title: String
     let progressColor: Color
     @Environment(\.menuItemHighlighted) private var isHighlighted
+    @State private var isHoveringReset = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -509,11 +510,15 @@ private struct MetricRow: View {
                             .lineLimit(1)
                         Spacer()
                         if let rightLabel = self.metric.resetText {
-                            Text(rightLabel)
+                            let hoverLabel = self.metric.resetHelpText
+                            Text(self.isHoveringReset ? (hoverLabel ?? rightLabel) : rightLabel)
                                 .font(.footnote)
                                 .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                                 .lineLimit(1)
-                                .help(self.metric.resetHelpText ?? "")
+                                .onHover { hovering in
+                                    guard hoverLabel != nil else { return }
+                                    self.isHoveringReset = hovering
+                                }
                         }
                     }
                     if self.metric.detailLeftText != nil || self.metric.detailRightText != nil {
