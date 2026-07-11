@@ -35,7 +35,8 @@ extension UsageStore {
     func refreshForSettingsChange() async {
         await self.runRefresh(
             startupConnectivityRetryAttempt: nil,
-            coalesceProviderRefreshesOverride: false)
+            coalesceProviderRefreshesOverride: false,
+            waitForRefreshAvailability: true)
     }
 
     func prepareRefreshState(for provider: UsageProvider? = nil) {
@@ -268,8 +269,20 @@ extension UsageStore {
                     current: scoped,
                     previous: self.snapshots[provider])
                 let backfilled = stabilized.backfillingResetTimes(from: resetBackfillSource)
+                let predictivePaceWarningAccountDiscriminatorOverride: String? = if provider == .claude {
+                    Self.predictivePaceWarningClaudeAccountDiscriminator(
+                        strategyKind: result.strategyKind,
+                        observation: context.claudeOAuthActiveAccountObservation,
+                        oauthHistoryOwnerIdentifier: result.claudeOAuthHistoryOwnerIdentifier)
+                } else {
+                    nil
+                }
                 self.handleQuotaWarningTransitions(provider: provider, snapshot: backfilled)
                 self.handleSessionQuotaTransition(provider: provider, snapshot: backfilled)
+                self.handlePredictivePaceWarningTransitions(
+                    provider: provider,
+                    snapshot: backfilled,
+                    accountDiscriminatorOverride: predictivePaceWarningAccountDiscriminatorOverride)
                 if provider == .codex {
                     self.handleCodexResetCreditNotifications(snapshot: backfilled)
                 }
@@ -378,6 +391,8 @@ extension UsageStore {
             self.statusComponents.removeValue(forKey: provider)
             self.lastKnownSessionRemaining.removeValue(forKey: provider)
             self.lastKnownSessionWindowSource.removeValue(forKey: provider)
+            self.predictivePaceWarningNotifiedKeys = Set(
+                self.predictivePaceWarningNotifiedKeys.filter { $0.provider != provider })
             self.quotaWarningState = self.quotaWarningState.filter { $0.key.provider != provider }
             self.lastTokenFetchAt.removeValue(forKey: provider)
         }

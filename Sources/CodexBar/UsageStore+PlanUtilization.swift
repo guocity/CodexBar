@@ -40,6 +40,7 @@ extension UsageStore {
         let wasAboveThreshold: Bool
         let lastObservedAt: Date
         let sourceRawValue: String?
+        var resetBoundary: Date?
     }
 
     /// Whether the plan-utilization history menu/chart is surfaced for this
@@ -85,11 +86,13 @@ extension UsageStore {
         let snapshot: UsageSnapshot
         let accountKey: String?
         let capturedAt: Date
+        let codexVisibleAccount: CodexVisibleAccount?
     }
 
     private struct LimitResetObservation {
         let usedPercent: Double
         let observedAt: Date
+        let resetBoundary: Date?
         let source: SessionQuotaWindowSource?
     }
 
@@ -161,15 +164,13 @@ extension UsageStore {
     }
 
     func shouldShowRefreshingMenuCard(for provider: UsageProvider) -> Bool {
-        let isRefreshing = self.isRefreshing || self.refreshingProviders.contains(provider)
-        return isRefreshing
+        self.refreshingProviders.contains(provider)
             && self.snapshots[provider] == nil
             && self.error(for: provider) == nil
     }
 
     func shouldShowRefreshingMenuCardIndicator(for provider: UsageProvider) -> Bool {
-        let isRefreshing = self.isRefreshing || self.refreshingProviders.contains(provider)
-        return isRefreshing && self.error(for: provider) == nil
+        self.refreshingProviders.contains(provider) && self.error(for: provider) == nil
     }
 
     func shouldHidePlanUtilizationMenuItem(for provider: UsageProvider) -> Bool {
@@ -190,6 +191,7 @@ extension UsageStore {
         isClaudeOAuthSample: Bool = false,
         shouldUpdatePreferredAccountKey: Bool = true,
         shouldAdoptUnscopedHistory: Bool = true,
+        codexVisibleAccount: CodexVisibleAccount? = nil,
         now: Date = Date())
         async
     {
@@ -219,12 +221,18 @@ extension UsageStore {
             // Persisting without a high-entropy owner would merge unrelated OAuth accounts into `unscoped`.
             return
         }
+        let effectiveCodexVisibleAccount: CodexVisibleAccount? = if provider == .codex {
+            codexVisibleAccount ?? self.activeCodexVisibleAccountForLimitResetDetection()
+        } else {
+            nil
+        }
         let detectorContext = LimitResetDetectionContext(
             provider: provider,
             account: account,
             snapshot: snapshot,
             accountKey: detectorAccountKey,
-            capturedAt: now)
+            capturedAt: now,
+            codexVisibleAccount: effectiveCodexVisibleAccount)
         await MainActor.run {
             self.postLimitResetCelebrationsIfNeeded(
                 context: detectorContext,
@@ -466,6 +474,7 @@ extension UsageStore {
                 LimitResetObservation(
                     usedPercent: $0.entry.usedPercent,
                     observedAt: $0.entry.capturedAt,
+                    resetBoundary: $0.entry.resetsAt,
                     source: nil)
             }
         } else {
@@ -475,6 +484,7 @@ extension UsageStore {
                     LimitResetObservation(
                         usedPercent: $0,
                         observedAt: context.capturedAt,
+                        resetBoundary: resolved.window.resetsAt,
                         source: resolved.source)
                 }
             }
@@ -491,6 +501,7 @@ extension UsageStore {
             LimitResetObservation(
                 usedPercent: $0.entry.usedPercent,
                 observedAt: $0.entry.capturedAt,
+                resetBoundary: $0.entry.resetsAt,
                 source: nil)
         }
         self.postLimitResetCelebrationIfNeeded(
@@ -527,7 +538,8 @@ extension UsageStore {
             provider: context.provider,
             account: context.account,
             snapshot: context.snapshot,
-            accountKey: context.accountKey)
+            accountKey: context.accountKey,
+            codexVisibleAccount: context.codexVisibleAccount)
         let detectorKey = Self.limitResetDetectorStateKey(
             provider: context.provider,
             accountIdentifier: accountIdentifier)
@@ -542,16 +554,34 @@ extension UsageStore {
 
         let previousState = states[detectorKey]
         let sourceRawValue = observation.source?.rawValue
-        let sourceChanged = descriptor.seriesName == .session
-            && previousState?.sourceRawValue != nil
+        let sourceChanged = descriptor.seriesName == .session && previousState?.sourceRawValue != nil
             && previousState?.sourceRawValue != sourceRawValue
-        let shouldPost = !sourceChanged
-            && previousState?.wasAboveThreshold == true
-            && !wasAboveThreshold
+        let resetBoundaryAllowsPost = if descriptor.seriesName == .session {
+            Self.limitResetBoundaryAdvanced(
+                previous: previousState?.resetBoundary,
+                current: observation.resetBoundary)
+        } else if context.provider == .codex, descriptor.seriesName == .weekly {
+            Self.limitResetBoundaryAdvanced(
+                previous: previousState?.resetBoundary,
+                current: observation.resetBoundary,
+                requiresPreviousBoundary: true)
+        } else {
+            true
+        }
+        let crossedBelowThreshold = !sourceChanged && previousState?.wasAboveThreshold == true && !wasAboveThreshold
+        let shouldPost = crossedBelowThreshold && resetBoundaryAllowsPost
+        let suppressedGuardedCrossing = crossedBelowThreshold && !resetBoundaryAllowsPost
+        // Sessions retain the last non-regressed boundary on every guarded sample. Codex weekly crossings
+        // adopt a newly appearing boundary so a later genuine advance can still trigger once.
+        let shouldPreserveBoundary = !sourceChanged && !resetBoundaryAllowsPost
+            && (descriptor.seriesName == .session || previousState?.resetBoundary != nil)
+        let shouldPreserveBaseline = suppressedGuardedCrossing
         states[detectorKey] = LimitResetDetectorState(
-            wasAboveThreshold: wasAboveThreshold,
+            // A transient zero must not erase the baseline needed to recognize the real reset that follows.
+            wasAboveThreshold: shouldPreserveBaseline ? true : wasAboveThreshold,
             lastObservedAt: currentObservedAt,
-            sourceRawValue: sourceRawValue)
+            sourceRawValue: sourceRawValue,
+            resetBoundary: shouldPreserveBoundary ? previousState?.resetBoundary : observation.resetBoundary)
         self.persistLimitResetDetectorStates(
             states,
             defaultsKey: descriptor.defaultsKey,
@@ -847,20 +877,6 @@ extension UsageStore {
 
     private func shouldDeferClaudePlanUtilizationHistory(provider: UsageProvider) -> Bool {
         provider == .claude && self.shouldHidePlanUtilizationMenuItem(for: .claude)
-    }
-
-    private func limitResetAccountIdentifier(
-        provider: UsageProvider,
-        account: ProviderTokenAccount?,
-        snapshot: UsageSnapshot,
-        accountKey: String?) -> String
-    {
-        let identity = snapshot.identity(for: provider)
-        return account?.id.uuidString.lowercased()
-            ?? accountKey
-            ?? identity?.accountEmail
-            ?? identity?.accountOrganization
-            ?? provider.rawValue
     }
 
     private func limitResetAccountLabel(
@@ -1464,7 +1480,7 @@ extension UsageStore {
         return true
     }
 
-    private nonisolated static func areEquivalentPlanUtilizationResetBoundaries(_ lhs: Date?, _ rhs: Date?) -> Bool {
+    nonisolated static func areEquivalentPlanUtilizationResetBoundaries(_ lhs: Date?, _ rhs: Date?) -> Bool {
         guard let lhs, let rhs else { return false }
         return abs(lhs.timeIntervalSince(rhs)) < self.planUtilizationResetEquivalenceToleranceSeconds
     }

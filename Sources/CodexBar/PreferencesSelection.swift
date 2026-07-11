@@ -7,7 +7,9 @@ extension SettingsPane {
     var persistenceToken: String {
         switch self {
         case .general: "general"
-        case .display: "display"
+        case .notifications: "notifications"
+        case .menuBar: "menuBar"
+        case .menu: "menu"
         case .advanced: "advanced"
         case .stats: "stats"
         case .about: "about"
@@ -19,7 +21,11 @@ extension SettingsPane {
     init?(persistenceToken: String) {
         switch persistenceToken {
         case "general": self = .general
-        case "display": self = .display
+        case "notifications": self = .notifications
+        case "menuBar": self = .menuBar
+        // Pre-0.41.1 releases persisted the retired Display pane; its contents moved to Menu Bar.
+        case "display": self = .menuBar
+        case "menu": self = .menu
         case "advanced": self = .advanced
         case "stats": self = .stats
         case "about": self = .about

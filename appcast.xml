@@ -1,20 +1,69 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-  <channel>
-    <title>CodexBar (guocity/CodexBar fork)</title>
-    <link>https://raw.githubusercontent.com/guocity/CodexBar/main/appcast.xml</link>
-    <description>CodexBar fork updates</description>
-    <language>en</language>
-    <item>
-      <title>CodexBar 0.41.0</title>
-      <pubDate>Tue, 07 Jul 2026 04:56:33 +0000</pubDate>
-      <sparkle:version>100</sparkle:version>
-      <sparkle:shortVersionString>0.41.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>CodexBar</title>
+        <item>
+            <title>0.42.0</title>
+            <pubDate>Sat, 11 Jul 2026 04:48:30 +0100</pubDate>
+            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
+            <sparkle:version>102</sparkle:version>
+            <sparkle:shortVersionString>0.42.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>CodexBar 0.42.0</h2>
 <h3>Added</h3>
 <ul>
-<li>CLI: add responsive `codexbar cards` and compact `--brief` terminal usage views. Thanks @DonnieFi!</li>
+<li>Agent Sessions: opt in to discover, list, and focus live local or SSH-connected Codex and Claude Code sessions from the menu and CLI; discovery remains off by default.</li>
+<li>Wayfinder: add opt-in local gateway health, routing, savings, and latency usage with configurable loopback URL support. Thanks @tcballard!</li>
+<li>Menu bar: add a &quot;Show reset time when quota runs out&quot; option that replaces exhausted Percent, Pace, and Both values with the countdown until reset, then restores the selected metric afterward (#2028, #2027). Thanks @brahimhamichan!</li>
+<li>Quota warnings: add opt-in predictive pace alerts for Codex and Claude session and weekly limits, with one alert per risk episode. Thanks @vincent-peng!</li>
+<li>Codex: add GPT-5.6 Sol, Terra, and Luna pricing, including long-context, Priority, cache-write, alias, and automatic Pi cache repricing when rates change (#2023). Thanks @0xSMW!</li>
+<li>Codex: show Spark quota rows, with a provider option to hide them without hiding credits or other extra usage (#2013). Thanks @intellectronica!</li>
+<li>Claude CLI: surface model-scoped weekly limits alongside all-model usage without duplicating matching web limits. Thanks @janpollak!</li>
+<li>Kimi K2: add a Usage Dashboard shortcut to the human-facing legacy credits page. Thanks @joeVenner!</li>
+<li>Documentation: add detailed setup and troubleshooting references for Azure OpenAI, Perplexity, Mistral, and Qoder. Thanks @kiranmagic7!</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li>Settings: reorganize General, Notifications, Menu Bar, Menu, Advanced, and About; consolidate related checkboxes into pickers; standardize labels; and adopt an edge-to-edge Golden Gate sidebar with a hairline separator.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>Refresh: keep all-provider manual refresh responsive while forced cost, credit, and dashboard enrichment finishes in a serialized background tail, and keep fixed intervals anchored to scheduled ticks. Thanks @Yuxin-Qiao!</li>
+<li>Menus: stop completed provider cards and plan-utilization rows from remaining in “Refreshing…” while unrelated provider or token-cost work is still running. Thanks @Yuxin-Qiao!</li>
+<li>Menu: keep native hover highlights aligned by deferring geometry-changing open-menu rebuilds until the pointer leaves the row. Thanks @Zihao-Qi!</li>
+<li>Settings: keep visual-only preferences and provider reordering on cached UI paths instead of refreshing provider quotas, while preserving refreshes for data-affecting settings. Thanks @Zihao-Qi!</li>
+<li>Display settings: keep display mode, work days, multi-account layout, and cost summary selectors interactive on macOS 27. Thanks @jordanschwartz-js!</li>
+<li>Quota warnings: keep compact per-window threshold editors available whenever notifications or usage-bar markers use them, preserve inherited overrides, and save edits on focus loss, Return, or window close. Thanks @Zihao-Qi!</li>
+<li>CLI server: retain timed-out route and provider work until it actually exits, preventing repeated requests or config changes from stacking background fetches. Thanks @Yuxin-Qiao!</li>
+<li>Widgets: show token-cost rows with their own age when they lag a fresh quota snapshot, and retry fast token-scan failures without waiting out the hourly cache. Thanks @irresi!</li>
+<li>Codex accounts: isolate authenticated OAuth and browser-cookie requests from shared URL caches and cookie stores, preventing one account&#x27;s cached quota or identity response from appearing under another account and triggering false reset alerts (#1987, #2019). Thanks @harjothkhara!</li>
+<li>Codex: avoid false session-reset celebrations from transient zero-usage samples until the reset boundary advances. Thanks @kiranmagic7!</li>
+<li>Claude OAuth: honor the app&#x27;s never-prompt policy in the bundled CLI and defer stale cache cleanup without touching Keychain until access is re-enabled. Thanks @Yuxin-Qiao!</li>
+<li>Claude CLI: resolve explicit-year, yearless, and time-only reset timestamps against the exact quota-window calendar occurrence, preserving DST, leap-day, and future reset semantics. Thanks @fanwenlin!</li>
+<li>Token costs: coalesce bounded pricing-catalog refreshes when a newly observed model is still unpriced, preserving its exact usage until pricing arrives. Thanks @iam-brain!</li>
+<li>Cost history: keep model breakdown menus steady while hovering, preserve compact rows, and make overflowing histories scrollable. Thanks @iam-brain!</li>
+<li>Antigravity: recover CLI listening ports from Linux procfs when <code>lsof</code> is unavailable, including process network namespaces. Thanks @junmo-kim!</li>
+<li>Gemini: prefer Google&#x27;s paid-tier plan label over generic Free, Workspace, or Paid fallbacks while preserving acronym casing in the CLI. Thanks @Yuxin-Qiao!</li>
+<li>Ollama: recognize current WorkOS AuthKit sessions, fall back from expired sign-in redirects, and validate API keys against an authenticated endpoint while preserving refresh cancellation. Thanks @joeVenner!</li>
+<li>Kimi K2: report missing, blank, or rejected API keys clearly and trim surrounding whitespace before requests. Thanks @joeVenner!</li>
+<li>MiMo: flag a stale local-fallback cache in the summary (e.g. <code>stale 34d</code>) so a tracker that has not been refreshed by <code>Scripts/mimo-usage.py</code> is not misread as live usage. Thanks @LeoLin990405!</li>
+<li>Catalan: complete current strings, align instructional voice, and enforce catalog parity. Thanks @pmontp19!</li>
+</ul>
+<p><a href="https://github.com/steipete/CodexBar/blob/main/CHANGELOG.md">View full changelog</a></p>
+]]></description>
+            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.42.0/CodexBar-macos-universal-0.42.0.zip" length="46800528" type="application/octet-stream" sparkle:edSignature="AerSl9GDNAZLBuJV+VmvCZzIVCsqqLAM0Sj2YseohPwfmj5eGYQfb+V5HruqcQ6UuGYDhhu4lAszNTfwraLSDA=="/>
+        </item>
+        <item>
+            <title>0.41.0</title>
+            <pubDate>Tue, 07 Jul 2026 00:45:58 +0100</pubDate>
+            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
+            <sparkle:version>100</sparkle:version>
+            <sparkle:shortVersionString>0.41.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>CodexBar 0.41.0</h2>
+<h3>Added</h3>
+<ul>
+<li>CLI: add responsive <code>codexbar cards</code> and compact <code>--brief</code> terminal usage views. Thanks @DonnieFi!</li>
 <li>Antigravity: show pace details for legacy model-family and current session/weekly quota rows without changing compact icon lane semantics. Thanks @Zihao-Qi!</li>
 <li>Widgets: make Kimi available with Weekly, Rate Limit, and Monthly quota rows. Thanks @joeVenner!</li>
 <li>Kimi: show the subscription 7-day Code quota in menus and large widgets. Thanks @skyzer!</li>
@@ -22,7 +71,7 @@
 </ul>
 <h3>Fixed</h3>
 <ul>
-<li>Ollama: point missing-session recovery to the current `/signin` page instead of the protected settings page. Thanks @joeVenner!</li>
+<li>Ollama: point missing-session recovery to the current <code>/signin</code> page instead of the protected settings page. Thanks @joeVenner!</li>
 <li>Alibaba Token Plan: support International Model Studio while preserving China-mainland upgrades and isolating regional cookie caches. Thanks @harshav167!</li>
 <li>Amp: open the current Usage page from the menu dashboard action. Thanks @3kh0!</li>
 <li>Browser cookies: stop automatic Chromium-family probes after the first Safe Storage denial, while keeping an explicit Refresh retry available (#1952). Thanks @CoreyCole!</li>
@@ -32,19 +81,100 @@
 <li>Gemini: use the real Flash quota in menu-bar metrics when an account has no Pro quota. Thanks @devYRPauli!</li>
 <li>Ollama API: describe rejected keys as invalid or revoked, matching Ollama&#x27;s current key lifecycle. Thanks @joeVenner!</li>
 <li>Settings: keep Language, Default Terminal, and Refresh cadence selectors interactive on macOS 27.</li>
-<li>Usage formatting: show every positive sub-1% value as `&lt;1%` instead of rounding values above 0.5% up to `1%`. Thanks @devYRPauli!</li>
+<li>Usage formatting: show every positive sub-1% value as <code>&lt;1%</code> instead of rounding values above 0.5% up to <code>1%</code>. Thanks @devYRPauli!</li>
 <li>Codex menu: hide error-only optional Credits and OpenAI web setup diagnostics while keeping them visible in provider Settings.</li>
 <li>Codex quotas: show the session quota as unavailable while an exhausted weekly limit is still binding, including menu-bar icons and widgets. Thanks @Yuxin-Qiao!</li>
 <li>Codex cost history: reuse cached aggregate pricing and one pricing catalog across daily and project reports, carry fresh cache state across launches, and treat unpriced models as migrated, avoiding repeated row scans, filesystem work, and duplicate background scans on large local histories.</li>
 <li>Devin: keep exact 1% usage from being inflated to 100% while preserving fractional fallback quota semantics. Thanks @Lex-ic-on!</li>
 <li>Kimi K2: reject invalid and out-of-range numeric timestamps while preserving valid second and millisecond values. Thanks @joeVenner!</li>
 <li>Kimi K2: reject non-finite credit and token values before they reach menus, CLI output, or widgets. Thanks @joeVenner!</li>
-<li>Kimi: call the current `GetSubscriptionStats` membership endpoint so the Monthly subscription quota is populated again. Thanks @skyzer!</li>
+<li>Kimi: call the current <code>GetSubscriptionStats</code> membership endpoint so the Monthly subscription quota is populated again. Thanks @skyzer!</li>
 <li>Kimi: show the five-hour rate limit before the weekly quota while preserving existing menu-bar metric preferences. Thanks @Zihao-Qi!</li>
 <li>Menu bar: detect Tahoe&#x27;s blocked no-window state at startup when macOS still records the icon as enabled, so affected users receive recovery guidance instead of a silently missing icon (#1945). Thanks @mmyyfirstb!</li>
 </ul>
-      ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.41.0/CodexBar-macos-universal-0.41.0.zip" sparkle:edSignature="jvn4Z0JPI/asK0I/ikDzP4NKCDeOyaEqF240CtKsqlc5kkEWFURsqnqYctzLM4km2HXRo+hdSSMy8WlqNgXeCw==" length="44649304" type="application/octet-stream" />
-    </item>
-  </channel>
+<p><a href="https://github.com/steipete/CodexBar/blob/main/CHANGELOG.md">View full changelog</a></p>
+]]></description>
+            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.41.0/CodexBar-macos-universal-0.41.0.zip" length="45357508" type="application/octet-stream" sparkle:edSignature="LtGMuPAjKIzZg40v5KagieJ9cUUyMvo/Y8FQxdXA1jtbM3RnIhocoEm7u+Cf/Luc9OsAy27Cn04Yd5LBhQEoAQ=="/>
+        </item>
+        <item>
+            <title>0.40.0</title>
+            <pubDate>Mon, 06 Jul 2026 00:10:16 +0100</pubDate>
+            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
+            <sparkle:version>99</sparkle:version>
+            <sparkle:shortVersionString>0.40.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>CodexBar 0.40.0</h2>
+<h3>Added</h3>
+<ul>
+<li>Claude: show opt-in read-only claude-swap accounts as stacked usage cards without delaying ambient refreshes. Thanks @optimiz-r!</li>
+<li>Claude: switch inactive claude-swap accounts directly from their stacked usage cards and refresh usage immediately.</li>
+<li>Codex dashboard: show calendar-correct raw Today and 30-day credit totals without converting credits to billed dollars. Thanks @avenoxai!</li>
+<li>Cost charts: show visible, unit-safe scale labels across detailed history, inline menus, and widgets. Thanks @FNDEVVE!</li>
+<li>Cursor: read the signed-in app token on Linux, with explicit manual-cookie web-source support and XDG config paths. Thanks @DonnieFi!</li>
+<li>Devin: show remaining extra-usage balance in menus, CLI, and widgets while respecting optional-usage visibility. Thanks @FNDEVVE!</li>
+<li>Widgets: make Mistral available in provider selection and switching. Thanks @joeVenner!</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li>Settings: keep the sidebar fixed and visible while resizing, prevent collapse or over-expansion, and cap detail content width for readability. Thanks @Zihao-Qi!</li>
+<li>Debug builds: add a compact <code>D</code> beside menu-bar icons and identify them as CodexBar Debug in tooltips and accessibility.</li>
+<li>Usage bars: distinguish full-height quota-warning thresholds from subtle workday-boundary markers. Thanks @Alekstodo!</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>Codex cost history: reuse one pricing catalog while building project rollups and carry fresh cache state across launches, avoiding repeated filesystem work and duplicate background scans on large local histories.</li>
+<li>Providers: detect Claude Desktop on fresh installs and ignore Gemini CLI installations without usable OAuth credentials.</li>
+<li>Claude cost history: include nested Claude Desktop local-agent logs while preserving current Code/Cowork coverage through the shared <code>~/.claude/projects</code> store. Thanks @Zihao-Qi!</li>
+<li>Claude: give multiple claude-swap accounts precedence over token-account cards and segmented switching so adapter rows remain visible. Thanks @optimiz-r!</li>
+<li>Menus: scope manual refresh state to the provider being refreshed, allowing independent provider refreshes without greying unrelated rows. Thanks @hhh2210!</li>
+<li>Claude history: quarantine same-directory account-switch samples until credential ownership is stable, preventing plan-utilization history from crossing accounts. Thanks @ss251!</li>
+<li>Language picker: keep language names readable in their native form and make System follow macOS without removing unrelated overrides. Thanks @Zihao-Qi!</li>
+<li>Reset times: preserve minute precision in long day-scale countdowns when there are no whole hours, while keeping countdowns compact to two units. Thanks @konon4!</li>
+<li>Mistral: reject non-finite and overflowing credit balances before they can reach menu, CLI, or widget formatting. Thanks @joeVenner!</li>
+</ul>
+<p><a href="https://github.com/steipete/CodexBar/blob/main/CHANGELOG.md">View full changelog</a></p>
+]]></description>
+            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.40.0/CodexBar-macos-universal-0.40.0.zip" length="45008901" type="application/octet-stream" sparkle:edSignature="wrOI9q8rGWQgX+2wIolUM3lM5LPyIzzKcPRQNqjFLtWsNhqHqr73rf1EYEiiwUN9/UTBg3DrtaqaXdBBTkokAA=="/>
+        </item>
+        <item>
+            <title>0.14.0</title>
+            <pubDate>Thu, 25 Dec 2025 03:56:15 +0100</pubDate>
+            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
+            <sparkle:version>41</sparkle:version>
+            <sparkle:shortVersionString>0.14.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>CodexBar 0.14.0</h2>
+<ul>
+<li>Antigravity: new local provider for the Antigravity language server (Claude + Gemini quotas) with an experimental toggle; improved plan display + debug output; clearer not-running/port errors; hide account switch.</li>
+<li>Status: poll Google Workspace incidents for Gemini + Antigravity; Status Page opens the Workspace status page.</li>
+            <li>Settings: add Providers tab; move cost usage + status toggles to General; keep display controls in Advanced.</li>
+<li>Menu/UI: widen the menu for four providers; cards/charts adapt to menu width; tighten provider switcher/toggle spacing; keep menus refreshed while open.</li>
+<li>Gemini: hide the dashboard action when unsupported.</li>
+<li>Claude: fix Extra usage spend/limit units (cents); improve CLI probe stability; surface web session info in Debug.</li>
+<li>OpenAI web: fix dashboard ghost overlay on desktop (WebKit keepalive window).</li>
+<li>Debug: add a debug-lldb build mode for troubleshooting.</li>
+</ul>
+<p><a href="https://github.com/steipete/CodexBar/blob/main/CHANGELOG.md">View full changelog</a></p>
+]]></description>
+            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.14.0/CodexBar-0.14.0.zip" length="5382347" type="application/octet-stream" sparkle:edSignature="qhj8jnqH/eOXEP2plbZyTb8w1x0Afcpix0kC+pzMh5jX9Lkf3Yg2Bvd6/vsKdhOObEwJjQZRb/RKiSBx55J3DA=="/>
+        </item>
+        <item>
+            <title>0.13.0</title>
+            <pubDate>Wed, 24 Dec 2025 01:53:35 +0100</pubDate>
+            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
+            <sparkle:version>40</sparkle:version>
+            <sparkle:shortVersionString>0.13.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.13.0/CodexBar-0.13.0.zip" length="5099083" type="application/octet-stream" sparkle:edSignature="EmhEmcTFQEpuQG6vZ288l9j278VjnpQdQcmZnU1JDvzERVTtnIg+8RDlsHV9niwejaOBPX6mvXST3vNJHpwADA=="/>
+        </item>
+        <item>
+            <title>0.12.0</title>
+            <pubDate>Tue, 23 Dec 2025 04:39:05 +0100</pubDate>
+            <link>https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml</link>
+            <sparkle:version>39</sparkle:version>
+            <sparkle:shortVersionString>0.12.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/steipete/CodexBar/releases/download/v0.12.0/CodexBar-0.12.0.zip" length="4888386" type="application/octet-stream" sparkle:edSignature="tQMHO/RNAbvwRHXYnLAkNV2ksiV722qR8fEYzcbipgetacfPnwnLJ0Pe/lAiZ03PBmj3BkisHb74GosUlSV+DQ=="/>
+        </item>
+    </channel>
 </rss>

@@ -38,8 +38,10 @@ Usage source picker:
   nearing-expiry notifications. CodexBar does not redeem or modify reset credits.
 - `rate_limit.primary_window` / `secondary_window` map to the session/weekly lanes.
 - `additional_rate_limits[]` (model-specific limits such as GPT-5.3-Codex-Spark) map to named
-  `UsageSnapshot.extraRateWindows` entries (Spark uses a stable `codex-spark` id / `Codex Spark` title).
-  When the field is absent, the snapshot is unchanged.
+  `UsageSnapshot.extraRateWindows` entries. Spark uses stable `codex-spark` / `codex-spark-weekly` ids and
+  `Codex Spark 5-hour` / `Codex Spark Weekly` titles. When the field is absent, the snapshot is unchanged.
+- Preferences → Providers → Codex → Show Codex Spark usage hides only the Spark rows in menus and the provider
+  preview. It does not change fetching, history, notifications, widgets, credits, or other extra limits.
 
 ### Advanced profile-home accounts
 - Managed Codex accounts remain the default multi-account path.
@@ -113,8 +115,11 @@ Example:
 - App-server errors are terminal for the CLI strategy, except when Codex includes a recoverable `wham/usage` JSON body in the error text.
 - If macOS blocks or quarantines the `codex` executable, CodexBar records the launch failure and skips background CLI
   launches for 30 minutes. Use a manual refresh after reinstalling or unblocking `codex` to retry immediately.
-- If managed Codex account login fails after macOS moved `codex` to Trash, first confirm `codex --version` works in
-  Terminal. Check `which -a codex` for stale duplicate installs, then run
+- CodexBar also discovers the Codex CLI bundled with current ChatGPT and legacy Codex desktop apps, even when `codex`
+  is absent from the shell PATH.
+- If managed Codex account login still reports a missing executable, turn on **Show debug settings** in
+  **Settings > Advanced**, then check **Settings > Debug > CLI Paths**. When no Codex binary appears there, confirm
+  `codex --version` works in Terminal, check `which -a codex` for stale duplicate installs, then run
   `npm install -g --include=optional @openai/codex@latest` before retrying Add Account.
 
 ### Codex CLI PTY diagnostics (`/status`)
