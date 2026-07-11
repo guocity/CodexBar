@@ -367,6 +367,30 @@ ensure_widget_extension_project() {
   xcodegen generate --spec "$spec" --project "$ROOT/WidgetExtension" --quiet
 }
 
+widget_source_packages_healthy() {
+  local derived_dir="$1"
+  local repos_dir="$derived_dir/SourcePackages/repositories"
+  local repo first_pack
+
+  [[ -d "$repos_dir" ]] || return 1
+  shopt -s nullglob
+  local repos=("$repos_dir"/*)
+  shopt -u nullglob
+  [[ ${#repos[@]} -gt 0 ]] || return 1
+
+  for repo in "${repos[@]}"; do
+    [[ -d "$repo" ]] || continue
+    # Bare SPM mirror repos store objects in pack files; empty/corrupt packs
+    # surface as "unable to read tree" during xcodebuild checkout.
+    first_pack=$(find "$repo/objects/pack" -name '*.pack' -type f 2>/dev/null | head -1 || true)
+    [[ -n "$first_pack" ]] || return 1
+    if ! git -C "$repo" rev-parse --verify HEAD >/dev/null 2>&1; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 build_widget_extension() {
   local xcode_conf="Release"
   if [[ "$LOWER_CONF" == "debug" ]]; then
@@ -380,17 +404,25 @@ build_widget_extension() {
   local build_log="$derived_dir/xcodebuild.log"
   local timeout_seconds="${CODEXBAR_WIDGET_EXTENSION_TIMEOUT_SECONDS:-900}"
   local archs="${ARCH_LIST[*]}"
+  local package_args=()
 
   mkdir -p "$derived_dir"
+  if widget_source_packages_healthy "$derived_dir"; then
+    package_args+=(-skipPackageUpdates -disableAutomaticPackageResolution)
+  else
+    echo "Refreshing CodexBarWidget SourcePackages cache (missing or corrupt)." >&2
+    rm -rf "$derived_dir/SourcePackages"
+  fi
+
   echo "Building CodexBarWidget Xcode extension (${xcode_conf}, ${archs})." >&2
+  # shellcheck disable=SC2086 # intentional: package_args may be empty under bash 3.2 + set -u
   xcodebuild \
     -project "$project_dir" \
     -scheme CodexBarWidgetExtension \
     -configuration "$xcode_conf" \
     -destination "generic/platform=macOS" \
     -derivedDataPath "$derived_dir" \
-    -skipPackageUpdates \
-    -disableAutomaticPackageResolution \
+    ${package_args[@]+"${package_args[@]}"} \
     -skipMacroValidation \
     -skipPackagePluginValidation \
     CODEXBAR_WIDGET_BUNDLE_ID="$WIDGET_BUNDLE_ID" \

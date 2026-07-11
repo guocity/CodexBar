@@ -137,12 +137,19 @@ elif [[ "$SKIP_BUILD" == "1" ]]; then
   /usr/bin/ditto --norsrc -c -k --keepParent CodexBar.app "$ZIP_NAME"
 elif [[ "$SKIP_NOTARIZE" == "1" ]]; then
   echo "==> Building + signing (Developer ID, NO notarization — local test only)"
-  ARCHES="$ARCHES_VALUE" APP_IDENTITY="$CODEXBAR_APP_IDENTITY" ./Scripts/package_app.sh release
+  ARCHES="$ARCHES_VALUE" \
+    APP_IDENTITY="$CODEXBAR_APP_IDENTITY" \
+    CODEXBAR_SIGNING=identity \
+    ./Scripts/package_app.sh release
   /usr/bin/ditto --norsrc -c -k --keepParent CodexBar.app "$ZIP_NAME"
 else
   : "${CODEXBAR_NOTARY_KEYCHAIN_PROFILE:?set CODEXBAR_NOTARY_KEYCHAIN_PROFILE in .fork-release.env (or run with --skip-notarize)}"
   export CODEXBAR_NOTARY_KEYCHAIN_PROFILE
-  echo "==> Building + signing + notarizing (profile: $CODEXBAR_NOTARY_KEYCHAIN_PROFILE)"
+  export CODEXBAR_APP_IDENTITY
+  export APP_TEAM_ID
+  export CODEXBAR_SU_PUBLIC_ED_KEY
+  export CODEXBAR_FEED_URL
+  echo "==> Building + signing + notarizing (profile: ${CODEXBAR_NOTARY_KEYCHAIN_PROFILE}, team: ${APP_TEAM_ID})"
   ./Scripts/sign-and-notarize.sh
 fi
 

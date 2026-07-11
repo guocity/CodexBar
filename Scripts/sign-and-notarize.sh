@@ -2,15 +2,19 @@
 set -euo pipefail
 
 APP_NAME="CodexBar"
-# Fork override: set CODEXBAR_APP_IDENTITY to your "Developer ID Application: …" cert.
-# Exported so the child package_app.sh signs with the same identity (it reads APP_IDENTITY).
-export APP_IDENTITY="${CODEXBAR_APP_IDENTITY:-Developer ID Application: Peter Steinberger (Y5PE65HELJ)}"
+# Fork override: set CODEXBAR_APP_IDENTITY / APP_TEAM_ID (via .fork-release.env) to your cert + team.
+# Keep the default identity in a separate assignment so bash 3.2 never trips on parentheses
+# inside ${VAR:-...} defaults during parse/expansion edge cases.
+DEFAULT_APP_IDENTITY="Developer ID Application: Peter Steinberger (Y5PE65HELJ)"
+export APP_IDENTITY="${CODEXBAR_APP_IDENTITY:-$DEFAULT_APP_IDENTITY}"
+export APP_TEAM_ID="${APP_TEAM_ID:-Y5PE65HELJ}"
 APP_BUNDLE="CodexBar.app"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source "$ROOT/version.env"
 source "$ROOT/Scripts/release_artifacts.sh"
 source "$ROOT/Scripts/package_product_paths.sh"
 source "$ROOT/Scripts/release_dsym_paths.sh"
+echo "Using codesign identity: ${APP_IDENTITY} (team ${APP_TEAM_ID})"
 
 verify_distribution_policy() {
   local app=$1
@@ -112,13 +116,13 @@ while :; do
     notarize_status=$?
   fi
   printf '%s\n' "$notarize_out"
-  if (( notarize_status == 0 )); then
+  if [[ "$notarize_status" -eq 0 ]]; then
     break
   fi
-  if (( attempt < NOTARIZE_ATTEMPTS )) \
+  if [[ "$attempt" -lt "$NOTARIZE_ATTEMPTS" ]] \
     && grep -qi "No Keychain password item found" <<<"$notarize_out"; then
-    echo "==> Transient keychain lookup failure (attempt ${attempt}/${NOTARIZE_ATTEMPTS}); retrying in 15s…" >&2
-    attempt=$(( attempt + 1 ))
+    echo "==> Transient keychain lookup failure (attempt ${attempt}/${NOTARIZE_ATTEMPTS}); retrying in 15s..." >&2
+    attempt=$((attempt + 1))
     sleep 15
     continue
   fi
@@ -126,8 +130,8 @@ while :; do
 done
 
 echo "Stapling ticket"
-# Xcode 27 beta's stapler can fail in-place ("Could not remove existing ticket …
-# No such file or directory", Error 73) yet succeed on a fresh copy. Fall back to
+# Xcode 27 beta's stapler can fail in-place (Could not remove existing ticket /
+# No such file or directory, Error 73) yet succeed on a fresh copy. Fall back to
 # stapling a clean ditto copy and swapping it back in.
 if ! xcrun stapler staple "$APP_BUNDLE"; then
   echo "In-place staple failed; retrying via a clean copy"

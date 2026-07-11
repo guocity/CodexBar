@@ -39,5 +39,8 @@ test-tty:
 test-live:
 	@source Scripts/select_xcode_toolchain.sh && codexbar_select_xcode_toolchain && LIVE_TEST=1 swift test --filter LiveAccountTests
 
+# Fork releases only — loads .fork-release.env (your team, Developer ID, feed, Sparkle key).
+# Do not use package_app.sh / upstream steipete identity from this target.
 release:
-	./Scripts/package_app.sh release
+	@test -f .fork-release.env || { echo "Missing .fork-release.env — copy/configure it before releasing."; exit 1; }
+	./Scripts/fork-release.sh
