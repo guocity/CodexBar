@@ -2,6 +2,28 @@ import AppKit
 import CodexBarCore
 
 extension StatusItemController {
+    func beginMenuTrackingSession(for menu: NSMenu) {
+        if menu.supermenu != nil, !self.isHostedSubviewMenu(menu) {
+            self.advanceMenuInteraction(for: self.rootMenu(for: menu))
+        }
+        let menuID = ObjectIdentifier(menu)
+        let generation = self.menuSession.beginTrackingSession(menuID)
+        (menu as? StatusItemMenu)?.menuInteractionGeneration = generation
+    }
+
+    func endMenuTrackingSession(for menu: NSMenu) {
+        (menu as? StatusItemMenu)?.menuInteractionGeneration = nil
+        self.menuSession.endTrackingSession(ObjectIdentifier(menu))
+    }
+
+    private func rootMenu(for menu: NSMenu) -> NSMenu {
+        var root = menu
+        while let parent = root.supermenu {
+            root = parent
+        }
+        return root
+    }
+
     private static let defaultClosedMenuPreparationDelay: Duration = .milliseconds(350)
 
     var isMenuRefreshEnabled: Bool {
@@ -131,6 +153,7 @@ extension StatusItemController {
         self.openMenuRebuildRequests.cancel(for: key)
         self.openMenuRebuildsClosingHostedSubviewMenus.remove(key)
         self.pendingMenuBaselineResyncs.remove(key)
+        self.cancelManualRefreshViewportRestore(for: key)
     }
 
     func clearMenuHighlight(_ key: ObjectIdentifier) {
@@ -380,6 +403,10 @@ extension StatusItemController {
         self.openMenus.values.contains { self.isHostedSubviewMenu($0) }
     }
 
+    func hasOpenNonHostedChildMenu() -> Bool {
+        self.openMenus.values.contains { $0.supermenu != nil && !self.isHostedSubviewMenu($0) }
+    }
+
     func refreshOpenMenuIfStillVisible(_ menu: NSMenu, provider: UsageProvider?) {
         let key = ObjectIdentifier(menu)
         guard self.openMenus[key] != nil else { return }
@@ -410,6 +437,7 @@ extension StatusItemController {
             self.markMenuFresh(menu)
             self.menuSession.clearParentRebuildDeferral(key)
             self.applyIcon(phase: nil)
+            self.scheduleDeferredManualRefreshViewportRestoreAfterRebuild(for: menu)
         }
         #if DEBUG
         self._test_openMenuRebuildObserver?(menu)
