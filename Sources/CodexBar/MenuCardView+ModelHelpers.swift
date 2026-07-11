@@ -35,6 +35,7 @@ extension UsageMenuCardView.Model {
                 percentStyle: metric.percentStyle,
                 statusText: PersonalInfoRedactor.redactEmails(in: metric.statusText, isEnabled: true),
                 resetText: PersonalInfoRedactor.redactEmails(in: metric.resetText, isEnabled: true),
+                resetHelpText: PersonalInfoRedactor.redactEmails(in: metric.resetHelpText, isEnabled: true),
                 detailText: Self.redactedMetricDetail(
                     metric.detailText,
                     provider: provider,
@@ -128,6 +129,7 @@ extension UsageMenuCardView.Model {
             current.percentStyle == candidate.percentStyle &&
             (current.statusText == nil) == (candidate.statusText == nil) &&
             (current.resetText == nil) == (candidate.resetText == nil) &&
+            (current.resetHelpText == nil) == (candidate.resetHelpText == nil) &&
             (current.detailText == nil) == (candidate.detailText == nil) &&
             (current.detailLeftText == nil) == (candidate.detailLeftText == nil) &&
             (current.detailRightText == nil) == (candidate.detailRightText == nil) &&
@@ -250,6 +252,16 @@ extension UsageMenuCardView.Model {
         now: Date) -> String?
     {
         UsageFormatter.resetLine(for: window, style: style, now: now)
+    }
+
+    /// When the menu shows a countdown reset line, hover reveals the absolute reset time.
+    static func resetHelpText(
+        for window: RateWindow,
+        style: ResetTimeDisplayStyle,
+        now: Date) -> String?
+    {
+        guard style == .countdown, window.resetsAt != nil else { return nil }
+        return UsageFormatter.resetLine(for: window, style: .absolute, now: now)
     }
 
     /// Builds the countdown-timeline data for a window. Returns nil unless both an absolute
@@ -565,6 +577,12 @@ extension UsageMenuCardView.Model {
             let resetText = Self.extraRateWindowResetText(
                 namedWindow: namedWindow,
                 input: input)
+            let resetHelpText = usageKnown
+                ? Self.resetHelpText(
+                    for: namedWindow.window,
+                    style: input.resetTimeDisplayStyle,
+                    now: input.now)
+                : nil
             let statusText: String? = if usageKnown {
                 nil
             } else if let resetText {
@@ -582,6 +600,7 @@ extension UsageMenuCardView.Model {
                 percentStyle: percentStyle,
                 statusText: statusText,
                 resetText: usageKnown ? resetText : nil,
+                resetHelpText: usageKnown ? resetHelpText : nil,
                 detailText: nil,
                 detailLeftText: usageKnown ? paceDetail?.leftLabel : nil,
                 detailRightText: usageKnown ? paceDetail?.rightLabel : nil,
@@ -734,6 +753,10 @@ extension UsageMenuCardView.Model {
             percent: Self.clamped(percent),
             percentStyle: percentStyle,
             resetText: Self.resetText(for: window, style: input.resetTimeDisplayStyle, now: input.now),
+            resetHelpText: Self.resetHelpText(
+                for: window,
+                style: input.resetTimeDisplayStyle,
+                now: input.now),
             detailText: nil,
             detailLeftText: paceDetail?.leftLabel,
             detailRightText: paceDetail?.rightLabel,

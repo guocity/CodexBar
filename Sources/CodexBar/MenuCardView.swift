@@ -37,6 +37,8 @@ struct UsageMenuCardView: View {
             let percentStyle: PercentStyle
             let statusText: String?
             let resetText: String?
+            /// Absolute reset time shown on hover when the visible label is a countdown.
+            let resetHelpText: String?
             let detailText: String?
             let detailLeftText: String?
             let detailRightText: String?
@@ -54,6 +56,7 @@ struct UsageMenuCardView: View {
                 percentStyle: PercentStyle,
                 statusText: String? = nil,
                 resetText: String?,
+                resetHelpText: String? = nil,
                 detailText: String?,
                 detailLeftText: String?,
                 detailRightText: String?,
@@ -70,6 +73,7 @@ struct UsageMenuCardView: View {
                 self.percentStyle = percentStyle
                 self.statusText = statusText
                 self.resetText = resetText
+                self.resetHelpText = resetHelpText
                 self.detailText = detailText
                 self.detailLeftText = detailLeftText
                 self.detailRightText = detailRightText
@@ -509,6 +513,7 @@ private struct MetricRow: View {
                                 .font(.footnote)
                                 .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                                 .lineLimit(1)
+                                .help(self.metric.resetHelpText ?? "")
                         }
                     }
                     if self.metric.detailLeftText != nil || self.metric.detailRightText != nil {
@@ -1251,6 +1256,9 @@ extension UsageMenuCardView.Model {
             let opusResetText: String? = input.provider == .perplexity
                 ? opus.resetDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
                 : Self.resetText(for: opus, style: input.resetTimeDisplayStyle, now: input.now)
+            let opusResetHelpText: String? = input.provider == .perplexity
+                ? nil
+                : Self.resetHelpText(for: opus, style: input.resetTimeDisplayStyle, now: input.now)
             let tertiaryPaceDetail = Self.resetWindowPaceDetail(window: opus, input: input)
             metrics.append(Metric(
                 id: "tertiary",
@@ -1258,6 +1266,7 @@ extension UsageMenuCardView.Model {
                 percent: Self.clamped(input.usageBarsShowUsed ? opus.usedPercent : opus.remainingPercent),
                 percentStyle: percentStyle,
                 resetText: opusResetText,
+                resetHelpText: opusResetHelpText,
                 detailText: tertiaryDetailText,
                 detailLeftText: tertiaryPaceDetail?.leftLabel,
                 detailRightText: tertiaryPaceDetail?.rightLabel,
@@ -1294,12 +1303,16 @@ extension UsageMenuCardView.Model {
             let resetText = codeReviewWindow.flatMap {
                 Self.resetText(for: $0, style: input.resetTimeDisplayStyle, now: input.now)
             }
+            let resetHelpText = codeReviewWindow.flatMap {
+                Self.resetHelpText(for: $0, style: input.resetTimeDisplayStyle, now: input.now)
+            }
             metrics.append(Metric(
                 id: "code-review",
                 title: L("Code review"),
                 percent: Self.clamped(percent),
                 percentStyle: percentStyle,
                 resetText: resetText,
+                resetHelpText: resetHelpText,
                 detailText: nil,
                 detailLeftText: nil,
                 detailRightText: nil,
@@ -1320,6 +1333,10 @@ extension UsageMenuCardView.Model {
     {
         var primaryDetailText: String? = input.provider == .zai ? zaiTokenDetail : nil
         var primaryResetText = Self.resetText(for: primary, style: input.resetTimeDisplayStyle, now: input.now)
+        var primaryResetHelpText = Self.resetHelpText(
+            for: primary,
+            style: input.resetTimeDisplayStyle,
+            now: input.now)
         var primaryDetailLeft: String?
         var primaryDetailRight: String?
         if input.provider == .crof,
@@ -1332,6 +1349,7 @@ extension UsageMenuCardView.Model {
            let openRouterQuotaDetail
         {
             primaryResetText = openRouterQuotaDetail
+            primaryResetHelpText = nil
         }
         if input.provider == .copilot,
            let detail = primary.resetDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1362,12 +1380,16 @@ extension UsageMenuCardView.Model {
            !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
             primaryDetailText = detail
-            if input.provider == .manus { primaryResetText = nil }
+            if input.provider == .manus {
+                primaryResetText = nil
+                primaryResetHelpText = nil
+            }
         }
         if [.warp, .kilo, .mimo, .deepseek, .qoder, .mistral, .litellm].contains(input.provider),
            primary.resetsAt == nil
         {
             primaryResetText = nil
+            primaryResetHelpText = nil
         }
         // Abacus: show credits as detail, compute pace on the primary monthly window
         var primaryPacePercent: Double?
@@ -1391,6 +1413,7 @@ extension UsageMenuCardView.Model {
             }
             if primary.resetsAt == nil {
                 primaryResetText = nil
+                primaryResetHelpText = nil
             }
             if let pace = input.weeklyPace {
                 let paceDetail = Self.weeklyPaceDetail(
@@ -1427,6 +1450,7 @@ extension UsageMenuCardView.Model {
                showUsed: input.usageBarsShowUsed)
         {
             primaryResetText = regen.resetText
+            primaryResetHelpText = nil
             primaryDetailLeft = regen.pace.leftLabel
             primaryDetailRight = regen.pace.rightLabel
             primaryPacePercent = regen.pace.pacePercent
@@ -1445,6 +1469,7 @@ extension UsageMenuCardView.Model {
             percentStyle: percentStyle,
             statusText: primaryStatusText,
             resetText: primaryResetText,
+            resetHelpText: primaryResetHelpText,
             detailText: primaryDetailText,
             detailLeftText: primaryDetailLeft,
             detailRightText: primaryDetailRight,
@@ -1470,12 +1495,17 @@ extension UsageMenuCardView.Model {
             pace: input.weeklyPace,
             showUsed: input.usageBarsShowUsed)
         var weeklyResetText = Self.resetText(for: weekly, style: input.resetTimeDisplayStyle, now: input.now)
+        var weeklyResetHelpText = Self.resetHelpText(
+            for: weekly,
+            style: input.resetTimeDisplayStyle,
+            now: input.now)
         var weeklyDetailText: String? = input.provider == .zai ? zaiTimeDetail : nil
         if input.provider == .warp,
            let detail = weekly.resetDescription,
            !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
             weeklyResetText = nil
+            weeklyResetHelpText = nil
             weeklyDetailText = detail
         }
         if input.provider == .kilo || input.provider == .litellm,
@@ -1485,6 +1515,7 @@ extension UsageMenuCardView.Model {
             weeklyDetailText = detail
             if weekly.resetsAt == nil {
                 weeklyResetText = nil
+                weeklyResetHelpText = nil
             }
         }
         if input.provider == .kiro,
@@ -1517,6 +1548,7 @@ extension UsageMenuCardView.Model {
            !detail.isEmpty
         {
             weeklyResetText = detail
+            weeklyResetHelpText = nil
         }
         if input.provider == .copilot,
            let detail = weekly.resetDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1537,6 +1569,7 @@ extension UsageMenuCardView.Model {
            !detail.isEmpty
         {
             weeklyResetText = detail
+            weeklyResetHelpText = nil
         }
         if input.provider == .synthetic,
            let regen = Self.syntheticRegenDetail(
@@ -1546,6 +1579,7 @@ extension UsageMenuCardView.Model {
                showUsed: input.usageBarsShowUsed)
         {
             weeklyResetText = regen.resetText
+            weeklyResetHelpText = nil
             paceDetail = regen.pace
         }
         return Metric(
@@ -1555,6 +1589,7 @@ extension UsageMenuCardView.Model {
             percentStyle: percentStyle,
             statusText: nil,
             resetText: weeklyResetText,
+            resetHelpText: weeklyResetHelpText,
             detailText: weeklyDetailText,
             detailLeftText: paceDetail?.leftLabel,
             detailRightText: paceDetail?.rightLabel,
@@ -1606,6 +1641,10 @@ extension UsageMenuCardView.Model {
                 percent: Self.clamped(input.usageBarsShowUsed ? window.usedPercent : window.remainingPercent),
                 percentStyle: percentStyle,
                 resetText: Self.resetText(for: window, style: input.resetTimeDisplayStyle, now: input.now),
+                resetHelpText: Self.resetHelpText(
+                    for: window,
+                    style: input.resetTimeDisplayStyle,
+                    now: input.now),
                 detailText: nil,
                 detailLeftText: paceDetail?.leftLabel,
                 detailRightText: paceDetail?.rightLabel,

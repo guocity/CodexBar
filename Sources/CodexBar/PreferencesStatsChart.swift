@@ -638,7 +638,7 @@ final class StatsMultiLineChart: NSView {
             highlight.lineWidth = 1
             marker.color.setStroke()
             highlight.stroke()
-            let text = "\(marker.label) · \(self.tooltipFormatter.string(from: marker.date))"
+            let text = "\(marker.label) · \(statsAbsoluteDate(marker.date))"
             self.drawTooltipBox(text, anchorX: marker.x, anchorY: loc.y, textColor: textColor)
             return
         }

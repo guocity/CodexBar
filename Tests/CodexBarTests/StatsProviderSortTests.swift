@@ -294,4 +294,41 @@ struct StatsProviderSortTests {
             title: "Claude/GPT weekly",
             id: "antigravity-quota-summary-3p-weekly") == "claude-gpt-weekly")
     }
+
+    @Test
+    func `live snapshot upsert replaces co-timestamped history with fresh upcoming reset`() {
+        let now = self.now
+        let staleReset = now.addingTimeInterval(-120)
+        let upcomingReset = now.addingTimeInterval(3600)
+        var entries = [
+            StatsEntry(capturedAt: now, usedPercent: 0, resetsAt: staleReset),
+        ]
+        statsUpsertLiveEntry(
+            entries: &entries,
+            usedPercent: 0,
+            liveReset: upcomingReset,
+            capturedAt: now)
+        #expect(entries.count == 1)
+        #expect(entries[0].resetsAt == upcomingReset)
+        #expect(statsUpcomingReset(
+            StatsWindow(name: "primary", displayName: "Session", windowMinutes: 300, entries: entries),
+            from: now) == upcomingReset)
+    }
+
+    @Test
+    func `live snapshot upsert appends when history sample is older than one second`() {
+        let now = self.now
+        let upcomingReset = now.addingTimeInterval(3600)
+        var entries = [
+            StatsEntry(capturedAt: now.addingTimeInterval(-120), usedPercent: 4, resetsAt: now.addingTimeInterval(1800)),
+        ]
+        statsUpsertLiveEntry(
+            entries: &entries,
+            usedPercent: 2,
+            liveReset: upcomingReset,
+            capturedAt: now)
+        #expect(entries.count == 2)
+        #expect(entries.last?.usedPercent == 2)
+        #expect(entries.last?.resetsAt == upcomingReset)
+    }
 }

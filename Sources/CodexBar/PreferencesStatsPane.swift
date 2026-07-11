@@ -274,17 +274,14 @@ struct StatsUsage {
             } ?? Self.nearestHistory(to: snap, in: histories, claimed: claimedSeries)
             if let match { claimedSeries.insert(Self.seriesID(match)) }
             var entries = match.map { Self.entries($0.entries) } ?? []
-            // Always reflect the live value as the most recent point.
-            if (entries.last?.capturedAt ?? .distantPast) < updatedAt.addingTimeInterval(-1) {
-                entries.append(StatsEntry(
-                    capturedAt: updatedAt,
-                    usedPercent: max(0, min(100, snap.usedPercent)),
-                    resetsAt: statsRecordedResetBoundary(
-                        usedPercent: snap.usedPercent,
-                        liveReset: snap.resetsAt,
-                        priorEntries: entries,
-                        capturedAt: updatedAt)))
-            }
+            // Always reflect the live value as the most recent point. When the recorder just wrote
+            // the same refresh timestamp, replace that row instead of skipping it — otherwise a
+            // stale frozen reset (common on idle Claude sessions) hides the upcoming reset line.
+            statsUpsertLiveEntry(
+                entries: &entries,
+                usedPercent: snap.usedPercent,
+                liveReset: snap.resetsAt,
+                capturedAt: updatedAt)
             windows.append(StatsWindow(
                 name: snap.id,
                 displayName: snap.title,
@@ -365,7 +362,7 @@ struct StatsUsage {
         let defaultWindowMinutes = provider == .copilot ? UsageStore.copilotMonthlyWindowMinutes : 0
 
         var result: [SnapshotWindow] = []
-        if let primary = snapshot.primary {
+        if let primary = snapshot.primary, !primary.isSyntheticPlaceholder {
             result.append(Self.snapshotWindow(
                 from: primary,
                 id: "primary",
@@ -550,6 +547,35 @@ func statsSortedProviders(_ providers: [StatsProvider], mode: StatsSortMode, now
 /// boundary forward on every refresh; those phantom past resets must not clutter the chart.
 func statsWindowHasRecordedUsage(_ window: StatsWindow) -> Bool {
     window.entries.contains { $0.usedPercent > 0.5 }
+}
+
+/// Merges the live snapshot into a window's entries. Appends when the last sample is older than
+/// one second; otherwise replaces the latest row so co-timestamped history does not mask a fresh
+/// upcoming reset.
+func statsUpsertLiveEntry(
+    entries: inout [StatsEntry],
+    usedPercent: Double,
+    liveReset: Date?,
+    capturedAt: Date)
+{
+    let clampedUsed = max(0, min(100, usedPercent))
+    let shouldAppend = (entries.last?.capturedAt ?? .distantPast) < capturedAt.addingTimeInterval(-1)
+    let priorEntries = shouldAppend ? entries : Array(entries.dropLast())
+    let liveEntry = StatsEntry(
+        capturedAt: capturedAt,
+        usedPercent: clampedUsed,
+        resetsAt: statsRecordedResetBoundary(
+            usedPercent: clampedUsed,
+            liveReset: liveReset,
+            priorEntries: priorEntries,
+            capturedAt: capturedAt))
+    if shouldAppend {
+        entries.append(liveEntry)
+    } else if entries.isEmpty {
+        entries.append(liveEntry)
+    } else {
+        entries[entries.count - 1] = liveEntry
+    }
 }
 
 /// At 0% the live API nudges past `resetsAt` samples on every poll. Freeze only boundaries that
@@ -1338,9 +1364,10 @@ private final class StatsSummaryPanel {
             guard let fields = self.windowFields[window.name], let latest = window.latest else { continue }
             fields.used.stringValue = "\(Int(latest.usedPercent.rounded()))%"
             if let upcoming = statsUpcomingReset(window, from: now) {
-                fields.reset.stringValue = "\(L("resets")) \(statsCountdown(to: upcoming, from: now)) · "
-                    + statsAbsoluteDate(upcoming)
+                fields.reset.stringValue = "\(L("resets")) \(statsCountdown(to: upcoming, from: now))"
+                fields.reset.toolTip = statsAbsoluteDate(upcoming)
             } else {
+                fields.reset.toolTip = nil
                 fields.reset.stringValue = "\(L("inactive")) · \(L("last seen")) "
                     + statsRelativeAge(latest.capturedAt, from: now)
             }
