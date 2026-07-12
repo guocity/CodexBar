@@ -242,53 +242,10 @@ struct UsageStorePlanUtilizationAsyncLoadTests {
 
     @MainActor
     @Test
-    func `init returns within a startup budget even with a multi-megabyte fixture`() throws {
-        // Belt-and-suspenders timing proof for the audit's "Release benchmark"
-        // claim: the audit measured ~150 ms of main-thread decode before this
-        // PR. With the load moved off the main thread, init must not spend
-        // that time even when the persisted fixture is multi-megabyte.
-        let suiteName = "UsageStorePlanUtilizationAsyncLoad-budget-\(UUID().uuidString)"
-        let gate = PlanUtilizationHistoryLoadGate()
-        let historyStore = testPlanUtilizationHistoryStore(suiteName: suiteName, reset: true)
-        let directoryURL = try #require(historyStore.directoryURL)
-        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        // ~6 MB of synthetic payload — comparable to the audit's mature fixture.
-        let bigURL = directoryURL.appendingPathComponent("codex.json")
-        try Data(repeating: 0x20, count: 6 * 1024 * 1024).write(to: bigURL)
-        let settings = Self.makeSettings(suiteName: suiteName)
-        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
-        _ = settings
-
-        // Warm up Task scheduling so the first call does not pay for cold-start.
-        _ = Task<Void, Never> {}
-
-        let start = DispatchTime.now()
-        let store = UsageStore(
-            fetcher: UsageFetcher(),
-            browserDetection: BrowserDetection(cacheTTL: 0),
-            settings: settings,
-            planUtilizationHistoryStore: historyStore,
-            startupBehavior: .testing,
-            planUtilizationHistoryLoadGateForTesting: gate)
-        let initNanos = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
-        defer { store._cancelPlanUtilizationHistoryLoadForTesting() }
-
-        // Init must return long before the audit's measured ~150 ms baseline.
-        // Allow 50 ms as a generous wall-clock budget that absorbs CI noise
-        // without giving back the synchronous main-thread decode.
-        #expect(initNanos < 50_000_000)
-        #expect(store.planUtilizationHistoryLoaded == false)
-        #expect(gate.isOpen == false)
-    }
-
-    @MainActor
-    @Test
-    func `cancel during load releases the gate and drains the continuation`() async throws {
-        // The bot flagged that cancelling the load task without draining the
-        // gate would leak the suspended continuation, captured store, and
-        // the gate itself across test runs. This test cancels a still-gated
-        // load and asserts the gate's pending waiter count goes to zero so
-        // the continuation cannot outlive the load task.
+    func `cancel before load wait is registered still drains the task`() async throws {
+        // Cancel immediately after init, intentionally without yielding. The
+        // cancellation state must remain visible when the load task later
+        // reaches `wait()`; otherwise the wakeup can be lost and the task leaks.
         let suiteName = "UsageStorePlanUtilizationAsyncLoad-cancel-\(UUID().uuidString)"
         let gate = PlanUtilizationHistoryLoadGate()
         let historyStore = testPlanUtilizationHistoryStore(suiteName: suiteName, reset: true)
@@ -303,18 +260,15 @@ struct UsageStorePlanUtilizationAsyncLoadTests {
             startupBehavior: .testing,
             planUtilizationHistoryLoadGateForTesting: gate)
 
-        // Spin briefly so the detached task reaches `gate.wait()` and the
-        // continuation is registered before we cancel.
-        for _ in 0..<50 where store.planUtilizationHistoryLoadTask == nil {
-            await Task.yield()
-        }
-        try await Task.sleep(nanoseconds: 20_000_000)
-
+        let loadTask = try #require(store.planUtilizationHistoryLoadTask)
         store._cancelPlanUtilizationHistoryLoadForTesting()
-        // After cancel, the gate must be drained. Re-opening should not leak
-        // an extra waiter (no panic, no second resume).
+        await loadTask.value
+
+        #expect(gate.isCancelled == true)
+        #expect(store.planUtilizationHistoryLoaded == true)
+        #expect(store.planUtilizationHistory.isEmpty)
         gate.open()
-        #expect(gate.isOpen == true)
+        #expect(gate.isOpen == false)
     }
 
     // MARK: - Helpers

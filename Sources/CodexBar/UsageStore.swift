@@ -86,16 +86,8 @@ extension UsageStore {
 
     private static func isRunningTestsProcess() -> Bool {
         let environment = ProcessInfo.processInfo.environment
-        if environment["XCTestConfigurationFilePath"] != nil {
-            return true
-        }
-        if environment["XCTestSessionIdentifier"] != nil {
-            return true
-        }
-        if environment["SWIFT_TESTING_ENABLED"] != nil {
-            return true
-        }
-        return CommandLine.arguments.contains { argument in
+        let testKeys = ["XCTestConfigurationFilePath", "XCTestSessionIdentifier", "SWIFT_TESTING_ENABLED"]
+        return testKeys.contains(where: { environment[$0] != nil }) || CommandLine.arguments.contains { argument in
             argument.contains("xctest") || argument.contains("swift-testing")
         }
     }
@@ -346,9 +338,7 @@ final class UsageStore {
     @ObservationIgnored var lastPermissionPromptNotificationAt: [UsageProvider: Date] = [:]
     @ObservationIgnored var lastTokenFetchAt: [UsageProvider: Date] = [:]
     @ObservationIgnored var lastTokenFetchScope: [UsageProvider: String] = [:]
-    @ObservationIgnored var planUtilizationHistory: [UsageProvider: PlanUtilizationHistoryBuckets] = [:] {
-        didSet { if !self.planUtilizationHistoryLoaded { self.planUtilizationHistoryLoaded = true } }
-    }
+    @ObservationIgnored var planUtilizationHistory: [UsageProvider: PlanUtilizationHistoryBuckets] = [:]
 
     /// Background load task; cleared on deinit and on the cancel test seam.
     @ObservationIgnored var planUtilizationHistoryLoadTask: Task<Void, Never>?
@@ -413,21 +403,7 @@ final class UsageStore {
         self.providerRuntimes = Dictionary(uniqueKeysWithValues: ProviderCatalog.all.compactMap { implementation in
             implementation.makeRuntime().map { (implementation.id, $0) }
         })
-        self.planUtilizationHistory = [:]
-        self.planUtilizationHistoryLoadTask = Task { @MainActor [weak self] in
-            // Move persisted plan-utilization decode off the startup main thread.
-            // In-memory starts empty; mutation paths and sync menu accessors gate on
-            // `planUtilizationHistoryLoaded` until the load task publishes once.
-            let loaded = await withTaskCancellationHandler {
-                await Task.detached(priority: .utility) {
-                    await planUtilizationHistoryLoadGateForTesting?.wait()
-                    return planUtilizationHistoryStore.load()
-                }.value
-            } onCancel: { planUtilizationHistoryLoadGateForTesting?.cancelAll() }
-            guard let self, !self.planUtilizationHistoryLoaded else { return }
-            self.planUtilizationHistory = loaded
-            self.planUtilizationHistoryRevision &+= 1
-        }
+        self.startPlanUtilizationHistoryLoad(gate: planUtilizationHistoryLoadGateForTesting)
         self.sessionLimitResetDetectorStates = Self.loadLimitResetDetectorStates(
             from: settings.userDefaults,
             defaultsKey: Self.sessionLimitResetDetectorDefaultsKey,

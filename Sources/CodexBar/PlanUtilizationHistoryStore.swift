@@ -285,55 +285,77 @@ extension ProviderHistoryDocument {
 /// Used to verify that `UsageStore.init` returns before disk I/O completes and
 /// that the history is applied exactly once after the gate opens.
 final class PlanUtilizationHistoryLoadGate: @unchecked Sendable {
+    private enum State {
+        case closed
+        case open
+        case cancelled
+    }
+
     private let lock = NSLock()
-    private var continuations: [CheckedContinuation<Void, Never>] = []
-    private var _isOpen: Bool = false
+    private var continuations: [CheckedContinuation<Bool, Never>] = []
+    private var state: State = .closed
 
     init() {}
 
     var isOpen: Bool {
         self.lock.lock()
         defer { self.lock.unlock() }
-        return self._isOpen
+        return self.state == .open
     }
 
-    func wait() async {
+    var isCancelled: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.state == .cancelled
+    }
+
+    func wait() async -> Bool {
         await withCheckedContinuation { continuation in
             self.lock.lock()
-            if self._isOpen {
+            switch self.state {
+            case .open:
                 self.lock.unlock()
-                continuation.resume()
-                return
+                continuation.resume(returning: true)
+            case .cancelled:
+                self.lock.unlock()
+                continuation.resume(returning: false)
+            case .closed:
+                self.continuations.append(continuation)
+                self.lock.unlock()
             }
-            self.continuations.append(continuation)
-            self.lock.unlock()
         }
     }
 
     func open() {
         self.lock.lock()
-        self._isOpen = true
+        guard self.state == .closed else {
+            self.lock.unlock()
+            return
+        }
+        self.state = .open
         let pending = self.continuations
         self.continuations.removeAll()
         self.lock.unlock()
         for continuation in pending {
-            continuation.resume()
+            continuation.resume(returning: true)
         }
     }
 
-    /// Resumes every pending waiter without marking the gate as open. Use this
-    /// to release a waiter that is being cancelled so its `withCheckedContinuation`
-    /// does not leak the suspended task, continuation, and the gate itself.
-    /// Pending waiters resume as if `open()` had been called; subsequent
-    /// `wait()` calls still observe the gate as closed, so a test that calls
-    /// `cancelAll()` and then `open()` gets the natural reopen semantics.
-    func cancelAll() {
+    /// Cancels this one-shot gate and resumes pending or future waiters with
+    /// `false`. Cancellation is sticky so it cannot race ahead of `wait()` and
+    /// lose the wakeup that drains the load task.
+    func cancel() {
         self.lock.lock()
+        guard self.state == .closed else {
+            self.lock.unlock()
+            return
+        }
+        self.state = .cancelled
         let pending = self.continuations
         self.continuations.removeAll()
         self.lock.unlock()
         for continuation in pending {
-            continuation.resume()
+            continuation.resume(returning: false)
         }
     }
 }
