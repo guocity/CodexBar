@@ -12,10 +12,20 @@ struct ShareStatsProviderPayload: Sendable, Equatable, Identifiable {
     let totalTokens: Int?
     let estimatedCostUSD: Double?
     let activeDays: Int?
-    let planUsedPercent: Double?
 
     var id: String {
         self.providerName
+    }
+}
+
+struct ShareStatsModelPayload: Sendable, Equatable, Identifiable {
+    let providerName: String
+    let modelName: String
+    let totalTokens: Int?
+    let estimatedCostUSD: Double?
+
+    var id: String {
+        "\(self.providerName):\(self.modelName)"
     }
 }
 
@@ -23,6 +33,7 @@ struct ShareStatsPayload: Sendable, Equatable {
     let days: Int
     let periodEnd: Date
     let providers: [ShareStatsProviderPayload]
+    let topModels: [ShareStatsModelPayload]
     let totalTokens: Int?
     let estimatedCostUSD: Double?
     let dailyTokens: [Int]
@@ -37,7 +48,7 @@ struct ShareStatsPayload: Sendable, Equatable {
 
     var hasShareableData: Bool {
         !self.providers.isEmpty && self.providers.contains { provider in
-            provider.totalTokens != nil || provider.estimatedCostUSD != nil || provider.planUsedPercent != nil
+            provider.totalTokens != nil || provider.estimatedCostUSD != nil
         }
     }
 }
@@ -53,6 +64,11 @@ enum ShareStatsBuilder {
             source.tokenSnapshot?.updatedAt ?? source.usageSnapshot?.updatedAt
         }.max() ?? Date()
         var combinedDailyTokens = Array(repeating: 0, count: days)
+        let topModels = self.modelPayloads(
+            sources: sources,
+            days: days,
+            periodEnd: periodEnd,
+            calendar: calendar)
         let providers = sources.map { source -> ShareStatsProviderPayload in
             let summary = source.tokenSnapshot?.summary(forLastDays: days, calendar: calendar)
             let dailyTokens = source.tokenSnapshot.map {
@@ -68,8 +84,7 @@ enum ShareStatsBuilder {
                 providerName: source.providerName,
                 totalTokens: summary?.totalTokens,
                 estimatedCostUSD: summary?.totalCostUSD,
-                activeDays: activeDays,
-                planUsedPercent: self.mostConstrainedUsage(source.usageSnapshot))
+                activeDays: activeDays)
         }
         let tokenValues = providers.compactMap(\.totalTokens)
         let costValues = providers.compactMap(\.estimatedCostUSD).filter(\.isFinite)
@@ -77,10 +92,85 @@ enum ShareStatsBuilder {
             days: days,
             periodEnd: periodEnd,
             providers: providers,
+            topModels: topModels,
             totalTokens: tokenValues.isEmpty ? nil : tokenValues.reduce(0, +),
             estimatedCostUSD: costValues.isEmpty ? nil : costValues.reduce(0, +),
             dailyTokens: combinedDailyTokens)
         return payload.hasShareableData ? payload : nil
+    }
+
+    private struct ModelKey: Hashable {
+        let providerName: String
+        let modelName: String
+    }
+
+    private struct ModelAggregate {
+        var totalTokens = 0
+        var estimatedCostUSD = 0.0
+        var sawTokens = false
+        var sawCost = false
+    }
+
+    private static func modelPayloads(
+        sources: [ShareStatsProviderSource],
+        days: Int,
+        periodEnd: Date,
+        calendar: Calendar) -> [ShareStatsModelPayload]
+    {
+        let end = calendar.startOfDay(for: periodEnd)
+        let start = calendar.date(byAdding: .day, value: -(days - 1), to: end) ?? end
+        var aggregates: [ModelKey: ModelAggregate] = [:]
+        for source in sources {
+            guard let snapshot = source.tokenSnapshot else { continue }
+            for offset in 0..<days {
+                guard let day = calendar.date(byAdding: .day, value: offset, to: start),
+                      let entry = CostUsageTokenSnapshot.entry(
+                          in: snapshot.daily,
+                          forLocalDayContaining: day,
+                          calendar: calendar)
+                else { continue }
+                for breakdown in entry.modelBreakdowns ?? [] {
+                    let modelName = breakdown.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !modelName.isEmpty,
+                          breakdown.totalTokens != nil || breakdown.costUSD != nil
+                    else { continue }
+                    let key = ModelKey(providerName: source.providerName, modelName: modelName)
+                    var aggregate = aggregates[key] ?? ModelAggregate()
+                    if let tokens = breakdown.totalTokens {
+                        aggregate.totalTokens += tokens
+                        aggregate.sawTokens = true
+                    }
+                    if let costUSD = breakdown.costUSD, costUSD.isFinite {
+                        aggregate.estimatedCostUSD += costUSD
+                        aggregate.sawCost = true
+                    }
+                    aggregates[key] = aggregate
+                }
+            }
+        }
+        return aggregates.map { key, aggregate in
+            ShareStatsModelPayload(
+                providerName: key.providerName,
+                modelName: key.modelName,
+                totalTokens: aggregate.sawTokens ? aggregate.totalTokens : nil,
+                estimatedCostUSD: aggregate.sawCost ? aggregate.estimatedCostUSD : nil)
+        }
+        .sorted { lhs, rhs in
+            switch (lhs.estimatedCostUSD, rhs.estimatedCostUSD) {
+            case let (left?, right?) where left != right:
+                return left > right
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                let leftTokens = lhs.totalTokens ?? -1
+                let rightTokens = rhs.totalTokens ?? -1
+                if leftTokens != rightTokens { return leftTokens > rightTokens }
+                if lhs.providerName != rhs.providerName { return lhs.providerName < rhs.providerName }
+                return lhs.modelName < rhs.modelName
+            }
+        }
     }
 
     private static func dailyTokens(
@@ -99,13 +189,6 @@ enum ShareStatsBuilder {
                 calendar: calendar)
             return max(0, entry?.totalTokens ?? 0)
         }
-    }
-
-    private static func mostConstrainedUsage(_ snapshot: UsageSnapshot?) -> Double? {
-        let windows = [snapshot?.primary, snapshot?.secondary, snapshot?.tertiary]
-            .compactMap(\.self)
-            .filter { !$0.isSyntheticPlaceholder && $0.usedPercent.isFinite }
-        return windows.map(\.usedPercent).max().map { min(max($0, 0), 100) }
     }
 }
 
@@ -165,11 +248,21 @@ enum ShareStatsFormatting {
             if let cost = provider.estimatedCostUSD, cost.isFinite {
                 metrics.append("~\(self.currencyUSD(cost)) est")
             }
-            if metrics.isEmpty, let percent = provider.planUsedPercent {
-                metrics.append("\(Int(percent.rounded()))% plan used")
-            }
             return "\(provider.providerName): \(metrics.isEmpty ? "connected" : metrics.joined(separator: " · "))"
         })
+        if !payload.topModels.isEmpty {
+            lines.append("Top models:")
+            lines.append(contentsOf: payload.topModels.prefix(5).map { model in
+                var metrics: [String] = []
+                if let tokens = model.totalTokens {
+                    metrics.append("\(self.compactCount(tokens)) tokens")
+                }
+                if let cost = model.estimatedCostUSD, cost.isFinite {
+                    metrics.append("~\(self.currencyUSD(cost)) est")
+                }
+                return "\(model.modelName) (\(model.providerName)): \(metrics.joined(separator: " · "))"
+            })
+        }
         lines.append("Generated locally by CodexBar · Data through \(self.dataThrough(payload.periodEnd))")
         return lines.joined(separator: "\n")
     }

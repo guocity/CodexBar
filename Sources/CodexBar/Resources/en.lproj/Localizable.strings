@@ -1187,3 +1187,18 @@
 "Show Codex Spark usage" = "Show Codex Spark usage";
 "Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings.";
 "Scroll to see more models" = "Scroll to see more models";
+
+/* Shareable usage card */
+"Copy Image" = "Copy Image";
+"Copy Stats" = "Copy Stats";
+"Could not copy image" = "Could not copy image";
+"Image copied" = "Image copied";
+"Image saved" = "Image saved";
+"Nothing is uploaded. This image is created on your Mac." = "Nothing is uploaded. This image is created on your Mac.";
+"Preview, copy, or save one private card with all enabled subscriptions." = "Preview, copy, or save one private card with all enabled subscriptions.";
+"Save..." = "Save...";
+"Share AI Usage" = "Share AI Usage";
+"Share Stats…" = "Share Stats…";
+"Share usage card" = "Share usage card";
+"Sharing" = "Sharing";
+"Stats copied" = "Stats copied";

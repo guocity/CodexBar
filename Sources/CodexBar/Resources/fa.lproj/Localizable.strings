@@ -1187,3 +1187,17 @@
 "Show Codex Spark usage" = "نمایش استفاده از Codex Spark";
 "Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "ردیف‌های سهمیه Codex Spark را در منو و پیش‌نمایش ارائه‌دهنده نمایش می‌دهد. لازم است «نمایش اعتبارها + استفاده اضافی» در تنظیمات نمایش فعال باشد.";
 "Scroll to see more models" = "برای دیدن مدل‌های بیشتر پیمایش کنید";
+/* Shareable usage card */
+"Copy Image" = "کپی تصویر";
+"Copy Stats" = "کپی آمار";
+"Could not copy image" = "تصویر کپی نشد";
+"Image copied" = "تصویر کپی شد";
+"Image saved" = "تصویر ذخیره شد";
+"Nothing is uploaded. This image is created on your Mac." = "چیزی بارگذاری نمی‌شود. این تصویر روی Mac شما ساخته می‌شود.";
+"Preview, copy, or save one private card with all enabled subscriptions." = "یک کارت خصوصی شامل همه اشتراک‌های فعال را پیش‌نمایش، کپی یا ذخیره کنید.";
+"Save..." = "ذخیره...";
+"Share AI Usage" = "اشتراک‌گذاری مصرف هوش مصنوعی";
+"Share Stats…" = "اشتراک‌گذاری آمار…";
+"Share usage card" = "اشتراک‌گذاری کارت مصرف";
+"Sharing" = "اشتراک‌گذاری";
+"Stats copied" = "آمار کپی شد";

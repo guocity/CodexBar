@@ -1186,3 +1186,17 @@
 "Show Codex Spark usage" = "Mostreu l'ús de Codex Spark";
 "Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "Mostreu les files de quota de Codex Spark al menú i a la previsualització del proveïdor. Cal activar «Mostreu crèdits + ús addicional» a la configuració de Pantalla.";
 "Scroll to see more models" = "Desplaceu-vos per veure més models";
+/* Shareable usage card */
+"Copy Image" = "Copia la imatge";
+"Copy Stats" = "Copia les estadístiques";
+"Could not copy image" = "No s’ha pogut copiar la imatge";
+"Image copied" = "Imatge copiada";
+"Image saved" = "Imatge desada";
+"Nothing is uploaded. This image is created on your Mac." = "No es puja res. Aquesta imatge es crea al Mac.";
+"Preview, copy, or save one private card with all enabled subscriptions." = "Previsualitza, copia o desa una targeta privada amb totes les subscripcions activades.";
+"Save..." = "Desa...";
+"Share AI Usage" = "Comparteix l’ús de la IA";
+"Share Stats…" = "Comparteix les estadístiques…";
+"Share usage card" = "Comparteix la targeta d’ús";
+"Sharing" = "Compartició";
+"Stats copied" = "Estadístiques copiades";

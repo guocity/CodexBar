@@ -97,23 +97,55 @@ struct ShareStatsCardView: View {
     }
 
     private var providerBreakdown: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Text("BY SUBSCRIPTION")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .tracking(1.6)
-                .foregroundStyle(self.secondary)
-            ForEach(Array(self.payload.providers.prefix(9).enumerated()), id: \.element.id) { index, provider in
-                ShareStatsProviderRow(
-                    provider: provider,
-                    color: ShareStatsProviderRow.colors[index % ShareStatsProviderRow.colors.count])
-            }
-            if self.payload.providers.count > 9 {
-                Text("+\(self.payload.providers.count - 9) more configured")
-                    .font(.system(size: 13, weight: .regular, design: .rounded))
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("BY SUBSCRIPTION")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .tracking(1.6)
                     .foregroundStyle(self.secondary)
-                    .padding(.leading, 18)
+                ForEach(
+                    Array(self.payload.providers.prefix(self.providerDisplayLimit).enumerated()),
+                    id: \.element.id)
+                { index, provider in
+                    ShareStatsProviderRow(
+                        provider: provider,
+                        color: ShareStatsProviderRow.colors[index % ShareStatsProviderRow.colors.count])
+                }
+                if self.payload.providers.count > self.providerDisplayLimit {
+                    Text("+\(self.payload.providers.count - self.providerDisplayLimit) more configured")
+                        .font(.system(size: 13, weight: .regular, design: .rounded))
+                        .foregroundStyle(self.secondary)
+                        .padding(.leading, 18)
+                }
+            }
+
+            if !self.payload.topModels.isEmpty {
+                Rectangle()
+                    .fill(self.secondary.opacity(0.18))
+                    .frame(height: 1)
+                    .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("TOP MODELS")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .tracking(1.6)
+                        .foregroundStyle(self.secondary)
+                    ForEach(self.payload.topModels.prefix(4)) { model in
+                        ShareStatsModelRow(
+                            model: model,
+                            color: self.color(forProviderNamed: model.providerName))
+                    }
+                }
             }
         }
+    }
+
+    private var providerDisplayLimit: Int {
+        self.payload.topModels.isEmpty ? 9 : 6
+    }
+
+    private func color(forProviderNamed name: String) -> Color {
+        let index = self.payload.providers.firstIndex { $0.providerName == name } ?? 0
+        return ShareStatsProviderRow.colors[index % ShareStatsProviderRow.colors.count]
     }
 
     private var footer: some View {
@@ -131,6 +163,43 @@ struct ShareStatsCardView: View {
             .font(.system(size: 14, weight: .regular, design: .rounded))
             .foregroundStyle(self.secondary)
         }
+    }
+}
+
+private struct ShareStatsModelRow: View {
+    let model: ShareStatsModelPayload
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(self.color)
+                .frame(width: 8, height: 8)
+                .frame(width: 12)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(self.model.modelName)
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                Text(self.model.providerName)
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color(red: 0.60, green: 0.57, blue: 0.52))
+            }
+            Spacer(minLength: 10)
+            Text(self.detail)
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(Color(red: 0.73, green: 0.70, blue: 0.65))
+                .lineLimit(1)
+        }
+        .frame(height: 30)
+    }
+
+    private var detail: String {
+        if let cost = self.model.estimatedCostUSD, cost.isFinite {
+            return "~\(ShareStatsFormatting.currencyUSD(cost))"
+        }
+        return self.model.totalTokens.map(ShareStatsFormatting.compactCount) ?? "—"
     }
 }
 
@@ -174,9 +243,6 @@ private struct ShareStatsProviderRow: View {
         }
         if let cost = self.provider.estimatedCostUSD, cost.isFinite {
             metrics.append("~\(ShareStatsFormatting.currencyUSD(cost))")
-        }
-        if metrics.isEmpty, let percent = self.provider.planUsedPercent {
-            metrics.append("\(Int(percent.rounded()))% used")
         }
         return metrics.isEmpty ? "connected" : metrics.joined(separator: " · ")
     }

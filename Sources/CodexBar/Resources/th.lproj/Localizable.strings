@@ -1187,3 +1187,17 @@
 "Show Codex Spark usage" = "แสดงการใช้งาน Codex Spark";
 "Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "แสดงแถวโควตา Codex Spark ในเมนูและตัวอย่างผู้ให้บริการ ต้องเปิดใช้ “แสดงเครดิต + การใช้งานเพิ่มเติม” ในการตั้งค่าการแสดงผล";
 "Scroll to see more models" = "เลื่อนเพื่อดูโมเดลเพิ่มเติม";
+/* Shareable usage card */
+"Copy Image" = "คัดลอกรูปภาพ";
+"Copy Stats" = "คัดลอกสถิติ";
+"Could not copy image" = "ไม่สามารถคัดลอกรูปภาพได้";
+"Image copied" = "คัดลอกรูปภาพแล้ว";
+"Image saved" = "บันทึกรูปภาพแล้ว";
+"Nothing is uploaded. This image is created on your Mac." = "ไม่มีการอัปโหลด รูปภาพนี้สร้างขึ้นบน Mac ของคุณ";
+"Preview, copy, or save one private card with all enabled subscriptions." = "ดูตัวอย่าง คัดลอก หรือบันทึกการ์ดส่วนตัวที่รวมการสมัครสมาชิกทั้งหมดที่เปิดใช้งาน";
+"Save..." = "บันทึก...";
+"Share AI Usage" = "แชร์การใช้งาน AI";
+"Share Stats…" = "แชร์สถิติ…";
+"Share usage card" = "แชร์การ์ดการใช้งาน";
+"Sharing" = "การแชร์";
+"Stats copied" = "คัดลอกสถิติแล้ว";
