@@ -14,6 +14,9 @@ struct GroqProviderImplementation: ProviderImplementation {
         _ = settings.groqAPIKey
     }
 
+    // No `isAvailable` override: when Groq is enabled, the fetch pipeline resolves
+    // the console browser session (primary) or the optional API key (Enterprise
+    // Prometheus fallback). Matches the MiMo cookie provider.
 
     @MainActor
     func settingsFields(context: ProviderSettingsContext) -> [ProviderSettingsFieldDescriptor] {
