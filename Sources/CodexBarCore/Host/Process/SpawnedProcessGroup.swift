@@ -25,6 +25,7 @@ package final class SpawnedProcessGroup: @unchecked Sendable {
     private final class TerminationState: @unchecked Sendable {
         private let condition = NSCondition()
         private var exitObserved = false
+        private var exitObservedAt: Date?
         private var reapRequested = false
         private var status: Int32?
 
@@ -36,9 +37,14 @@ package final class SpawnedProcessGroup: @unchecked Sendable {
             self.condition.withLock { self.status }
         }
 
+        var observationDate: Date? {
+            self.condition.withLock { self.exitObservedAt }
+        }
+
         func observeExit() {
             self.condition.withLock {
                 self.exitObserved = true
+                self.exitObservedAt = Date()
                 self.condition.broadcast()
             }
         }
@@ -528,6 +534,10 @@ package final class SpawnedProcessGroup: @unchecked Sendable {
 
     package var terminationStatus: Int32? {
         self.termination.value
+    }
+
+    package var exitObservationDate: Date? {
+        self.termination.observationDate
     }
 
     package var hasResidualProcessGroup: Bool {
