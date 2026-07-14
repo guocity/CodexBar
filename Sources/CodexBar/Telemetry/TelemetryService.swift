@@ -213,10 +213,10 @@ final class TelemetryService {
 
     private let tokenStore = KeychainTelemetryTokenStore()
     private let log = CodexBarLog.logger("telemetry")
-    private let session: URLSession
+    private let sessionFactory: @Sendable () -> URLSession
 
-    init(session: URLSession = .shared) {
-        self.session = session
+    init(sessionFactory: @escaping @Sendable () -> URLSession = TelemetryService.makeSession) {
+        self.sessionFactory = sessionFactory
     }
 
     // MARK: Configuration accessors (single source of truth: UserDefaults + keychain)
@@ -343,23 +343,87 @@ final class TelemetryService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("close", forHTTPHeaderField: "Connection")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        request.timeoutInterval = 15
+        request.timeoutInterval = 30
 
-        do {
-            let (data, response) = try await self.session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw TelemetryError.transport("No HTTP response.")
+        try await self.performTransportRequest(request, metric: metric)
+    }
+
+    // MARK: Transport
+
+    /// Fresh ephemeral sessions avoid stale HTTP/2 connections through Cloudflare tunnels.
+    static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60
+        #if !os(Linux)
+        configuration.waitsForConnectivity = false
+        #endif
+        configuration.httpMaximumConnectionsPerHost = 1
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration)
+    }
+
+    private static let transientURLErrorCodes: Set<URLError.Code> = [
+        .timedOut,
+        .networkConnectionLost,
+        .cannotConnectToHost,
+        .cannotFindHost,
+        .dnsLookupFailed,
+        .notConnectedToInternet,
+    ]
+
+    private static let maxTransportRetries = 2
+
+    private func performTransportRequest(_ request: URLRequest, metric: String) async throws {
+        var lastTransportError: Error?
+        for attempt in 0 ... Self.maxTransportRetries {
+            if attempt > 0 {
+                let delay = 0.5 * pow(2.0, Double(attempt - 1))
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
-            guard (200 ... 299).contains(http.statusCode) else {
-                let body = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                throw TelemetryError.requestFailed(status: http.statusCode, body: String(body.prefix(200)))
+
+            let session = self.sessionFactory()
+            defer { session.finishTasksAndInvalidate() }
+
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw TelemetryError.transport("No HTTP response.")
+                }
+                guard (200 ... 299).contains(http.statusCode) else {
+                    let body = String(data: data, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    throw TelemetryError.requestFailed(status: http.statusCode, body: String(body.prefix(200)))
+                }
+                self.log.debug("Telemetry \(metric) sent (\(http.statusCode))")
+                return
+            } catch let error as TelemetryError {
+                throw error
+            } catch {
+                guard attempt < Self.maxTransportRetries,
+                      Self.isTransientTransportError(error)
+                else {
+                    throw TelemetryError.transport(error.localizedDescription)
+                }
+                lastTransportError = error
+                self.log.warning(
+                    "Telemetry transport failed (attempt \(attempt + 1)/\(Self.maxTransportRetries + 1)): "
+                        + error.localizedDescription)
             }
-            self.log.debug("Telemetry \(metric) sent (\(http.statusCode))")
-        } catch let error as TelemetryError {
-            throw error
-        } catch {
-            throw TelemetryError.transport(error.localizedDescription)
         }
+
+        throw TelemetryError.transport(lastTransportError?.localizedDescription ?? "Transport failed.")
+    }
+
+    private static func isTransientTransportError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return self.transientURLErrorCodes.contains(urlError.code)
+        }
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        return self.transientURLErrorCodes.contains(URLError.Code(rawValue: nsError.code))
     }
 }
