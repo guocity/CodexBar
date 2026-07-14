@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.43.1 — Unreleased
-
-## 0.43.0 — 2026-07-14
+## 0.43.1 — 2026-07-14
 
 ### Added
 - sub2api: add group-key usage with daily, weekly, and monthly quotas, multi-account switching, wallet balance, and expiry details. Thanks @weirdo-adam!
