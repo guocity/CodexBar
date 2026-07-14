@@ -40,6 +40,7 @@ public enum OllamaUsageError: LocalizedError, Sendable {
     case parseFailed(String)
     case networkError(String)
     case noSessionCookie
+    case browserCookieKeychainAccessRequired
 
     public var errorDescription: String? {
         switch self {
@@ -56,7 +57,9 @@ public enum OllamaUsageError: LocalizedError, Sendable {
         case let .networkError(message):
             "Ollama request failed: \(message)"
         case .noSessionCookie:
-            "No Ollama session cookie found. Please sign in at \(Self.signInURL) in your browser."
+            "No Ollama session cookie found. Sign in at \(Self.signInURL) in Chrome, then press Refresh. If macOS asks for Keychain access to Chrome Safe Storage, choose Allow."
+        case .browserCookieKeychainAccessRequired:
+            "CodexBar needs Keychain access to read your Chrome Ollama session. Press Refresh and choose Allow for Chrome Safe Storage."
         }
     }
 }
@@ -96,19 +99,38 @@ public enum OllamaCookieImporter {
             ? ollamaCookieImportOrder.cookieImportCandidates(using: browserDetection)
             : preferredBrowsers.cookieImportCandidates(using: browserDetection)
         let preferredCandidates = self.collectSessionInfo(from: preferredSources, logger: log)
-        return try self.selectSessionInfosWithFallback(
-            preferredCandidates: preferredCandidates,
-            allowFallbackBrowsers: allowFallbackBrowsers,
-            loadFallbackCandidates: {
-                guard !preferredBrowsers.isEmpty else { return [] }
-                let fallbackSources = self.fallbackBrowserSources(
-                    browserDetection: browserDetection,
-                    excluding: preferredSources)
-                guard !fallbackSources.isEmpty else { return [] }
-                log("No recognized Ollama session in preferred browsers; trying fallback import order")
-                return self.collectSessionInfo(from: fallbackSources, logger: log)
-            },
-            logger: log)
+        do {
+            return try self.selectSessionInfosWithFallback(
+                preferredCandidates: preferredCandidates,
+                allowFallbackBrowsers: allowFallbackBrowsers,
+                loadFallbackCandidates: {
+                    guard !preferredBrowsers.isEmpty else { return [] }
+                    let fallbackSources = self.fallbackBrowserSources(
+                        browserDetection: browserDetection,
+                        excluding: preferredSources)
+                    guard !fallbackSources.isEmpty else { return [] }
+                    log("No recognized Ollama session in preferred browsers; trying fallback import order")
+                    return self.collectSessionInfo(from: fallbackSources, logger: log)
+                },
+                logger: log)
+        } catch OllamaUsageError.noSessionCookie where self.preferredChromeSafeStorageRequiresInteraction() {
+            throw OllamaUsageError.browserCookieKeychainAccessRequired
+        }
+    }
+
+    /// True when Chrome Safe Storage would need an interactive Keychain prompt.
+    /// Background refresh skips Chromium in that case and otherwise reports a misleading
+    /// "sign in" error even though the browser session exists.
+    private static func preferredChromeSafeStorageRequiresInteraction() -> Bool {
+        for label in Browser.chrome.safeStorageLabels {
+            switch KeychainAccessPreflight.checkGenericPassword(service: label.service, account: label.account) {
+            case .interactionRequired:
+                return true
+            case .allowed, .notFound, .failure:
+                continue
+            }
+        }
+        return false
     }
 
     public static func importSession(

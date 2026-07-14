@@ -54,8 +54,17 @@ Ollama API keys currently do not expire, but they can be revoked from the key se
 
 ### “No Ollama session cookie found”
 
-Sign in at `https://ollama.com/signin` in Chrome, then refresh CodexBar.
+Sign in at `https://ollama.com/signin` in Chrome, then press **Refresh** in CodexBar.
+
+If a Keychain dialog asks for **Chrome Safe Storage**, choose **Allow** (prefer Always Allow). Background
+refreshes cannot show that prompt, so the menu can claim you’re signed out even when Chrome has a valid
+`__Secure-session` / `wos-session` cookie.
+
 If your active session is only in Safari (or another browser), use **Cookie source → Manual** and paste a cookie header.
+
+### “CodexBar needs Keychain access…”
+
+Press **Refresh** once and Allow Chrome Safe Storage for CodexBar. After Always Allow, background refresh keeps working.
 
 ### “Ollama session cookie expired”
 
