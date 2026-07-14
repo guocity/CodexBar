@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.43.2 — 2026-07-14
+
+### Fixed
+- Ollama: clarify when Chrome Safe Storage Keychain access is blocking cookie import, instead of claiming no session exists after a signed-in Chrome login.
+
 ## 0.43.1 — 2026-07-14
 
 ### Added
