@@ -7,7 +7,7 @@
     <language>en</language>
     <item>
       <title>CodexBar 0.42.1</title>
-      <pubDate>Sat, 11 Jul 2026 21:28:11 +0000</pubDate>
+      <pubDate>Tue, 14 Jul 2026 18:38:19 +0000</pubDate>
       <sparkle:version>103</sparkle:version>
       <sparkle:shortVersionString>0.42.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
@@ -29,7 +29,7 @@
 <li>Menus: return oversized tracked menus to the provider header after a manual refresh without moving background updates, highlighted rows, open submenus, or newer menu/provider sessions (#2046). Thanks @ss251!</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.42.1/CodexBar-macos-universal-0.42.1.zip" sparkle:edSignature="tqBWQ9u12pg8z7aTkwsELLZY+ydSq8suOWohSJue7qzTOQV4HTbxV9sli7KsJZCuVbl0nsMbAOcCh5V3MrccDw==" length="46173617" type="application/octet-stream" />
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.42.1/CodexBar-macos-universal-0.42.1.zip" sparkle:edSignature="NA9FQg9T8YBV04SgI4st++e6TkzC+NVFk2F/397jjQlX+JEPCQlc6XI7Ft536IsNAIZBsNoLFJHEirWaOhSqAQ==" length="46182570" type="application/octet-stream" />
     </item>
   </channel>
 </rss>

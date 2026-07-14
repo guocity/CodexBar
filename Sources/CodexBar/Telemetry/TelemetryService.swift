@@ -353,7 +353,7 @@ final class TelemetryService {
     // MARK: Transport
 
     /// Fresh ephemeral sessions avoid stale HTTP/2 connections through Cloudflare tunnels.
-    static func makeSession() -> URLSession {
+    nonisolated static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60

@@ -86,7 +86,7 @@ extension UsageStore {
         let snapshot: UsageSnapshot
         let accountKey: String?
         let capturedAt: Date
-        let codexVisibleAccount: CodexVisibleAccount?
+        let codexLimitResetOwnerKey: CodexLimitResetOwnerKey?
     }
 
     private struct LimitResetObservation {
@@ -109,6 +109,15 @@ extension UsageStore {
     func planUtilizationHistorySelection(for provider: UsageProvider)
         -> (accountKey: String?, histories: [PlanUtilizationSeriesHistory])
     {
+        // The persisted history has not been read yet. Return the in-memory
+        // stub (empty) without performing account migration or enqueueing an
+        // empty persistence snapshot — otherwise a startup refresh racing the
+        // background load would record samples against an empty bucket and
+        // overwrite real disk history.
+        if !self.planUtilizationHistoryLoaded {
+            let providerBuckets = self.planUtilizationHistory[provider] ?? PlanUtilizationHistoryBuckets()
+            return (nil, providerBuckets.histories(for: nil))
+        }
         var providerBuckets = self.planUtilizationHistory[provider] ?? PlanUtilizationHistoryBuckets()
         if provider == .claude,
            providerBuckets.preferredAccountKey == Self.planUtilizationUnscopedPreferredKey
@@ -138,6 +147,12 @@ extension UsageStore {
     func codexPlanUtilizationHistories(forVisibleAccount account: CodexVisibleAccount)
         -> [PlanUtilizationSeriesHistory]
     {
+        // Same gate as `planUtilizationHistorySelection`: defer ownership
+        // migration until the persisted history has been read.
+        if !self.planUtilizationHistoryLoaded {
+            let providerBuckets = self.planUtilizationHistory[.codex] ?? PlanUtilizationHistoryBuckets()
+            return providerBuckets.histories(for: nil)
+        }
         var providerBuckets = self.planUtilizationHistory[.codex] ?? PlanUtilizationHistoryBuckets()
         let originalProviderBuckets = providerBuckets
         let ownership = self.codexOwnershipContext(forVisibleAccount: account)
@@ -191,7 +206,7 @@ extension UsageStore {
         isClaudeOAuthSample: Bool = false,
         shouldUpdatePreferredAccountKey: Bool = true,
         shouldAdoptUnscopedHistory: Bool = true,
-        codexVisibleAccount: CodexVisibleAccount? = nil,
+        codexLimitResetOwnerKey: CodexLimitResetOwnerKey? = nil,
         now: Date = Date())
         async
     {
@@ -221,18 +236,13 @@ extension UsageStore {
             // Persisting without a high-entropy owner would merge unrelated OAuth accounts into `unscoped`.
             return
         }
-        let effectiveCodexVisibleAccount: CodexVisibleAccount? = if provider == .codex {
-            codexVisibleAccount ?? self.activeCodexVisibleAccountForLimitResetDetection()
-        } else {
-            nil
-        }
         let detectorContext = LimitResetDetectionContext(
             provider: provider,
             account: account,
             snapshot: snapshot,
             accountKey: detectorAccountKey,
             capturedAt: now,
-            codexVisibleAccount: effectiveCodexVisibleAccount)
+            codexLimitResetOwnerKey: codexLimitResetOwnerKey)
         await MainActor.run {
             self.postLimitResetCelebrationsIfNeeded(
                 context: detectorContext,
@@ -242,6 +252,20 @@ extension UsageStore {
         guard !samples.isEmpty else { return }
         guard self.shouldRecordPlanUtilizationHistory(for: provider) else { return }
         guard !self.shouldDeferClaudePlanUtilizationHistory(provider: provider) else { return }
+
+        // Wait for the persisted history to finish loading before mutating
+        // `self.planUtilizationHistory`. A startup refresh racing the
+        // background decode would otherwise record samples against an empty
+        // bucket and overwrite real disk history on the next persistence
+        // enqueue.
+        if !self.planUtilizationHistoryLoaded {
+            // `_cancelPlanUtilizationHistoryLoadForTesting` cancels the task
+            // and flips `loaded` to true; this branch only runs when the load
+            // is still pending. Cancellation here (deinit during a startup
+            // refresh) means the in-memory dictionary is empty — proceeding
+            // is the safer choice than discarding the sample.
+            _ = await self.planUtilizationHistoryLoadTask?.result
+        }
 
         var snapshotToPersist: [UsageProvider: PlanUtilizationHistoryBuckets]?
         var telemetryAccountKey: String?
@@ -517,6 +541,7 @@ extension UsageStore {
     private static func isSemanticSessionResetWindow(
         _ resolved: (window: RateWindow, source: SessionQuotaWindowSource)) -> Bool
     {
+        guard !resolved.window.isSyntheticPlaceholder else { return false }
         switch resolved.source {
         case .primary:
             guard let minutes = resolved.window.windowMinutes else { return false }
@@ -534,12 +559,15 @@ extension UsageStore {
     {
         guard let observation else { return }
 
-        let accountIdentifier = self.limitResetAccountIdentifier(
+        guard let accountIdentifier = self.limitResetAccountIdentifier(
             provider: context.provider,
             account: context.account,
             snapshot: context.snapshot,
             accountKey: context.accountKey,
-            codexVisibleAccount: context.codexVisibleAccount)
+            codexLimitResetOwnerKey: context.codexLimitResetOwnerKey)
+        else {
+            return
+        }
         let detectorKey = Self.limitResetDetectorStateKey(
             provider: context.provider,
             accountIdentifier: accountIdentifier)
@@ -637,6 +665,7 @@ extension UsageStore {
         {
             guard let name,
                   let window,
+                  !window.isSyntheticPlaceholder,
                   let windowMinutes = windowMinutesOverride ?? window.windowMinutes,
                   windowMinutes > 0,
                   let usedPercent = Self.clampedPercent(window.usedPercent)
@@ -877,17 +906,6 @@ extension UsageStore {
 
     private func shouldDeferClaudePlanUtilizationHistory(provider: UsageProvider) -> Bool {
         provider == .claude && self.shouldHidePlanUtilizationMenuItem(for: .claude)
-    }
-
-    private func limitResetAccountLabel(
-        provider: UsageProvider,
-        account: ProviderTokenAccount?,
-        snapshot: UsageSnapshot) -> String?
-    {
-        let identity = snapshot.identity(for: provider)
-        return account?.label
-            ?? identity?.accountEmail
-            ?? identity?.accountOrganization
     }
 
     /// Human-readable name persisted alongside an account's history so each
