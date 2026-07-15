@@ -11,6 +11,7 @@ extension UsageStore {
     var menuObservationToken: Int {
         _ = self.snapshots
         _ = self.errors
+        _ = self.diagnostics
         _ = self.knownLimitsAvailabilityByProvider
         _ = self.lastSourceLabels
         _ = self.lastFetchAttempts
@@ -44,6 +45,7 @@ extension UsageStore {
     var iconObservationToken: Int {
         _ = self.snapshots
         _ = self.errors
+        _ = self.diagnostics
         _ = self.knownLimitsAvailabilityByProvider
         _ = self.credits
         _ = self.lastCreditsError
@@ -153,6 +155,7 @@ final class UsageStore {
 
     var snapshots: [UsageProvider: UsageSnapshot] = [:]
     var errors: [UsageProvider: String] = [:]
+    var diagnostics: [UsageProvider: String] = [:]
     var geminiObservedConsumerTierDeprecation = false
     var knownLimitsAvailabilityByProvider: [UsageProvider: UsageLimitsAvailability] = [:]
     var lastSourceLabels: [UsageProvider: String] = [:]

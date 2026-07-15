@@ -10,6 +10,9 @@ public struct GrokCredentials: Sendable {
     public let firstName: String?
     public let lastName: String?
     public let teamId: String?
+    /// The principal scope reported by Grok's cached OIDC credential, when available.
+    /// Keep this optional because older auth.json entries do not include it.
+    public let principalType: String?
     public let oidcIssuer: String?
     public let oidcClientId: String?
     public let expiresAt: Date?
@@ -28,7 +31,8 @@ public struct GrokCredentials: Sendable {
         oidcIssuer: String?,
         oidcClientId: String?,
         expiresAt: Date?,
-        createTime: Date?)
+        createTime: Date?,
+        principalType: String? = nil)
     {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
@@ -39,6 +43,7 @@ public struct GrokCredentials: Sendable {
         self.firstName = firstName
         self.lastName = lastName
         self.teamId = teamId
+        self.principalType = principalType
         self.oidcIssuer = oidcIssuer
         self.oidcClientId = oidcClientId
         self.expiresAt = expiresAt
@@ -54,6 +59,11 @@ public struct GrokCredentials: Sendable {
     public var isExpired: Bool {
         guard let expiresAt else { return false }
         return Date() >= expiresAt
+    }
+
+    public var isTeamPrincipal: Bool {
+        self.principalType?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("team") == .orderedSame
     }
 
     public var loginMethod: String? {
@@ -150,7 +160,8 @@ public enum GrokCredentialsStore {
             oidcIssuer: (entry["oidc_issuer"] as? String)?.nilIfEmpty,
             oidcClientId: (entry["oidc_client_id"] as? String)?.nilIfEmpty,
             expiresAt: Self.parseDate(entry["expires_at"]),
-            createTime: Self.parseDate(entry["create_time"]))
+            createTime: Self.parseDate(entry["create_time"]),
+            principalType: (entry["principal_type"] as? String)?.nilIfEmpty)
     }
 
     private static func selectPreferredEntry(in root: [String: Any]) -> (scope: String, entry: [String: Any])? {

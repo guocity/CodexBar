@@ -328,6 +328,7 @@ extension UsageStore {
             }
         }
 
+        self.diagnostics[provider] = nil
         let claudeAuthStateBeforeFetch = provider == .claude
             ? await Self.captureClaudeRefreshAuthState(invalidateCredentialsFile: true)
             : nil
@@ -551,6 +552,7 @@ extension UsageStore {
             }
             self.lastSourceLabels[provider] = result.sourceLabel
             self.errors[provider] = nil
+            self.diagnostics[provider] = result.diagnostic
             if let tokenAccount = currentTokenAccount {
                 self.cacheTokenAccountSnapshot(
                     provider: provider,
@@ -954,6 +956,7 @@ extension UsageStore {
         let shouldNotifyPermissionPrompt = Self.isPermissionPromptWaiting(error)
         await MainActor.run {
             guard self.isCurrentProviderRefreshGeneration(provider, generation: generation) else { return }
+            self.diagnostics[provider] = nil
             if provider == .gemini, Self.isGeminiConsumerTierDeprecationError(error) {
                 // This is a durable provider migration signal, not a transient fetch failure.
                 // Surface it immediately so a cached snapshot cannot hide the required handoff.
