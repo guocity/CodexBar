@@ -82,6 +82,12 @@ public enum BrowserCookieAccessGate {
     public static func shouldAttempt(_ browser: Browser, now: Date = Date()) -> Bool {
         guard browser.usesKeychainForCookieDecryption else { return true }
         guard !KeychainAccessGate.isDisabled else { return false }
+        guard ProviderInteractionContext.current == .userInitiated else {
+            self.log.info(
+                "Skipping background Chromium cookie import to avoid a Keychain prompt",
+                metadata: ["browser": browser.displayName])
+            return false
+        }
         if self.deniedBrowsersForTesting?.contains(browser) == true {
             return self.isExplicitRetryAllowed(for: browser)
         }
