@@ -12,6 +12,7 @@ extension CostUsageScanner {
     struct CodexSubagentRolloutShape {
         let counterSemantics: CodexSubagentCounterSemantics
         let ownedSuffix: CodexSubagentOwnedSuffix?
+        let inferredParentSessionID: String?
 
         struct CodexSubagentOwnedSuffix {
             let startLineIndex: Int
@@ -41,10 +42,15 @@ extension CostUsageScanner {
             } else {
                 observedSessionIDs.count > 1 || observedSessionIDs.contains { Self.normalizedSessionID($0) != nil }
             }
+            let distinctAncestorIDs = Set(observedSessionIDs
+                .compactMap(Self.normalizedSessionID)
+                .filter { normalizedLeafID == nil || $0 != normalizedLeafID })
+            let inferredParentSessionID = distinctAncestorIDs.count == 1 ? distinctAncestorIDs.first : nil
 
             return Self(
                 counterSemantics: hasEmbeddedAncestor ? .copiedPrefix : .independent,
-                ownedSuffix: nil)
+                ownedSuffix: nil,
+                inferredParentSessionID: inferredParentSessionID)
         }
 
         static func classify(
@@ -126,7 +132,10 @@ extension CostUsageScanner {
                 }
             }
 
-            return Self(counterSemantics: .copiedPrefix, ownedSuffix: ownedSuffix)
+            return Self(
+                counterSemantics: .copiedPrefix,
+                ownedSuffix: ownedSuffix,
+                inferredParentSessionID: metadataShape.inferredParentSessionID)
         }
 
         static func sameConcreteSessionID(_ lhs: String?, _ rhs: String?) -> Bool {

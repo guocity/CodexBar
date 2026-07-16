@@ -18,6 +18,17 @@ struct CodexSubagentRolloutShapeTests {
             observedSessionIDs: ["leaf", "parent"])
 
         #expect(shape.counterSemantics == .copiedPrefix)
+        #expect(shape.inferredParentSessionID == "parent")
+    }
+
+    @Test
+    func `multiple ancestors do not infer an ambiguous parent`() {
+        let shape = CostUsageScanner.CodexSubagentRolloutShape.classify(
+            leafSessionID: "leaf",
+            observedSessionIDs: ["leaf", "parent", "grandparent"])
+
+        #expect(shape.counterSemantics == .copiedPrefix)
+        #expect(shape.inferredParentSessionID == nil)
     }
 
     @Test
@@ -36,6 +47,7 @@ struct CodexSubagentRolloutShapeTests {
             observedSessionIDs: [nil, "parent"])
 
         #expect(shape.counterSemantics == .copiedPrefix)
+        #expect(shape.inferredParentSessionID == "parent")
     }
 
     @Test
@@ -45,6 +57,7 @@ struct CodexSubagentRolloutShapeTests {
             observedSessionIDs: ["leaf", nil])
 
         #expect(shape.counterSemantics == .copiedPrefix)
+        #expect(shape.inferredParentSessionID == nil)
     }
 
     @Test

@@ -1340,6 +1340,7 @@ enum CostUsageScanner {
     private static let codexJSONFieldSessionIdCamel = Array("sessionId".utf8)
     private static let codexJSONFieldTimestamp = Array("timestamp".utf8)
     private static let codexJSONFieldTotalTokenUsage = Array("total_token_usage".utf8)
+    private static let codexJSONFieldTriggerTurn = Array("trigger_turn".utf8)
     private static let codexJSONFieldTurnId = Array("turn_id".utf8)
     private static let codexJSONFieldTurnIdCamel = Array("turnId".utf8)
     private static let codexJSONFieldType = Array("type".utf8)
@@ -1526,6 +1527,24 @@ enum CostUsageScanner {
         return CostUsageCodexTotals(input: input, cached: cached, output: output)
     }
 
+    private static func codexInterAgentCommunication(
+        from bytes: UnsafeBufferPointer<UInt8>,
+        in objectRange: Range<Int>) -> CodexFastLine?
+    {
+        guard let payloadRange = extractJSONByteObjectField(
+            codexJSONFieldPayload,
+            from: bytes,
+            in: objectRange,
+            atDepth: 1),
+            let triggerTurn = extractJSONByteBoolField(
+                codexJSONFieldTriggerTurn,
+                from: bytes,
+                in: payloadRange,
+                atDepth: 1)
+        else { return nil }
+        return .interAgentCommunication(triggerTurn: triggerTurn)
+    }
+
     private static func parseCodexFastLine(_ bytes: Data) -> CodexFastLine? {
         bytes.withUnsafeBytes { rawBytes in
             let rawBuffer = rawBytes.bindMemory(to: UInt8.self)
@@ -1606,8 +1625,7 @@ enum CostUsageScanner {
             case "inter_agent_communication_metadata":
                 // Compact Codex JSONL uses this exact spelling. Whitespace/escaped variants fall
                 // through to Foundation so a fast-path miss cannot change boundary semantics.
-                guard bytes.containsAscii(#""trigger_turn":true"#) else { return nil }
-                return .interAgentCommunication(triggerTurn: true)
+                return Self.codexInterAgentCommunication(from: rawBuffer, in: objectRange)
 
             case "event_msg":
                 guard let payloadRange = Self.extractJSONByteObjectField(
@@ -1806,6 +1824,15 @@ enum CostUsageScanner {
         return nil
     }
 
+    static func codexFileIsSubagentThread(
+        fileURL: URL,
+        checkCancellation: CancellationCheck? = nil) throws -> Bool
+    {
+        try self.parseCodexSessionMetadata(
+            fileURL: fileURL,
+            checkCancellation: checkCancellation)?.isSubagentThread == true
+    }
+
     private static func parseCodexTokenSnapshots(
         fileURL: URL,
         checkCancellation: CancellationCheck? = nil) throws -> (
@@ -1990,6 +2017,7 @@ enum CostUsageScanner {
         var forkTimestamp: String?
         var subagentCounterSemantics: CodexSubagentCounterSemantics?
         var usesLocalSubagentBoundary = false
+        var suppressUnownedCopiedPrefix = false
         var inheritedTotals: CostUsageCodexTotals?
         var remainingInheritedTotals: CostUsageCodexTotals?
         var forkBaselineResolved = false
@@ -2083,6 +2111,7 @@ enum CostUsageScanner {
         func handleTokenCount(_ record: CodexTokenCountRecord) throws {
             guard let dayKey = Self.dayKeyFromTimestamp(record.timestamp) ?? Self.dayKeyFromParsedISO(record.timestamp)
             else { return }
+            guard !suppressUnownedCopiedPrefix else { return }
 
             let model = Self.codexModelEvidence(currentModel)
                 ?? Self.codexModelEvidence(record.model)
@@ -2527,6 +2556,12 @@ enum CostUsageScanner {
                     leafSessionID: sessionId,
                     observations: observations)
                 subagentCounterSemantics = shape.counterSemantics
+                if forkedFromId == nil {
+                    forkedFromId = shape.inferredParentSessionID
+                }
+                suppressUnownedCopiedPrefix = shape.counterSemantics == .copiedPrefix
+                    && shape.ownedSuffix == nil
+                    && forkedFromId == nil
                 if let ownedSuffix = shape.ownedSuffix {
                     usesLocalSubagentBoundary = true
                     previousTotals = nil
@@ -2549,6 +2584,7 @@ enum CostUsageScanner {
                         "sessionId": sessionId ?? "unknown",
                         "semantics": subagentCounterSemantics == .copiedPrefix ? "copiedPrefix" : "independent",
                         "localBoundary": shape.ownedSuffix == nil ? "false" : "true",
+                        "suppressedUnownedPrefix": suppressUnownedCopiedPrefix ? "true" : "false",
                         "sessionMetadataCount": String(observations.count(where: {
                             if case .sessionMetadata = $0.kind {
                                 true

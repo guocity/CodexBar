@@ -197,6 +197,183 @@ struct CodexSubagentAccountingIntegrationTests {
         })
     }
 
+    @Test
+    func `copied prefix infers its parent and ignores a spoofed trigger outside the payload`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2026, month: 7, day: 16)
+        let forkTimestamp = env.isoString(for: day)
+        let fileURL = try env.writeCodexSessionFile(
+            day: day,
+            filename: "rollout-\(forkTimestamp)-inferred-parent.jsonl",
+            contents: env.jsonl([
+                [
+                    "type": "session_meta",
+                    "timestamp": forkTimestamp,
+                    "payload": [
+                        "id": "inferred-child",
+                        "timestamp": forkTimestamp,
+                        "source": ["subagent": ["thread_spawn": [:]]],
+                    ],
+                ],
+                self.tokenCount(
+                    timestamp: env.isoString(for: day.addingTimeInterval(1)),
+                    model: "openai/gpt-5.3",
+                    total: (input: 1000, cached: 900, output: 100),
+                    last: (input: 50, cached: 10, output: 5)),
+                [
+                    "type": "session_meta",
+                    "timestamp": forkTimestamp,
+                    "payload": ["id": "inferred-parent"],
+                ],
+                self.turnContext(
+                    timestamp: env.isoString(for: day.addingTimeInterval(2)),
+                    model: "openai/gpt-5.4"),
+                [
+                    "type": "inter_agent_communication_metadata",
+                    "timestamp": env.isoString(for: day.addingTimeInterval(2)),
+                    "trigger_turn": true,
+                    "payload": ["trigger_turn": false],
+                ],
+                self.tokenCount(
+                    timestamp: env.isoString(for: day.addingTimeInterval(3)),
+                    model: "openai/gpt-5.4",
+                    total: (input: 1050, cached: 910, output: 105),
+                    last: (input: 50, cached: 10, output: 5)),
+            ]))
+
+        var resolvedParentBaseline = false
+        let parsed = CostUsageScanner.parseCodexFile(
+            fileURL: fileURL,
+            range: CostUsageScanner.CostUsageDayRange(since: day, until: day),
+            inheritedTotalsResolver: { parentSessionID, _ in
+                resolvedParentBaseline = true
+                #expect(parentSessionID == "inferred-parent")
+                return .resolved(.init(input: 1000, cached: 900, output: 100))
+            })
+
+        let dayKey = CostUsageScanner.CostUsageDayRange.dayKey(from: day)
+        let model = CostUsagePricing.normalizeCodexModel("openai/gpt-5.4")
+        #expect(parsed.days[dayKey]?[model] == [50, 10, 5])
+        #expect(parsed.forkedFromId == "inferred-parent")
+        #expect(parsed.dependsOnParentTotals)
+        #expect(resolvedParentBaseline)
+    }
+
+    @Test
+    func `idless copied prefix without a parent or local marker is suppressed`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2026, month: 7, day: 16)
+        let timestamp = env.isoString(for: day)
+        let fileURL = try env.writeCodexSessionFile(
+            day: day,
+            filename: "rollout-\(timestamp)-ambiguous-prefix.jsonl",
+            contents: env.jsonl([
+                [
+                    "type": "session_meta",
+                    "timestamp": timestamp,
+                    "payload": [
+                        "id": "ambiguous-child",
+                        "source": ["subagent": ["thread_spawn": [:]]],
+                    ],
+                ],
+                self.tokenCount(
+                    timestamp: env.isoString(for: day.addingTimeInterval(1)),
+                    model: "openai/gpt-5.3",
+                    total: (input: 1000, cached: 900, output: 100)),
+                ["type": "session_meta", "timestamp": timestamp, "payload": [:]],
+                self.tokenCount(
+                    timestamp: env.isoString(for: day.addingTimeInterval(2)),
+                    model: "openai/gpt-5.4",
+                    total: (input: 1050, cached: 910, output: 105)),
+            ]))
+
+        let parsed = CostUsageScanner.parseCodexFile(
+            fileURL: fileURL,
+            range: CostUsageScanner.CostUsageDayRange(since: day, until: day))
+
+        #expect(parsed.days.isEmpty)
+        #expect(parsed.rows.isEmpty)
+    }
+
+    @Test
+    func `appended ancestor metadata reclassifies the complete subagent rollout`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2026, month: 7, day: 16)
+        let timestamp = env.isoString(for: day)
+        let fileURL = try env.writeCodexSessionFile(
+            day: day,
+            filename: "rollout-\(timestamp)-growing-subagent.jsonl",
+            contents: env.jsonl([
+                [
+                    "type": "session_meta",
+                    "timestamp": timestamp,
+                    "payload": [
+                        "id": "growing-child",
+                        "source": ["subagent": ["thread_spawn": [:]]],
+                    ],
+                ],
+                self.turnContext(timestamp: timestamp, model: "openai/gpt-5.3"),
+                self.tokenCount(
+                    timestamp: env.isoString(for: day.addingTimeInterval(1)),
+                    model: "openai/gpt-5.3",
+                    total: (input: 1000, cached: 900, output: 100)),
+            ]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+        let first = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        #expect(first.data.first?.totalTokens == 1100)
+
+        let appended = try env.jsonl([
+            ["type": "session_meta", "timestamp": timestamp, "payload": ["id": "growing-parent"]],
+            self.turnContext(
+                timestamp: env.isoString(for: day.addingTimeInterval(2)),
+                model: "openai/gpt-5.4"),
+            [
+                "type": "inter_agent_communication_metadata",
+                "timestamp": env.isoString(for: day.addingTimeInterval(2)),
+                "payload": ["trigger_turn": true],
+            ],
+            self.tokenCount(
+                timestamp: env.isoString(for: day.addingTimeInterval(3)),
+                model: "openai/gpt-5.4",
+                total: (input: 1050, cached: 910, output: 105),
+                last: (input: 50, cached: 10, output: 5)),
+        ])
+        let handle = try FileHandle(forWritingTo: fileURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(appended.utf8))
+        try handle.close()
+
+        let second = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day.addingTimeInterval(1),
+            options: options)
+        #expect(second.data.first?.totalTokens == 55)
+
+        let cache = CostUsageCacheIO.load(provider: .codex, cacheRoot: env.cacheRoot)
+        let usage = try #require(cache.files.values.first { $0.sessionId == "growing-child" })
+        #expect(usage.sessionId == "growing-child")
+        #expect(usage.forkedFromId == "growing-parent")
+        #expect(usage.forkBaselineDependencyKey == CostUsageScanner.codexForkDependencyNotRequiredKey)
+    }
+
     private func turnContext(timestamp: String, model: String) -> [String: Any] {
         [
             "type": "turn_context",

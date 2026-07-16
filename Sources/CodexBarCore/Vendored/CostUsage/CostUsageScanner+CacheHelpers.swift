@@ -976,6 +976,14 @@ extension CostUsageScanner {
         if Self.cachedCodexRowsNeedIdentityRescan(cached) {
             return false
         }
+        // Subagent shape depends on the complete lineage prefix. Appended metadata can change an
+        // independent counter into a copied-prefix rollout, so a tail-only parse is not sound.
+        if try Self.codexFileIsSubagentThread(
+            fileURL: input.fileURL,
+            checkCancellation: context.checkCancellation)
+        {
+            return false
+        }
         let startOffset = cached.parsedBytes ?? cached.size
         let initialCountedTotals = cached.lastCountedTotals ?? cached.lastTotals
         let initialRawTotalsBaseline = cached.lastRawTotalsBaseline ?? cached.lastTotals
