@@ -10,10 +10,29 @@ import Glibc
 import Musl
 #endif
 
-public enum CookieHeaderCache {
-    public enum AuthenticationFailurePolicy: String, Codable, Equatable, Sendable {
-        case stopFallback
+public enum CookieAuthenticationFailurePolicy: String, Codable, Equatable, Sendable {
+    case stopFallback
+}
+
+public struct CookieHeaderCacheEntry: Codable, Equatable, Sendable {
+    public let cookieHeader: String
+    public let storedAt: Date
+    public let sourceLabel: String
+    public let authenticationFailurePolicy: CookieAuthenticationFailurePolicy?
+
+    public init(
+        cookieHeader: String,
+        storedAt: Date,
+        sourceLabel: String,
+        authenticationFailurePolicy: CookieAuthenticationFailurePolicy? = nil)
+    {
+        (self.cookieHeader, self.storedAt) = (cookieHeader, storedAt)
+        (self.sourceLabel, self.authenticationFailurePolicy) = (sourceLabel, authenticationFailurePolicy)
     }
+}
+
+public enum CookieHeaderCache {
+    public typealias AuthenticationFailurePolicy = CookieAuthenticationFailurePolicy
 
     public enum Scope: Sendable, Equatable {
         case managedAccount(UUID)
@@ -66,24 +85,7 @@ public enum CookieHeaderCache {
         }
     }
 
-    public struct Entry: Codable, Equatable, Sendable {
-        public let cookieHeader: String
-        public let storedAt: Date
-        public let sourceLabel: String
-        public let authenticationFailurePolicy: AuthenticationFailurePolicy?
-
-        public init(
-            cookieHeader: String,
-            storedAt: Date,
-            sourceLabel: String,
-            authenticationFailurePolicy: AuthenticationFailurePolicy? = nil)
-        {
-            self.cookieHeader = cookieHeader
-            self.storedAt = storedAt
-            self.sourceLabel = sourceLabel
-            self.authenticationFailurePolicy = authenticationFailurePolicy
-        }
-    }
+    public typealias Entry = CookieHeaderCacheEntry
 
     public struct ClearSummary: Equatable, Sendable {
         public let clearedCount: Int
@@ -958,7 +960,7 @@ extension CookieHeaderCache {
         scope: Scope? = nil,
         cookieHeader: String,
         sourceLabel: String,
-        authenticationFailurePolicy: AuthenticationFailurePolicy? = nil,
+        authenticationFailurePolicy: CookieAuthenticationFailurePolicy? = nil,
         now: Date = Date()) -> Bool
     {
         let trimmed = cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines)
