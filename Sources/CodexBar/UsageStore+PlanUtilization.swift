@@ -2,7 +2,6 @@ import CodexBarCore
 import Foundation
 
 extension UsageStore {
-    private nonisolated static let limitResetThreshold = 1.0
     nonisolated static let sessionLimitResetDetectorDefaultsKey = "sessionLimitResetDetectorStates"
     private nonisolated static let weeklyLimitResetDetectorDefaultsKey = "weeklyLimitResetDetectorStates"
     private nonisolated static let claudeOAuthAccountUuidMapDefaultsKey = "ClaudeOAuthHistoryOwnerAccountUuidMapV1"
@@ -30,13 +29,6 @@ extension UsageStore {
         let keychainCredentialUnavailable: Bool
         let activeAccountObservation: ClaudeOAuthActiveAccountObservation
         let observedAt: Date
-    }
-
-    struct LimitResetDetectorState: Codable, Equatable {
-        let wasAboveThreshold: Bool
-        let lastObservedAt: Date
-        let sourceRawValue: String?
-        var resetBoundary: Date?
     }
 
     func supportsPlanUtilizationHistory(for provider: UsageProvider) -> Bool {
@@ -70,28 +62,6 @@ extension UsageStore {
         let name: PlanUtilizationSeriesName
         let windowMinutes: Int
         let entry: PlanUtilizationHistoryEntry
-    }
-
-    private struct LimitResetDetectionContext {
-        let provider: UsageProvider
-        let account: ProviderTokenAccount?
-        let snapshot: UsageSnapshot
-        let accountKey: String?
-        let capturedAt: Date
-        let codexLimitResetOwnerKey: CodexLimitResetOwnerKey?
-    }
-
-    private struct LimitResetObservation {
-        let usedPercent: Double
-        let observedAt: Date
-        let resetBoundary: Date?
-        let source: SessionQuotaWindowSource?
-    }
-
-    private struct LimitResetDetectionDescriptor {
-        let seriesName: PlanUtilizationSeriesName
-        let defaultsKey: String
-        let resetKind: String
     }
 
     func planUtilizationHistory(for provider: UsageProvider) -> [PlanUtilizationSeriesHistory] {
@@ -418,6 +388,7 @@ extension UsageStore {
     nonisolated static var _planUtilizationMaxSamplesForTesting: Int {
         self.planUtilizationMaxSamples
     }
+
     #endif
 
     private nonisolated static func clampedPercent(_ value: Double?) -> Double? {
@@ -488,106 +459,6 @@ extension UsageStore {
             return minutes > 0 && minutes <= 6 * 60
         case .copilotSecondaryFallback, .zaiTertiary, .antigravityQuotaSummary, .antigravityLegacy:
             return true
-        }
-    }
-
-    private func postLimitResetCelebrationIfNeeded(
-        states: inout [String: LimitResetDetectorState],
-        context: LimitResetDetectionContext,
-        descriptor: LimitResetDetectionDescriptor,
-        observation: LimitResetObservation?)
-    {
-        guard let observation else { return }
-
-        guard let accountIdentifier = self.limitResetAccountIdentifier(
-            provider: context.provider,
-            account: context.account,
-            snapshot: context.snapshot,
-            accountKey: context.accountKey,
-            codexLimitResetOwnerKey: context.codexLimitResetOwnerKey)
-        else {
-            return
-        }
-        let detectorKey = Self.limitResetDetectorStateKey(
-            provider: context.provider,
-            accountIdentifier: accountIdentifier)
-        let currentUsed = observation.usedPercent
-        let currentObservedAt = observation.observedAt
-        let wasAboveThreshold = currentUsed > Self.limitResetThreshold
-        if let existingState = states[detectorKey],
-           currentObservedAt <= existingState.lastObservedAt
-        {
-            return
-        }
-
-        let previousState = states[detectorKey]
-        let sourceRawValue = observation.source?.rawValue
-        let sourceChanged = descriptor.seriesName == .session && previousState?.sourceRawValue != nil
-            && previousState?.sourceRawValue != sourceRawValue
-        let resetBoundaryAllowsPost = if descriptor.seriesName == .session {
-            Self.limitResetBoundaryAdvanced(
-                previous: previousState?.resetBoundary,
-                current: observation.resetBoundary)
-        } else if context.provider == .codex, descriptor.seriesName == .weekly {
-            Self.limitResetBoundaryAdvanced(
-                previous: previousState?.resetBoundary,
-                current: observation.resetBoundary,
-                requiresPreviousBoundary: true)
-        } else {
-            true
-        }
-        let crossedBelowThreshold = !sourceChanged && previousState?.wasAboveThreshold == true && !wasAboveThreshold
-        let shouldPost = crossedBelowThreshold && resetBoundaryAllowsPost
-        let suppressedGuardedCrossing = crossedBelowThreshold && !resetBoundaryAllowsPost
-        // Sessions retain the last non-regressed boundary on every guarded sample. Codex weekly crossings
-        // adopt a newly appearing boundary so a later genuine advance can still trigger once.
-        let shouldPreserveBoundary = !sourceChanged && !resetBoundaryAllowsPost
-            && (descriptor.seriesName == .session || previousState?.resetBoundary != nil)
-        let shouldPreserveBaseline = suppressedGuardedCrossing
-        states[detectorKey] = LimitResetDetectorState(
-            // A transient zero must not erase the baseline needed to recognize the real reset that follows.
-            wasAboveThreshold: shouldPreserveBaseline ? true : wasAboveThreshold,
-            lastObservedAt: currentObservedAt,
-            sourceRawValue: sourceRawValue,
-            resetBoundary: shouldPreserveBoundary ? previousState?.resetBoundary : observation.resetBoundary)
-        self.persistLimitResetDetectorStates(
-            states,
-            defaultsKey: descriptor.defaultsKey,
-            logName: descriptor.resetKind)
-
-        guard shouldPost else { return }
-        let accountLabel = self.limitResetAccountLabel(
-            provider: context.provider,
-            account: context.account,
-            snapshot: context.snapshot)
-
-        CodexBarLog.logger(LogCategories.confetti).info(
-            "\(descriptor.resetKind.capitalized) limit reset",
-            metadata: [
-                "provider": context.provider.rawValue,
-                "accountIdentifier": accountIdentifier,
-                "accountLabel": accountLabel ?? "",
-                "resetKind": descriptor.resetKind,
-                "usedPercent": String(format: "%.2f", currentUsed),
-                "observedAt": String(format: "%.0f", currentObservedAt.timeIntervalSince1970),
-            ])
-        switch descriptor.seriesName {
-        case .session:
-            let event = SessionLimitResetEvent(
-                provider: context.provider,
-                accountIdentifier: accountIdentifier,
-                accountLabel: accountLabel,
-                usedPercent: currentUsed)
-            NotificationCenter.default.post(name: .codexbarSessionLimitReset, object: event)
-        case .weekly:
-            let event = WeeklyLimitResetEvent(
-                provider: context.provider,
-                accountIdentifier: accountIdentifier,
-                accountLabel: accountLabel,
-                usedPercent: currentUsed)
-            NotificationCenter.default.post(name: .codexbarWeeklyLimitReset, object: event)
-        default:
-            return
         }
     }
 
@@ -909,7 +780,7 @@ extension UsageStore {
         provider == .claude && self.shouldHidePlanUtilizationMenuItem(for: .claude)
     }
 
-    private nonisolated static func limitResetDetectorStateKey(
+    nonisolated static func limitResetDetectorStateKey(
         provider: UsageProvider,
         accountIdentifier: String) -> String
     {
@@ -919,10 +790,23 @@ extension UsageStore {
     nonisolated static func loadWeeklyLimitResetDetectorStates(from userDefaults: UserDefaults)
         -> [String: LimitResetDetectorState]
     {
-        self.loadLimitResetDetectorStates(
+        var states = self.loadLimitResetDetectorStates(
             from: userDefaults,
             defaultsKey: self.weeklyLimitResetDetectorDefaultsKey,
             logName: "weekly")
+        let legacyClaudeLowStateKeys = states.compactMap { key, state in
+            key.hasPrefix("\(UsageProvider.claude.rawValue):")
+                && !state.wasAboveThreshold
+                && state.recoveryAboveThresholdCount == nil
+                ? key
+                : nil
+        }
+        for key in legacyClaudeLowStateKeys {
+            guard var migratedState = states[key] else { continue }
+            migratedState.recoveryAboveThresholdCount = 0
+            states[key] = migratedState
+        }
+        return states
     }
 
     nonisolated static func loadLimitResetDetectorStates(
@@ -941,7 +825,7 @@ extension UsageStore {
         }
     }
 
-    private func persistLimitResetDetectorStates(
+    func persistLimitResetDetectorStates(
         _ states: [String: LimitResetDetectorState],
         defaultsKey: String,
         logName: String)
