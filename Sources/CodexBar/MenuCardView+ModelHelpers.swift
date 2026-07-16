@@ -531,7 +531,7 @@ extension UsageMenuCardView.Model {
     private static func supportsResetWindowPace(provider: UsageProvider, window: RateWindow, now: Date) -> Bool {
         switch provider {
         case .copilot:
-            window.resetsAt != nil
+            return window.resetsAt != nil
         case .cursor:
             return window.windowMinutes != nil
         case .grok:
