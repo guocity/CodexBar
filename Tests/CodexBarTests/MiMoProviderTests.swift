@@ -918,14 +918,13 @@ extension MiMoProviderTests {
                 URLProtocol.unregisterClass(MiMoStubURLProtocol.self)
             }
             MiMoStubURLProtocol.handler = nil
-            MiMoCookieImporter.importSessionsOverrideForTesting = nil
             CookieHeaderCache.clear(provider: .mimo)
         }
 
         CookieHeaderCache.clear(provider: .mimo)
         CookieHeaderCache.store(provider: .mimo, cookieHeader: "invalid", sourceLabel: "invalid")
 
-        MiMoCookieImporter.importSessionsOverrideForTesting = { _, _ in
+        try await MiMoCookieImporter.withImportSessionsOverrideForTesting { _, _ in
             [
                 .init(
                     cookieHeader: "api-platform_serviceToken=expired-token; userId=111",
@@ -934,48 +933,48 @@ extension MiMoProviderTests {
                     cookieHeader: "api-platform_serviceToken=valid-token; userId=222",
                     sourceLabel: "Active Chrome"),
             ]
+        } operation: {
+            let lock = NSLock()
+            var requestedCookies: [String] = []
+            MiMoStubURLProtocol.handler = { request in
+                guard let url = request.url else { throw URLError(.badURL) }
+                let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""
+                lock.withLock {
+                    requestedCookies.append(cookie)
+                }
+
+                if cookie.contains("expired-token") {
+                    let response = HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: "HTTP/1.1",
+                        headerFields: ["Content-Type": "text/html"])!
+                    return (response, Data("<html>login</html>".utf8))
+                }
+
+                let body = """
+                {
+                  "code": 0,
+                  "message": "",
+                  "data": {
+                    "balance": "25.51",
+                    "currency": "USD"
+                  }
+                }
+                """
+                return Self.makeResponse(url: url, body: body)
+            }
+
+            let strategy = MiMoWebFetchStrategy()
+            let result = try await strategy
+                .fetch(self.makeContext(environment: ["MIMO_API_URL": "https://mimo.test/api/v1"]))
+
+            #expect(requestedCookies.count == 6)
+            #expect(requestedCookies.contains(where: { $0.contains("expired-token") }))
+            #expect(requestedCookies.contains(where: { $0.contains("valid-token") }))
+            #expect(result.usage.mimoUsage?.balanceDetail == "$25.51")
+            #expect(CookieHeaderCache.load(provider: .mimo)?.sourceLabel == "Active Chrome")
         }
-
-        let lock = NSLock()
-        var requestedCookies: [String] = []
-        MiMoStubURLProtocol.handler = { request in
-            guard let url = request.url else { throw URLError(.badURL) }
-            let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""
-            lock.withLock {
-                requestedCookies.append(cookie)
-            }
-
-            if cookie.contains("expired-token") {
-                let response = HTTPURLResponse(
-                    url: url,
-                    statusCode: 200,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: ["Content-Type": "text/html"])!
-                return (response, Data("<html>login</html>".utf8))
-            }
-
-            let body = """
-            {
-              "code": 0,
-              "message": "",
-              "data": {
-                "balance": "25.51",
-                "currency": "USD"
-              }
-            }
-            """
-            return Self.makeResponse(url: url, body: body)
-        }
-
-        let strategy = MiMoWebFetchStrategy()
-        let result = try await strategy
-            .fetch(self.makeContext(environment: ["MIMO_API_URL": "https://mimo.test/api/v1"]))
-
-        #expect(requestedCookies.count == 6)
-        #expect(requestedCookies.contains(where: { $0.contains("expired-token") }))
-        #expect(requestedCookies.contains(where: { $0.contains("valid-token") }))
-        #expect(result.usage.mimoUsage?.balanceDetail == "$25.51")
-        #expect(CookieHeaderCache.load(provider: .mimo)?.sourceLabel == "Active Chrome")
     }
 
     @Test
@@ -988,7 +987,6 @@ extension MiMoProviderTests {
                 URLProtocol.unregisterClass(MiMoStubURLProtocol.self)
             }
             MiMoStubURLProtocol.handler = nil
-            MiMoCookieImporter.importSessionsOverrideForTesting = nil
             CookieHeaderCache.clear(provider: .mimo)
         }
 
@@ -998,7 +996,7 @@ extension MiMoProviderTests {
             cookieHeader: "api-platform_serviceToken=stale-chrome-token; userId=111",
             sourceLabel: "Chrome")
 
-        MiMoCookieImporter.importSessionsOverrideForTesting = { _, _ in
+        try await MiMoCookieImporter.withImportSessionsOverrideForTesting { _, _ in
             [
                 .init(
                     cookieHeader: "api-platform_serviceToken=stale-chrome-token; userId=111",
@@ -1007,42 +1005,42 @@ extension MiMoProviderTests {
                     cookieHeader: "api-platform_serviceToken=valid-safari-token; userId=222",
                     sourceLabel: "Safari"),
             ]
+        } operation: {
+            let lock = NSLock()
+            var requestedCookies: [String] = []
+            MiMoStubURLProtocol.handler = { request in
+                guard let url = request.url else { throw URLError(.badURL) }
+                let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""
+                lock.withLock {
+                    requestedCookies.append(cookie)
+                }
+
+                if cookie.contains("stale-chrome-token") {
+                    return Self.makeResponse(url: url, body: "", statusCode: 302)
+                }
+
+                let body = """
+                {
+                  "code": 0,
+                  "message": "",
+                  "data": {
+                    "balance": "25.51",
+                    "currency": "USD"
+                  }
+                }
+                """
+                return Self.makeResponse(url: url, body: body)
+            }
+
+            let strategy = MiMoWebFetchStrategy()
+            let result = try await strategy
+                .fetch(self.makeContext(environment: ["MIMO_API_URL": "https://mimo.test/api/v1"]))
+
+            #expect(requestedCookies.contains(where: { $0.contains("stale-chrome-token") }))
+            #expect(requestedCookies.contains(where: { $0.contains("valid-safari-token") }))
+            #expect(result.usage.mimoUsage?.balanceDetail == "$25.51")
+            #expect(CookieHeaderCache.load(provider: .mimo)?.sourceLabel == "Safari")
         }
-
-        let lock = NSLock()
-        var requestedCookies: [String] = []
-        MiMoStubURLProtocol.handler = { request in
-            guard let url = request.url else { throw URLError(.badURL) }
-            let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""
-            lock.withLock {
-                requestedCookies.append(cookie)
-            }
-
-            if cookie.contains("stale-chrome-token") {
-                return Self.makeResponse(url: url, body: "", statusCode: 302)
-            }
-
-            let body = """
-            {
-              "code": 0,
-              "message": "",
-              "data": {
-                "balance": "25.51",
-                "currency": "USD"
-              }
-            }
-            """
-            return Self.makeResponse(url: url, body: body)
-        }
-
-        let strategy = MiMoWebFetchStrategy()
-        let result = try await strategy
-            .fetch(self.makeContext(environment: ["MIMO_API_URL": "https://mimo.test/api/v1"]))
-
-        #expect(requestedCookies.contains(where: { $0.contains("stale-chrome-token") }))
-        #expect(requestedCookies.contains(where: { $0.contains("valid-safari-token") }))
-        #expect(result.usage.mimoUsage?.balanceDetail == "$25.51")
-        #expect(CookieHeaderCache.load(provider: .mimo)?.sourceLabel == "Safari")
     }
 
     #if os(macOS)

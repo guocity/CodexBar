@@ -120,16 +120,45 @@ public enum MiMoCookieImporter {
         }
     }
 
-    nonisolated(unsafe) static var importSessionsOverrideForTesting:
-        ((BrowserDetection, ((String) -> Void)?) throws -> [SessionInfo])?
+    #if DEBUG
+    final class ImportSessionsOverrideStore: @unchecked Sendable {
+        let importSessions: (BrowserDetection, ((String) -> Void)?) throws -> [SessionInfo]
+
+        init(importSessions: @escaping (BrowserDetection, ((String) -> Void)?) throws -> [SessionInfo]) {
+            self.importSessions = importSessions
+        }
+    }
+
+    @TaskLocal private static var taskImportSessionsOverrideStore: ImportSessionsOverrideStore?
+
+    static func withImportSessionsOverrideForTesting<T>(
+        _ override: ((BrowserDetection, ((String) -> Void)?) throws -> [SessionInfo])?,
+        operation: () throws -> T) rethrows -> T
+    {
+        try self.$taskImportSessionsOverrideStore.withValue(override.map(ImportSessionsOverrideStore.init)) {
+            try operation()
+        }
+    }
+
+    static func withImportSessionsOverrideForTesting<T>(
+        _ override: ((BrowserDetection, ((String) -> Void)?) throws -> [SessionInfo])?,
+        operation: () async throws -> T) async rethrows -> T
+    {
+        try await self.$taskImportSessionsOverrideStore.withValue(override.map(ImportSessionsOverrideStore.init)) {
+            try await operation()
+        }
+    }
+    #endif
 
     public static func importSessions(
         browserDetection: BrowserDetection,
         logger: ((String) -> Void)? = nil) throws -> [SessionInfo]
     {
-        if let override = self.importSessionsOverrideForTesting {
+        #if DEBUG
+        if let override = self.taskImportSessionsOverrideStore?.importSessions {
             return try override(browserDetection, logger)
         }
+        #endif
 
         return try self.importSessions(
             browserDetection: browserDetection,
