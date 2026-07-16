@@ -116,6 +116,28 @@ public final class BrowserDetection: Sendable {
         return self.hasUsableProfileData(browser)
     }
 
+    /// Interactive login can create a browser profile or cookie store after launch. Allow an installed browser when
+    /// its profile root is absent or readable, while rejecting a known profile root that CodexBar cannot inspect.
+    /// Ordinary background imports remain stricter and still require an existing cookie store.
+    func isInteractiveCookieSourceAvailable(_ browser: Browser) -> Bool {
+        let homeURL = URL(fileURLWithPath: self.homeDirectory, isDirectory: true)
+        guard BrowserCookieAccessGate.cookieStoreAccessDecision(homeDirectories: [homeURL]) == .allowed else {
+            return false
+        }
+
+        if browser == .safari {
+            return self.hasReadableSafariCookieSource()
+        }
+
+        guard self.detectAppInstalled(for: browser),
+              let profilePath = self.profilePath(for: browser, homeDirectory: self.homeDirectory)
+        else {
+            return false
+        }
+
+        return self.profileAccessIssue(profilePath) == nil
+    }
+
     func cookieSourceProfileAccessIssue(_ browser: Browser) -> BrowserProfileAccessIssue? {
         let homeURL = URL(fileURLWithPath: self.homeDirectory, isDirectory: true)
         guard BrowserCookieAccessGate.cookieStoreAccessDecision(homeDirectories: [homeURL]) == .allowed,
@@ -335,14 +357,26 @@ public final class BrowserDetection: Sendable {
             if self.isPermissionError(error) {
                 return .accessDenied
             }
-            let nsError = error as NSError
-            if nsError.domain == NSCocoaErrorDomain,
-               nsError.code == CocoaError.fileNoSuchFile.rawValue
-            {
+            if self.isMissingFileError(error) {
                 return nil
             }
             return .unreadable
         }
+    }
+
+    private static func isMissingFileError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain,
+           nsError.code == CocoaError.fileNoSuchFile.rawValue ||
+           nsError.code == CocoaError.fileReadNoSuchFile.rawValue
+        {
+            return true
+        }
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(ENOENT) {
+            return true
+        }
+        guard let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error else { return false }
+        return Self.isMissingFileError(underlying)
     }
 
     private static func isPermissionError(_ error: Error) -> Bool {

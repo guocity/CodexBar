@@ -164,6 +164,56 @@ struct CursorAccountSwitchBrowserScanTests {
     }
 
     @Test
+    func `interactive scan refreshes a cookie store created after browser launch`() async throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let applicationURL = try Self.makeBrowserApplication(
+            in: temp,
+            name: "Firefox",
+            bundleIdentifier: "org.mozilla.firefox")
+        let profile = temp
+            .appendingPathComponent("Library/Application Support/Firefox/Profiles/profile.default-release")
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let detection = BrowserDetection(
+            homeDirectory: temp.path,
+            cacheTTL: 600,
+            now: Date.init,
+            fileExists: { path in
+                path == applicationURL.path || FileManager.default.fileExists(atPath: path)
+            },
+            directoryContents: { path in
+                try? FileManager.default.contentsOfDirectory(atPath: path)
+            },
+            applicationURLs: { _ in [applicationURL] },
+            profileAccessIssue: { _ in nil })
+
+        #expect(!detection.isCookieSourceAvailable(.firefox))
+        #expect(CursorStatusProbe.supportsInteractiveLoginBrowser(
+            applicationURL: applicationURL,
+            browserDetection: detection))
+        FileManager.default.createFile(
+            atPath: profile.appendingPathComponent("cookies.sqlite").path,
+            contents: Data())
+        #expect(!detection.isCookieSourceAvailable(.firefox))
+
+        let probe = CursorStatusProbe(browserDetection: detection)
+        do {
+            _ = try await probe.fetchBrowserLoginCandidates(
+                browserApplicationURL: applicationURL,
+                timeout: 1)
+            Issue.record("Expected the isolated browser store to contain no real Cursor session")
+        } catch let error as CursorStatusProbeError {
+            guard case .noSessionCookie = error else {
+                Issue.record("Expected no-session error, got \(error)")
+                return
+            }
+        }
+
+        #expect(detection.isCookieSourceAvailable(.firefox))
+    }
+
+    @Test
     func `interactive Comet candidate scan ignores valid Safari account and returns only Comet account`() async throws {
         let probe = CursorStatusProbe(browserDetection: BrowserDetection(cacheTTL: 0))
         let safari = Self.makeSessionInfo(sourceLabel: "Safari Personal")

@@ -53,6 +53,7 @@ struct CursorLoginRunnerTests {
         var launchedRoutes: [CursorLoginBrowserRouter.Route] = []
         var resolvedURLs: [URL] = []
         var phases: [String] = []
+        var chooserCalls = 0
 
         let runner = CursorLoginRunner(
             browserDetection: BrowserDetection(cacheTTL: 0),
@@ -69,6 +70,10 @@ struct CursorLoginRunnerTests {
                 return Self.cometApplicationURL
             },
             routeResolver: Self.fixtureRouteResolver,
+            accountChooser: { _ in
+                chooserCalls += 1
+                return nil
+            },
             replaceSessionCache: { _ in true })
 
         #expect(resolvedURLs.isEmpty)
@@ -86,6 +91,7 @@ struct CursorLoginRunnerTests {
         #expect(launchedRoutes.map(\.browserApplicationURL) == [Self.cometApplicationURL])
         #expect(resolvedURLs == [CursorLoginRunner.authURL])
         #expect(phases == ["loading", "waitingLogin", "success"])
+        #expect(chooserCalls == 0)
         #expect(result.email == "cursor@example.com")
     }
 
@@ -107,6 +113,7 @@ struct CursorLoginRunnerTests {
     func `switch account opens Cursor auth URL and waits for a different normalized email`() async {
         var launchedRoutes: [CursorLoginBrowserRouter.Route] = []
         var resolvedURLs: [URL] = []
+        var presentedChoices: [CursorLoginAccountSelector.Choice] = []
         let sequence = SnapshotSequence([
             Self.snapshot(email: "  CURRENT@example.com "),
             Self.snapshot(email: nil),
@@ -122,6 +129,10 @@ struct CursorLoginRunnerTests {
                 resolvedURLs.append($0)
                 return Self.cometApplicationURL
             },
+            accountChooser: { choices in
+                presentedChoices = choices
+                return choices.first?.selectionID
+            },
             loadSnapshot: { sequence.next() })
 
         let result = await runner.run { _ in }
@@ -130,7 +141,47 @@ struct CursorLoginRunnerTests {
         #expect(launchedRoutes.map(\.browserApplicationURL) == [Self.cometApplicationURL])
         #expect(resolvedURLs == [CursorLoginRunner.authURL])
         #expect(sequence.count() == 3)
+        #expect(presentedChoices.map(\.displayLabel) == ["different@example.com · Browser"])
         #expect(result.email == "different@example.com")
+    }
+
+    @Test
+    func `switch account cancellation with a sole candidate commits no session`() async {
+        let committedHeaders = LockedArray<String>()
+        var presentedChoices: [CursorLoginAccountSelector.Choice] = []
+        let runner = CursorLoginRunner(
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            priorAccount: .init(email: "current@example.com"),
+            timeout: 1,
+            pollInterval: 0.001,
+            launchRoute: { _ in true },
+            loadBrowserLoginCandidates: { _, _ in [
+                Self.browserCandidate(
+                    id: "different-account",
+                    email: "different@example.com",
+                    token: "different-token",
+                    source: "Comet"),
+            ] },
+            sleeper: { _ in },
+            browserApplicationResolver: { _ in Self.cometApplicationURL },
+            routeResolver: Self.fixtureRouteResolver,
+            accountChooser: { choices in
+                presentedChoices = choices
+                return nil
+            },
+            replaceSessionCache: { session in
+                committedHeaders.append(session.cookieHeader)
+                return true
+            })
+
+        let result = await runner.run { _ in }
+
+        guard case .cancelled = result.outcome else {
+            Issue.record("Expected account selection cancellation")
+            return
+        }
+        #expect(presentedChoices.map(\.displayLabel) == ["different@example.com · Comet"])
+        #expect(committedHeaders.snapshot().isEmpty)
     }
 
     @Test
@@ -612,6 +663,7 @@ struct CursorLoginRunnerTests {
         browserApplicationResolver: @escaping CursorLoginRunner.BrowserApplicationResolver = { _ in
             Self.cometApplicationURL
         },
+        accountChooser: CursorLoginRunner.AccountChooser? = nil,
         loadSnapshot: @escaping CursorLoginRunner.SnapshotLoader) -> CursorLoginRunner
     {
         CursorLoginRunner(
@@ -624,6 +676,7 @@ struct CursorLoginRunnerTests {
             sleeper: { _ in },
             browserApplicationResolver: browserApplicationResolver,
             routeResolver: self.fixtureRouteResolver,
+            accountChooser: accountChooser,
             replaceSessionCache: { _ in true })
     }
 

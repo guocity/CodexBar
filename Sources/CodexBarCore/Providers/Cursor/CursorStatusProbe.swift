@@ -66,16 +66,13 @@ public enum CursorCookieImporter {
         browserDetection.isCookieSourceAvailable(browser) && BrowserCookieAccessGate.shouldAttempt(browser)
     }
 
-    /// Interactive login must not pin Safari when macOS privacy controls make its cookie directories unreadable.
-    /// Keep ordinary Safari imports best-effort; they already surface structured read failures and may support new
-    /// paths.
+    /// Interactive login may create a profile or cookie store after the browser opens, but must not pin a known
+    /// profile that CodexBar cannot read. Ordinary background imports remain stricter.
     static func isInteractiveLoginSourceAvailable(
         browser: Browser,
         browserDetection: BrowserDetection) -> Bool
     {
-        guard self.isCookieSourceAvailable(browser: browser, browserDetection: browserDetection) else { return false }
-        guard browser == .safari else { return true }
-        return browserDetection.hasReadableSafariCookieSource()
+        browserDetection.isInteractiveCookieSourceAvailable(browser) && BrowserCookieAccessGate.shouldAttempt(browser)
     }
 
     /// Reads Cursor session cookies from one browser if present (no fallback to other browsers).
@@ -1103,6 +1100,8 @@ public struct CursorStatusProbe: Sendable {
             throw CursorStatusProbeError.noSessionCookie
         }
         guard timeout > 0 else { throw Self.browserLoginTimeoutError() }
+        // Login may have created the selected browser's first cookie store since the previous poll.
+        self.browserDetection.clearCache()
         let deadline = Date().addingTimeInterval(timeout)
         return try await self.fetchBrowserLoginCandidates(
             browser: browser,

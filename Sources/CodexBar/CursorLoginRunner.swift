@@ -291,7 +291,11 @@ final class CursorLoginRunner {
         let candidates = self.deduplicatedCandidates(from: loaded)
 
         guard !candidates.isEmpty else { return .none }
-        guard candidates.count > 1 else { return .selected(candidates[0]) }
+        // A sole Add candidate is unambiguous.
+        // Switching still needs confirmation because browser profiles can be stale.
+        guard self.priorAccount != nil || candidates.count > 1 else {
+            return .selected(candidates[0])
+        }
 
         let presentedCandidates = candidates.enumerated().map { index, candidate in
             CursorLoginAccountSelector.Candidate(

@@ -179,7 +179,7 @@ headers, source selection, provider ordering, and token accounts are stored in `
 ## Cursor
 - Web API via browser cookies (`cursor.com` + `cursor.sh`).
 - Fallbacks: a legacy stored session, then Cursor.app local auth.
-- Add Account and Switch Account open Cursor's authenticator in a supported browser; Switch Account waits for a different normalized account email. CodexBar uses the supported system HTTPS handler when possible and otherwise asks the user to choose a readable browser.
+- Add Account and Switch Account open Cursor's authenticator in a supported browser; Switch Account waits for a different normalized account email. CodexBar uses the supported system HTTPS handler when possible and otherwise asks the user to choose an eligible supported browser.
 - Status: Statuspage.io (Cursor).
 - Details: `docs/cursor.md`.
 
