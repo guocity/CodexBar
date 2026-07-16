@@ -3,7 +3,6 @@
 ## 0.43.1 — Unreleased
 
 ### Added
-- Menu bar: add an opt-in high-contrast mode for Icon & percent that keeps icons and metrics readable on inactive displays (#2190). Thanks @zpmdd!
 - ZenMux: add Management API usage with five-hour and weekly quotas, subscription expiry, and USD PAYG balance. Thanks @kays0x!
 
 ### Fixed
