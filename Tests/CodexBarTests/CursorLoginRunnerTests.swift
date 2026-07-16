@@ -289,7 +289,7 @@ struct CursorLoginRunnerTests {
                 return [Self.browserCandidate(
                     id: "accepted-account",
                     email: "cursor@example.com",
-                    token: "accepted-token",
+                    cookieValue: "accepted-token",
                     source: "Comet")]
             },
             sleeper: { _ in },
@@ -317,7 +317,7 @@ struct CursorLoginRunnerTests {
                 Self.browserCandidate(
                     id: "accepted-account",
                     email: "cursor@example.com",
-                    token: "accepted-token",
+                    cookieValue: "accepted-token",
                     source: "Comet"),
             ] },
             sleeper: { _ in },
@@ -536,7 +536,7 @@ struct CursorLoginRunnerTests {
                 return [Self.browserCandidate(
                     id: "account",
                     email: "cursor@example.com",
-                    token: "token",
+                    cookieValue: "token",
                     source: "Comet")]
             },
             sleeper: { _ in },
@@ -570,11 +570,15 @@ struct CursorLoginRunnerTests {
                 pollInterval: 0.001,
                 launchRoute: { _ in true },
                 loadBrowserLoginCandidates: { _, _ in [
-                    Self.browserCandidate(id: "account-a", email: "a@example.com", token: "token-a", source: "Work"),
+                    Self.browserCandidate(
+                        id: "account-a",
+                        email: "a@example.com",
+                        cookieValue: "token-a",
+                        source: "Work"),
                     Self.browserCandidate(
                         id: "account-b",
                         email: "b@example.com",
-                        token: "token-b",
+                        cookieValue: "token-b",
                         source: "Personal"),
                 ] },
                 sleeper: { _ in },
@@ -617,17 +621,17 @@ struct CursorLoginRunnerTests {
                 Self.browserCandidate(
                     id: " account-a ",
                     email: "same@example.com",
-                    token: "first-a",
+                    cookieValue: "first-a",
                     source: "Work"),
                 Self.browserCandidate(
                     id: "account-a",
                     email: "other@example.com",
-                    token: "duplicate-a",
+                    cookieValue: "duplicate-a",
                     source: "Work Network"),
                 Self.browserCandidate(
                     id: "account-b",
                     email: "same@example.com",
-                    token: "token-b",
+                    cookieValue: "token-b",
                     source: "Personal"),
             ] },
             sleeper: { _ in },
@@ -658,8 +662,16 @@ struct CursorLoginRunnerTests {
             pollInterval: 0.001,
             launchRoute: { _ in true },
             loadBrowserLoginCandidates: { _, _ in [
-                Self.browserCandidate(id: nil, email: " SAME@example.com ", token: "first", source: "Work"),
-                Self.browserCandidate(id: nil, email: "same@example.com", token: "second", source: "Personal"),
+                Self.browserCandidate(
+                    id: nil,
+                    email: " SAME@example.com ",
+                    cookieValue: "first",
+                    source: "Work"),
+                Self.browserCandidate(
+                    id: nil,
+                    email: "same@example.com",
+                    cookieValue: "second",
+                    source: "Personal"),
             ] },
             sleeper: { _ in },
             browserApplicationResolver: { _ in Self.cometApplicationURL },
@@ -692,12 +704,12 @@ struct CursorLoginRunnerTests {
                 Self.browserCandidate(
                     id: nil,
                     email: "same@example.com",
-                    token: "email-only",
+                    cookieValue: "email-only",
                     source: "Work"),
                 Self.browserCandidate(
                     id: "stable-account",
                     email: " SAME@example.com ",
-                    token: "identified",
+                    cookieValue: "identified",
                     source: "Personal"),
             ] },
             sleeper: { _ in },
@@ -771,13 +783,13 @@ struct CursorLoginRunnerTests {
     private nonisolated static func browserCandidate(
         id: String?,
         email: String?,
-        token: String,
+        cookieValue: String,
         source: String) -> CursorStatusProbe.BrowserLoginResult
     {
         CursorStatusProbe.BrowserLoginResult(
             snapshot: self.snapshot(id: id, email: email),
             session: .init(
-                cookieHeader: "WorkosCursorSessionToken=\(token)",
+                cookieHeader: "WorkosCursorSessionToken=\(cookieValue)",
                 sourceLabel: source))
     }
 }
