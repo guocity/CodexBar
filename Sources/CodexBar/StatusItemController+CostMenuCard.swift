@@ -45,6 +45,7 @@ extension StatusItemController {
         let title = Self.costMenuTitleForProvider(model.provider)
         let tooltipLines = Self.costMenuTooltipLines(tokenUsage: model.tokenUsage)
         let visibleDetailLines = Self.costMenuVisibleDetailLines(
+            provider: model.provider,
             tokenUsage: model.tokenUsage,
             hasSubmenu: submenu != nil)
         guard visibleDetailLines.isEmpty == false, self.menuCardRenderingEnabledForController else {
@@ -109,6 +110,7 @@ extension StatusItemController {
     }
 
     static func costMenuVisibleDetailLines(
+        provider: UsageProvider,
         tokenUsage: UsageMenuCardView.Model.TokenUsageSection?,
         hasSubmenu: Bool) -> [String]
     {
@@ -116,6 +118,7 @@ extension StatusItemController {
         // item. Otherwise Codex's API-equivalent estimate can be opened as a chart labelled as
         // cost with no visible non-billing disclaimer.
         guard !hasSubmenu else {
+            guard provider == .codex else { return [] }
             return tokenUsage?.hintLine?
                 .split(separator: "\n")
                 .map(String.init)

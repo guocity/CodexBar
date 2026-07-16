@@ -180,8 +180,7 @@ struct StatusMenuHostedSubmenuRefreshTests {
         controller.menuVersions[parentKey] = controller.menuContentVersion
 
         let costItem = try #require(menu.items.first { ($0.representedObject as? String) == "menuCardCost" })
-        // The parent cost row now renders the provenance hint beside its submenu.
-        #expect(costItem.view != nil)
+        #expect(costItem.view == nil)
         #expect(costItem.title == StatusItemController.costMenuTitleForProvider(.claude))
         #expect(costItem.isEnabled)
         let submenu = try #require(costItem.submenu)

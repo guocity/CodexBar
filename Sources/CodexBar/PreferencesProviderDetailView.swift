@@ -428,7 +428,7 @@ struct ProviderMetricsInlineView: View {
                     title: isCodexEstimate ? L("codex_api_estimate_header") : L("Cost"),
                     value: tokenUsage.sessionLine)
                 ProviderMetricInlineTextRow(title: "", value: tokenUsage.monthLine)
-                if let hint = tokenUsage.hintLine, !hint.isEmpty {
+                if isCodexEstimate, let hint = tokenUsage.hintLine, !hint.isEmpty {
                     ProviderMetricInlineTextRow(title: "", value: hint)
                 }
             }

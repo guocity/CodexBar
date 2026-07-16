@@ -17,9 +17,14 @@ struct StatusMenuCostMenuCardTests {
             errorCopyText: nil)
 
         let visibleLines = StatusItemController.costMenuVisibleDetailLines(
+            provider: .codex,
             tokenUsage: tokenUsage,
             hasSubmenu: true)
         #expect(visibleLines == ["Costs are estimated from local usage."])
+        #expect(StatusItemController.costMenuVisibleDetailLines(
+            provider: .claude,
+            tokenUsage: tokenUsage,
+            hasSubmenu: true) == [])
 
         let fallbackTitle = StatusItemController.costMenuFallbackAttributedTitle(
             title: "API-equivalent estimate",
@@ -37,6 +42,7 @@ struct StatusMenuCostMenuCardTests {
             errorCopyText: nil)
 
         let visibleLines = StatusItemController.costMenuVisibleDetailLines(
+            provider: .codex,
             tokenUsage: tokenUsage,
             hasSubmenu: false)
         #expect(visibleLines == [
