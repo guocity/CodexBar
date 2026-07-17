@@ -1,10 +1,8 @@
 name: CI
 
+# Disabled for this fork: no automatic CI. Re-enable push/pull_request when ready.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
