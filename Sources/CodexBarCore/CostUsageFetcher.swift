@@ -66,7 +66,8 @@ public struct CostUsageFetcher: Sendable {
         codexHomePath: String? = nil,
         historyDays: Int = 30,
         allowPricingRefresh: Bool = true,
-        refreshPricingInBackground: Bool = true) async throws -> CostUsageTokenSnapshot
+        refreshPricingInBackground: Bool = true,
+        includePiSessions: Bool = true) async throws -> CostUsageTokenSnapshot
     {
         try await Self.loadTokenSnapshot(
             provider: provider,
@@ -78,6 +79,7 @@ public struct CostUsageFetcher: Sendable {
             historyDays: historyDays,
             allowPricingRefresh: allowPricingRefresh,
             refreshPricingInBackground: refreshPricingInBackground,
+            includePiSessions: includePiSessions,
             bypassScannerDebounce: false,
             scannerOptions: self.scannerOptionsOverride())
     }
@@ -92,6 +94,7 @@ public struct CostUsageFetcher: Sendable {
         historyDays: Int = 30,
         allowPricingRefresh: Bool = true,
         refreshPricingInBackground: Bool = true,
+        includePiSessions: Bool = true,
         bypassScannerDebounce: Bool) async throws -> CostUsageTokenSnapshot
     {
         try await Self.loadTokenSnapshot(
@@ -104,6 +107,7 @@ public struct CostUsageFetcher: Sendable {
             historyDays: historyDays,
             allowPricingRefresh: allowPricingRefresh,
             refreshPricingInBackground: refreshPricingInBackground,
+            includePiSessions: includePiSessions,
             bypassScannerDebounce: bypassScannerDebounce,
             scannerOptions: self.scannerOptionsOverride())
     }
@@ -163,6 +167,7 @@ public struct CostUsageFetcher: Sendable {
         historyDays: Int = 30,
         allowPricingRefresh: Bool = true,
         refreshPricingInBackground: Bool = true,
+        includePiSessions: Bool = true,
         bypassScannerDebounce: Bool = false,
         scannerOptions overrideScannerOptions: CostUsageScanner.Options? = nil,
         piScannerOptions overridePiScannerOptions: PiSessionCostScanner
@@ -276,7 +281,7 @@ public struct CostUsageFetcher: Sendable {
                     modelsDevCacheRoot: scanOptions.cacheRoot,
                     sessionRoots: roots)
             }
-            if provider == .claude || (provider == .codex && shouldMergePiUsage) {
+            if includePiSessions, provider == .claude || (provider == .codex && shouldMergePiUsage) {
                 let piReport = try PiSessionCostScanner.loadDailyReportCancellable(
                     provider: provider,
                     since: since,
@@ -320,6 +325,7 @@ public struct CostUsageFetcher: Sendable {
                 historyDays: historyDays,
                 allowPricingRefresh: allowPricingRefresh,
                 refreshPricingInBackground: false,
+                includePiSessions: includePiSessions,
                 scannerOptions: options,
                 piScannerOptions: piOptions,
                 modelsDevClient: modelsDevClient,

@@ -374,8 +374,12 @@ extension SettingsStore {
     var costUsageEnabled: Bool {
         get { self.defaultsState.costUsageEnabled }
         set {
+            let changed = self.defaultsState.costUsageEnabled != newValue
             self.defaultsState.costUsageEnabled = newValue
             self.userDefaults.set(newValue, forKey: "tokenCostUsageEnabled")
+            if changed {
+                self.costUsageSettingsRevision &+= 1
+            }
             self.noteBackgroundWorkSettingsChanged()
         }
     }
@@ -393,8 +397,12 @@ extension SettingsStore {
         get { self.defaultsState.costUsageHistoryDays }
         set {
             let clamped = max(1, min(365, newValue))
+            let changed = self.defaultsState.costUsageHistoryDays != clamped
             self.defaultsState.costUsageHistoryDays = clamped
             self.userDefaults.set(clamped, forKey: "tokenCostUsageHistoryDays")
+            if changed {
+                self.costUsageSettingsRevision &+= 1
+            }
             self.noteBackgroundWorkSettingsChanged()
         }
     }
