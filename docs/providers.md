@@ -8,7 +8,7 @@ read_when:
 
 # Providers
 
-CodexBar currently registers 61 provider IDs. Some companies expose multiple surfaces, such as Codex vs OpenAI API or
+CodexBar currently registers 62 provider IDs. Some companies expose multiple surfaces, such as Codex vs OpenAI API or
 OpenCode vs OpenCode Go, because the auth source and quota shape differ.
 
 ## Fetch strategies (current)
@@ -90,6 +90,7 @@ scan fails, while provider/account configuration changes replace obsolete result
 | Chutes | API key from config/env → subscription usage and quota API (`api`). |
 | Neuralwatt | API key from config/env → `/v1/quota` subscription kWh usage and prepaid balance (`api`). |
 | ZenMux | Management API key from config/env → five-hour and seven-day quota windows plus PAYG balance (`api`). |
+| ai& | API key from config/env → 30-day organization spend summed from the request logs API (`api`). |
 | Zed | Zed editor Keychain session → `cloud.zed.dev/client/users/me` for plan and quota data (`local`). |
 
 ## Codex
@@ -520,5 +521,12 @@ scan fails, while provider/account configuration changes replace obsolete result
 - Shows subscription plan name when the Step Plan status API returns one.
 - Status: none yet.
 - Details: `docs/stepfun.md`.
+
+## ai&
+- API key from config or `AIAND_API_KEY` (org-scoped `sk-` key from console.aiand.com).
+- Sums the last 30 days of organization spend from `GET https://api.aiand.com/logs` (per-request `cost` in the org's billing currency, USD or JPY, read from the rows — never assumed), following `next_after`/`next_after_id` cursor pagination up to 10 pages. An empty window shows no spend row.
+- The live `/analytics/summary` endpoint carries no cost field despite its docs, so the request log is the spend source; a hit page cap is labeled "Last 30 days (partial)" instead of silently truncating.
+- Prepaid credits with no quota windows; no session or weekly meters are synthesized. The credit balance is console-only and not shown.
+- Details: `docs/aiand.md`.
 
 See also: `docs/provider.md` for architecture notes.
