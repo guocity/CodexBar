@@ -6,37 +6,94 @@ import Testing
 struct CLIGuardDecisionTests {
     @Test
     func `ample headroom is ok and exits zero`() {
-        let result = CodexBarCLI.evaluateGuard(remainingPercent: 74, needPercent: 10, failOpen: false)
+        let result = CodexBarCLI.evaluateGuard(
+            outcome: .available(74),
+            minimumRemainingPercent: 10,
+            failOpen: false)
         #expect(result.decision == .ok)
         #expect(result.exitCode == 0)
     }
 
     @Test
     func `insufficient headroom is blocked and exits one`() {
-        let result = CodexBarCLI.evaluateGuard(remainingPercent: 5, needPercent: 10, failOpen: false)
+        let result = CodexBarCLI.evaluateGuard(
+            outcome: .available(5),
+            minimumRemainingPercent: 10,
+            failOpen: false)
         #expect(result.decision == .blocked)
         #expect(result.exitCode == 1)
     }
 
     @Test
-    func `unknown remaining exits two by default`() {
-        let result = CodexBarCLI.evaluateGuard(remainingPercent: nil, needPercent: 10, failOpen: false)
+    func `fetch failure exits unavailable by default`() {
+        let result = CodexBarCLI.evaluateGuard(
+            outcome: .unavailable(.fetchFailed),
+            minimumRemainingPercent: 10,
+            failOpen: false)
         #expect(result.decision == .unknown)
-        #expect(result.exitCode == 2)
+        #expect(result.exitCode == 69)
+        #expect(result.unavailableReason == .fetchFailed)
     }
 
     @Test
     func `unknown remaining with fail-open exits zero`() {
-        let result = CodexBarCLI.evaluateGuard(remainingPercent: nil, needPercent: 10, failOpen: true)
+        let result = CodexBarCLI.evaluateGuard(
+            outcome: .unavailable(.fetchFailed),
+            minimumRemainingPercent: 10,
+            failOpen: true)
         #expect(result.decision == .unknown)
         #expect(result.exitCode == 0)
     }
 
     @Test
     func `remaining exactly equal to need is ok`() {
-        let result = CodexBarCLI.evaluateGuard(remainingPercent: 10, needPercent: 10, failOpen: false)
+        let result = CodexBarCLI.evaluateGuard(
+            outcome: .available(10),
+            minimumRemainingPercent: 10,
+            failOpen: false)
         #expect(result.decision == .ok)
         #expect(result.exitCode == 0)
+    }
+
+    @Test
+    func `unknown provider is rejected`() {
+        let result = CodexBarCLI.guardProvider(rawOverride: "definitely-not-a-provider")
+        guard case let .failure(error) = result else {
+            Issue.record("Expected unknown provider to be rejected")
+            return
+        }
+        #expect(error.localizedDescription == "unknown provider 'definitely-not-a-provider'.")
+    }
+
+    @Test
+    func `missing provider is rejected`() {
+        let result = CodexBarCLI.guardProvider(rawOverride: nil)
+        guard case let .failure(error) = result else {
+            Issue.record("Expected missing provider to be rejected")
+            return
+        }
+        #expect(error.localizedDescription == "guard requires --provider <id>.")
+    }
+
+    @Test
+    func `timeout rejects values that could overflow duration`() {
+        let result = CodexBarCLI.guardTimeout(raw: "1e100")
+        guard case .failure = result else {
+            Issue.record("Expected enormous timeout to be rejected")
+            return
+        }
+    }
+
+    @Test
+    func `fetch timeout is reported as unavailable`() async {
+        let result = await CodexBarCLI.runGuardFetch(timeout: 0.01) {
+            try? await Task.sleep(for: .seconds(30))
+            return .available(100)
+        }
+        guard case .unavailable(.timeout) = result else {
+            Issue.record("Expected guard fetch to time out")
+            return
+        }
     }
 
     // MARK: - Window headroom (synthetic-placeholder filtering)

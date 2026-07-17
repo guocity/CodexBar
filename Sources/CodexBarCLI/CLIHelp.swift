@@ -308,17 +308,19 @@ extension CodexBarCLI {
 
         Usage:
           codexbar guard --provider \(ProviderHelp.list)
-                        [--need <percent>] [--window session|weekly]
-                        [--json] [--fail-open]
+                        [--min-remaining <percent>] [--window session|weekly]
+                        [--timeout <seconds>] [--json] [--pretty] [--fail-open]
                         [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>] [-v|--verbose]
 
         Description:
           Exit non-zero when a provider lacks quota headroom, for use in gating scripts.
-          Exit codes: 0 = safe (relevant window has at least --need% remaining),
-                      1 = insufficient headroom, 2 = unknown/unreachable.
-          --need defaults to 10 (percent). --window defaults to session (the primary window);
-          weekly checks the secondary window.
-          --fail-open exits 0 instead of 2 when quota is unknown or unreachable.
+          Stable guard exit codes: 0 = safe (relevant window has at least --min-remaining% remaining),
+                                   1 = insufficient quota, 64 = invalid arguments,
+                                   69 = quota unavailable or fetch timed out.
+          --min-remaining defaults to 10 (percent). --window defaults to session (the primary window);
+          weekly checks the secondary window. --timeout accepts 0...86400 and defaults to 60 seconds;
+          0 disables the guard-level deadline, but provider-specific timeouts still apply.
+          --fail-open exits 0 instead of 69 when quota is unavailable.
           Human output is a single line to stdout; --json emits a machine-readable decision object.
 
         Global flags:
@@ -330,8 +332,8 @@ extension CodexBarCLI {
 
         Examples:
           codexbar guard --provider claude
-          codexbar guard --provider codex --need 20
-          codexbar guard --provider claude --window weekly --need 5
+          codexbar guard --provider codex --min-remaining 20
+          codexbar guard --provider claude --window weekly --min-remaining 5
           codexbar guard --provider claude --json
           codexbar guard --provider codex --fail-open
         """
@@ -378,7 +380,7 @@ extension CodexBarCLI {
           codexbar hooks test <event> --provider <name>
           codexbar cache clear <--cookies|--cost|--all> [--provider <name>]
           codexbar diagnose --provider <name|all> --format json [--redact] [--output <path>] [--pretty]
-          codexbar guard --provider <name> [--need <percent>] [--window session|weekly] [--json] [--fail-open]
+          codexbar guard --provider <name> [--min-remaining <percent>] [--window session|weekly] [--json]
 
         Global flags:
           -h, --help      Show help
@@ -406,7 +408,7 @@ extension CodexBarCLI {
           codexbar diagnose --provider minimax --format json --redact --output diagnostic.json
           codexbar diagnose --provider minimax --format json --pretty
           codexbar diagnose --provider all --format json
-          codexbar guard --provider claude --need 20
+          codexbar guard --provider claude --min-remaining 20
         """
     }
 }

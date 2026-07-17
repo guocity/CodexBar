@@ -81,7 +81,8 @@ enum CodexBarCLI {
                     kind: .args)
             }
         } catch let error as CommanderProgramError {
-            Self.exit(code: .failure, message: error.description, output: outputPreferences, kind: .args)
+            let exitCode: ExitCode = argv.first == "guard" ? .usage : .failure
+            Self.exit(code: exitCode, message: error.description, output: outputPreferences, kind: .args)
         } catch {
             Self.exit(code: .failure, message: error.localizedDescription, output: outputPreferences, kind: .runtime)
         }
