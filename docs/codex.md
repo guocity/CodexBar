@@ -143,6 +143,12 @@ Example:
 - CLI PTY diagnostics can still parse `Credits:` from saved/manual `/status` output.
 
 ## Cost usage (local log scan)
+- Menu source selection:
+  - By default, a selected managed account keeps its own `CODEX_HOME` session history.
+  - **Local session cost estimates** is a Codex-only opt-in that instead scans this Mac's ambient `$CODEX_HOME`
+    (or `~/.codex`) independently of quota, OAuth, web-dashboard, and administrator access.
+  - The local-only mode never makes a network request or uploads session content. It uses an existing local models.dev
+    cache when available, then the bundled `CostUsagePricing` rates.
 - Source files:
   - Native Codex logs:
     - `~/.codex/sessions/YYYY/MM/DD/*.jsonl`
@@ -156,10 +162,22 @@ Example:
   - pi sessions count assistant-message usage rows and attribute `openai-codex` assistant usage to Codex.
   - pi assistant usage is bucketed by assistant-turn timestamp, so mixed-model pi sessions can contribute to multiple
     days/models correctly.
+  - Native conversation rows reuse the corrected cached per-file totals and existing pricing tables. They are hidden
+    when pi usage joins the aggregate because the native-only rows would not reconcile with the merged total.
 - Cache:
-  - Native + merged provider cache: `~/Library/Caches/CodexBar/cost-usage/codex-v2.json`
-  - pi session cache: `~/Library/Caches/CodexBar/cost-usage/pi-sessions-v1.json`
+  - Native + merged provider cache: `~/Library/Caches/CodexBar/cost-usage/codex-v10.json`
+  - pi session cache: `~/Library/Caches/CodexBar/cost-usage/pi-sessions-v6.json`
 - Window: configurable 1-365 day rolling history, with a 60s minimum refresh interval.
+
+### Usage & Spend account rows
+
+Settings → Usage & Spend performs a separate fixed 30-day scan for every visible Codex account. Each request freezes
+the account source, exact Codex home, authentication fingerprint, and cache identity before scanning. A missing or
+invalid home is omitted; it never falls back to ambient `~/.codex` or to the global Codex token snapshot.
+
+These account rows intentionally exclude pi sessions because pi history is machine-local rather than owned by one
+Codex account. The normal Codex cost menu and CLI scan continue to include supported pi history. The dashboard labels
+its values as local estimates and keeps currencies separate.
 
 ## Key files
 - Web: `Sources/CodexBarCore/OpenAIWeb/*`

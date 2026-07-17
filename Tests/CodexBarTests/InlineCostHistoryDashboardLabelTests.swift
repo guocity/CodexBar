@@ -174,7 +174,7 @@ struct InlineCostHistoryDashboardLabelTests {
     @Test
     func `costHistoryInlineDashboard sets currencyCode from snapshot`() throws {
         let now = Date(timeIntervalSince1970: 1_700_179_200)
-        let metadata = try #require(ProviderDefaults.metadata[.claude])
+        let metadata = try #require(ProviderDefaults.metadata[.codex])
         let tokenSnapshot = CostUsageTokenSnapshot(
             sessionTokens: 275,
             sessionCostUSD: 0.25,
@@ -194,7 +194,7 @@ struct InlineCostHistoryDashboardLabelTests {
             updatedAt: now)
 
         let model = UsageMenuCardView.Model.make(.init(
-            provider: .claude,
+            provider: .codex,
             metadata: metadata,
             snapshot: UsageSnapshot(
                 primary: nil,
@@ -218,6 +218,50 @@ struct InlineCostHistoryDashboardLabelTests {
 
         let dashboard = try #require(model.inlineUsageDashboard)
         #expect(dashboard.currencyCode == "USD")
+        #expect(dashboard.kpis[0].title == "Today · API-equivalent estimate")
+        #expect(dashboard.kpis[1].title == "30d · API-equivalent estimate")
+        #expect(dashboard.detailLines.contains("not a subscription bill or plan value"))
+        #expect(dashboard.detailLines.contains(
+            "Local usage × public API prices · not a subscription bill or plan value"))
+    }
+
+    @Test
+    func `cursor metered-only snapshot remains visible in inline dashboard`() throws {
+        let now = Date(timeIntervalSince1970: 1_700_179_200)
+        let metadata = try #require(ProviderDefaults.metadata[.cursor])
+        let tokenSnapshot = CostUsageTokenSnapshot(
+            sessionTokens: nil,
+            sessionCostUSD: nil,
+            last30DaysTokens: nil,
+            last30DaysCostUSD: nil,
+            historyDays: 30,
+            meteredCostUSD: 1.25,
+            daily: [],
+            updatedAt: now)
+        let model = UsageMenuCardView.Model.make(.init(
+            provider: .cursor,
+            metadata: metadata,
+            snapshot: UsageSnapshot(primary: nil, secondary: nil, updatedAt: now),
+            credits: nil,
+            creditsError: nil,
+            dashboard: nil,
+            dashboardError: nil,
+            tokenSnapshot: tokenSnapshot,
+            tokenError: nil,
+            account: AccountInfo(email: nil, plan: nil),
+            isRefreshing: false,
+            lastError: nil,
+            usageBarsShowUsed: false,
+            resetTimeDisplayStyle: .countdown,
+            tokenCostUsageEnabled: true,
+            showOptionalCreditsAndExtraUsage: true,
+            hidePersonalInfo: false,
+            now: now))
+
+        let dashboard = try #require(model.inlineUsageDashboard)
+        #expect(dashboard.kpis.first?.title == "Cursor-metered")
+        #expect(dashboard.kpis.first?.value == "$1.25")
+        #expect(dashboard.points.isEmpty)
     }
 
     @Test

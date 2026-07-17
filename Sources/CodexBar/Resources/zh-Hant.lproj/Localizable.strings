@@ -1,8 +1,34 @@
 /* Chinese (Traditional) localization for CodexBar */
 
+"tab_stats" = "Stats";
+"tab_hooks" = "掛鉤";
+"hooks_enable_title" = "啟用掛鉤";
+"hooks_enable_subtitle" = "在配額或提供者事件發生時執行外部指令。";
+"hooks_trust_warning" = "掛鉤可以在 Mac 上執行本機指令。請只設定你信任的指令。";
+"hooks_rules_header" = "規則";
+"hooks_empty" = "尚未設定掛鉤。";
+"hooks_add_rule" = "新增規則";
+"hooks_delete_rule" = "刪除規則";
+"hooks_rule_enabled" = "已啟用";
+"hooks_event" = "事件";
+"hooks_provider" = "提供者";
+"hooks_any_provider" = "任何提供者";
+"hooks_threshold" = "使用率 ≥ 時執行";
+"hooks_threshold_placeholder" = "90";
+"hooks_executable_placeholder" = "/usr/local/bin/my-command";
+"hooks_arguments_placeholder" = "引數";
+"hooks_argument_placeholder" = "引數";
+"hooks_add_argument" = "新增引數";
+"hooks_delete_argument" = "刪除引數";
+
+"ollama_safari_cookie_access_hint" = "CodexBar 需要「完整磁碟存取權」才能讀取 Safari Cookie（系統設定 > 隱私權與安全性）。";
+"ollama_browser_cookie_decryption_denied" = "鑰匙圈拒絕解密 %@ Cookie；請透過手動重新整理再試一次。";
+"ollama_browser_cookie_decryption_disabled" = "CodexBar 中已停用 %@ Cookie 解密；請啟用鑰匙圈存取權並重新整理。";
+
 " providers" = " 提供者";
 "(System)" = "（系統）";
 "30d" = "30 天";
+"7d" = "7 天";
 "A managed Codex login is already running. Wait for it to finish before adding " = "託管 Codex 登入已在執行。請等待其完成後再新增 ";
 "API key" = "API 金鑰";
 "API key limit" = "API 金鑰限制";
@@ -309,7 +335,6 @@
 "Store multiple OpenCode Go Cookie headers." = "儲存多個 OpenCode Go Cookie 標頭。";
 "Stored in the CodexBar config file." = "儲存在 CodexBar 設定檔中。";
 "Stored in ~/.codexbar/config.json. " = "儲存在 ~/.codexbar/config.json 中。";
-"Stored in ~/.codexbar/config.json. Generate one at kimi-k2.ai." = "儲存在 ~/.codexbar/config.json 中。可在 kimi-k2.ai 產生。";
 "Stored in ~/.codexbar/config.json. Paste the key from the Synthetic dashboard." = "儲存在 ~/.codexbar/config.json 中。請貼上來自 Synthetic 儀表板的金鑰。";
 "Stored in ~/.codexbar/config.json. Paste your Coding Plan API key from Model Studio." = "儲存在 ~/.codexbar/config.json 中。請貼上來自 Model Studio 的 Coding Plan API 金鑰。";
 "Stored in ~/.codexbar/config.json. Paste your MiniMax API key." = "儲存在 ~/.codexbar/config.json 中。請貼上你的 MiniMax API 金鑰。";
@@ -526,11 +551,12 @@
 "menu_bar_metric_subtitle_deepseek" = "在選單列顯示 DeepSeek 餘額。";
 "menu_bar_metric_subtitle_moonshot" = "在選單列顯示 Moonshot / Kimi API 餘額。";
 "menu_bar_metric_subtitle_mistral" = "在選單列顯示 Mistral API 本月支出。";
-"menu_bar_metric_subtitle_kimik2" = "在選單列顯示 Kimi K2 API 金鑰額度。";
 "automatic" = "自動";
 "primary_api_key_limit" = "主要（API 金鑰限制）";
 "menu_bar_style_title" = "選單列樣式";
 "menu_bar_style_subtitle" = "選單列項目的繪製方式。";
+"menu_bar_inactive_display_contrast_title" = "改善非使用中顯示器上的可見度";
+"menu_bar_inactive_display_contrast_subtitle" = "使用高對比顯示，讓其他顯示器上的圖示與指標保持清晰可讀。";
 "menu_bar_style_critters" = "小動物";
 "menu_bar_style_bars" = "進度條";
 "menu_bar_style_icon_percent" = "圖示和百分比";
@@ -697,6 +723,9 @@
 "macOS Tahoe can block menu bar apps in System Settings → Menu Bar → Allow in the Menu Bar. CodexBar is running, but macOS may be hiding its icon. Open Menu Bar settings and turn CodexBar on." = "macOS Tahoe 可能會在「系統設定」→「選單列」→「允許顯示在選單列」中封鎖選單列 App。CodexBar 正在執行，但 macOS 可能隱藏了它的圖示。請開啟選單列設定並啟用 CodexBar。";
 "cost_header_estimated" = "費用（估算）";
 "cost_estimate_hint" = "根據本機記錄估算 · 可能與帳單不同";
+"codex_api_estimate_header" = "API 等值估算";
+"codex_api_estimate_hint" = "本機用量 × 公開 API 價格 · 不是訂閱帳單或方案價值";
+"codex_api_estimate_not_billed" = "不是訂閱帳單或方案價值";
 "copilot_device_code" = "裝置碼已複製到剪貼簿：%1$@\n\n請到以下網址驗證：%2$@";
 "copilot_waiting_text" = "請在瀏覽器中完成登入。\n登入完成後，此視窗會自動關閉。";
 "vertex_ai_login_instructions" = "要追蹤 Vertex AI 使用量，請透過 Google Cloud 進行認證。\n\n1. 開啟終端\n2. 執行：gcloud auth application-default login\n3. 依照瀏覽器提示登入\n4. 設定你的專案：gcloud config set project PROJECT_ID\n\n要現在開啟終端嗎？";
@@ -758,7 +787,7 @@
 "Hourly Usage" = "每小時使用量";
 "Usage remaining" = "剩餘使用量";
 "Usage used" = "已使用使用量";
-"API key verified. Ollama does not expose Cloud quota limits through the API." = "API 金鑰已驗證。Ollama 不會透過 API 提供 Cloud 配額限制。";
+"API key verified. Cloud quotas need browser cookies. Sign in to Ollama." = "API 金鑰已驗證。Cloud 配額需要瀏覽器 Cookie。請登入 Ollama。";
 "Last 30 days: %@ tokens" = "近 30 天：%@ token";
 "7d spend" = "7 天支出";
 "30d spend" = "30 天支出";
@@ -797,7 +826,7 @@
 "This week" = "本週";
 "Week" = "週";
 "Month" = "月";
-"Models" = "模型數";
+"Models" = "模型";
 "24h tokens" = "24 小時 token";
 "Latest hour" = "最新小時";
 "Peak hour" = "尖峰小時";
@@ -882,7 +911,6 @@
 "CodexBar will ask macOS Keychain for your Cursor cookie header so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 Cursor Cookie 標頭，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your Factory cookie header so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 Factory Cookie 標頭，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your GitHub Copilot token so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 GitHub Copilot token，以取得使用量。按一下「確定」繼續。";
-"CodexBar will ask macOS Keychain for your Kimi K2 API key so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 Kimi K2 API 金鑰，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your Kimi auth token so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 Kimi 認證 token，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your MiniMax API token so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 MiniMax API token，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your MiniMax cookie header so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 MiniMax Cookie 標頭，以取得使用量。按一下「確定」繼續。";
@@ -1038,7 +1066,6 @@
 "byte_unit_megabytes" = "MB";
 "byte_unit_gigabyte" = "GB";
 "byte_unit_gigabytes" = "GB";
-"CrossModel API spend trend" = "CrossModel API 支出趨勢";
 
 /* Added zh-Hant parity with English catalog */
 "minimax_service_music_generation" = "音樂生成";
@@ -1216,3 +1243,50 @@
 "Show Codex Spark usage" = "顯示 Codex Spark 使用量";
 "Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "在選單和提供者預覽中顯示 Codex Spark 配額列。需要在「顯示」設定中啟用「顯示額度 + 額外使用量」。";
 "Scroll to see more models" = "捲動查看更多模型";
+"Copy Image" = "拷貝影像";
+"Copy Stats" = "拷貝統計資料";
+"Could not copy image" = "無法拷貝影像";
+"Image copied" = "已拷貝影像";
+"Image saved" = "已儲存影像";
+"Nothing is uploaded. This image is created on your Mac." = "不會上傳任何內容。此影像是在你的 Mac 上製作。";
+"Save..." = "儲存...";
+"Share AI Usage" = "分享 AI 使用情況";
+"Share Stats…" = "分享統計資料…";
+"Stats copied" = "已拷貝統計資料";
+"DeepSeek this month token usage trend" = "DeepSeek 本月 token 使用量趨勢";
+"Chrome profile" = "Chrome 設定檔";
+"Choose which signed-in DeepSeek Platform session supplies detailed usage." = "選擇要提供詳細使用量的已登入 DeepSeek Platform 工作階段。";
+"Detailed usage unavailable." = "無法取得詳細使用量。";
+"Sign in to DeepSeek Platform in Chrome for detailed usage." = "請在 Chrome 中登入 DeepSeek Platform 以查看詳細使用量。";
+"Select a DeepSeek Chrome profile in Settings." = "請在「設定」中選擇 DeepSeek Chrome 設定檔。";
+"Select profile…" = "選擇設定檔…";
+
+"Choose a supported browser so CodexBar can read the matching account." = "選擇一個支援的瀏覽器，讓 CodexBar 可以讀取對應帳號。";
+"Choose Cursor account" = "選擇 Cursor 帳號";
+"Choose which Cursor account CodexBar should use." = "選擇 CodexBar 應使用的 Cursor 帳號。";
+"Finish switching to a different Cursor account in your browser, then try again." = "在瀏覽器中完成切換到其他 Cursor 帳號，然後再試一次。";
+"Timed out waiting for Cursor account switch. %@" = "等待切換 Cursor 帳號逾時。%@";
+"Timed out waiting for Cursor account switch. %@ Last error: %@" = "等待切換 Cursor 帳號逾時。%@ 最近錯誤：%@";
+"Use Account" = "使用此帳號";
+/* Spend dashboard */
+"tab_usage_spend" = "使用量與支出";
+"Usage & Spend" = "使用量與支出";
+"Local estimated cost history across supported providers." = "所有支援提供者的本機預估費用歷史。";
+"Time range" = "時間範圍";
+"Track costs" = "追蹤費用";
+"Cost tracking is off" = "費用追蹤已關閉";
+"Turn on Track costs to build local estimates." = "開啟「追蹤費用」以建立本機預估。";
+"No local cost history yet" = "尚無本機費用歷史";
+"Turn on cost tracking or refresh after using a supported provider." = "開啟費用追蹤，或在使用支援的提供者後重新整理。";
+"Refresh failures" = "重新整理失敗";
+"Native currencies stay separate; Codex account rows exclude Pi session history." = "各原始幣別保持分開；Codex 帳號列不包含 Pi 工作階段歷史。";
+"Spend unavailable" = "無法取得支出資料";
+"Model breakdown unavailable" = "無法取得模型明細";
+"Local estimated history" = "本機預估歷史";
+"Coverage" = "涵蓋範圍";
+"Estimated spend" = "預估支出";
+"Tracked tokens" = "已追蹤 token";
+"Subscriptions" = "訂閱";
+"By subscription" = "依訂閱";
+"No model-level history" = "尚無模型層級歷史";
+"Daily estimated spend" = "每日預估支出";

@@ -41,8 +41,8 @@ public enum KeychainCacheStore {
     private static let log = CodexBarLog.logger(LogCategories.keychainCache)
     private static let cacheService = "com.steipete.codexbar.cache"
     private static let cacheLabel = "CodexBar Cache"
-    private nonisolated(unsafe) static var globalServiceOverride: String?
     @TaskLocal private static var serviceOverride: String?
+    @TaskLocal private static var forceImplicitTestStore = false
     #if DEBUG
     @TaskLocal private static var operationRecorder: OperationRecorder?
 
@@ -260,10 +260,6 @@ public enum KeychainCacheStore {
         #endif
     }
 
-    static func setServiceOverrideForTesting(_ service: String?) {
-        self.globalServiceOverride = service
-    }
-
     public static func withServiceOverrideForTesting<T>(
         _ service: String?,
         operation: () throws -> T) rethrows -> T
@@ -287,6 +283,22 @@ public enum KeychainCacheStore {
     {
         let service = self.serviceOverride
         return try await self.$serviceOverride.withValue(service) {
+            try await operation()
+        }
+    }
+
+    static func withImplicitTestStoreForTesting<T>(
+        operation: () throws -> T) rethrows -> T
+    {
+        try self.$forceImplicitTestStore.withValue(true) {
+            try operation()
+        }
+    }
+
+    static func withImplicitTestStoreForTesting<T>(
+        operation: () async throws -> T) async rethrows -> T
+    {
+        try await self.$forceImplicitTestStore.withValue(true) {
             try await operation()
         }
     }
@@ -391,7 +403,7 @@ public enum KeychainCacheStore {
     }
 
     private static var serviceName: String {
-        serviceOverride ?? self.globalServiceOverride ?? self.cacheService
+        serviceOverride ?? self.cacheService
     }
 
     private static var canUseRealKeychain: Bool {
@@ -585,7 +597,9 @@ public enum KeychainCacheStore {
     {
         self.testStoreLock.lock()
         defer { self.testStoreLock.unlock() }
-        guard let store = self.testStore ?? (self.shouldUseImplicitTestStore ? self.implicitTestStore : nil)
+        guard let store = self.forceImplicitTestStore
+            ? self.implicitTestStore
+            : self.testStore ?? (self.shouldUseImplicitTestStore ? self.implicitTestStore : nil)
         else { return nil }
         let testKey = TestStoreKey(service: self.serviceName, account: key.account)
         guard let data = store[testKey] else { return .missing }
@@ -602,6 +616,10 @@ public enum KeychainCacheStore {
         let encoder = Self.makeEncoder()
         guard let data = try? encoder.encode(entry) else { return false }
         let testKey = TestStoreKey(service: self.serviceName, account: key.account)
+        if self.forceImplicitTestStore {
+            self.implicitTestStore[testKey] = data
+            return true
+        }
         if var store = self.testStore {
             store[testKey] = data
             self.testStore = store
@@ -618,6 +636,9 @@ public enum KeychainCacheStore {
         self.testStoreLock.lock()
         defer { self.testStoreLock.unlock() }
         let testKey = TestStoreKey(service: self.serviceName, account: key.account)
+        if self.forceImplicitTestStore {
+            return self.implicitTestStore.removeValue(forKey: testKey) != nil
+        }
         if var store = self.testStore {
             let removed = store.removeValue(forKey: testKey) != nil
             self.testStore = store
@@ -632,7 +653,9 @@ public enum KeychainCacheStore {
     private static func keysFromTestStore(category: String) -> [Key]? {
         self.testStoreLock.lock()
         defer { self.testStoreLock.unlock() }
-        guard let store = self.testStore ?? (self.shouldUseImplicitTestStore ? self.implicitTestStore : nil)
+        guard let store = self.forceImplicitTestStore
+            ? self.implicitTestStore
+            : self.testStore ?? (self.shouldUseImplicitTestStore ? self.implicitTestStore : nil)
         else { return nil }
         return store.keys
             .filter { $0.service == self.serviceName }

@@ -29,6 +29,13 @@ assert_gate() {
     exit 1
   fi
 
+  local deferred
+  deferred="$(sed -n 's/^macos-tests-deferred=//p' "$output_file")"
+  if [[ "$deferred" != false ]]; then
+    printf '%s: expected macos-tests-deferred=false, got %s\n' "$name" "${deferred:-<empty>}" >&2
+    exit 1
+  fi
+
   local path_count
   path_count="$(sed -n 's/^changed-path-count=//p' "$output_file")"
   if ! [[ "$path_count" =~ ^[0-9]+$ ]]; then
@@ -62,6 +69,36 @@ assert_gate true source-to-docs $'R100\tSources/CodexBar/App.swift\tdocs/App.md'
 assert_gate true docs-to-source $'R100\tdocs/App.md\tSources/CodexBar/App.swift'
 assert_gate false docs-to-site $'R100\tdocs/old.md\tdocs/site.css'
 
+draft_paths="${tmp_dir}/draft-source.paths"
+draft_output="${tmp_dir}/draft-source.output"
+printf '%s\n' $'M\tSources/CodexBar/App.swift' > "$draft_paths"
+CI_PULL_REQUEST_DRAFT=true GITHUB_OUTPUT="$draft_output" \
+  "${ROOT_DIR}/Scripts/ci_macos_test_gate.sh" "$draft_paths" >/dev/null
+if [[ "$(sed -n 's/^macos-tests=//p' "$draft_output")" != true ]]; then
+  printf 'draft source: expected macOS tests to remain required while deferred\n' >&2
+  exit 1
+fi
+if [[ "$(sed -n 's/^macos-tests-reason=//p' "$draft_output")" != \
+  "draft pull request: macOS Swift tests deferred until ready for review" ]]
+then
+  printf 'draft source: expected draft deferral reason\n' >&2
+  exit 1
+fi
+if [[ "$(sed -n 's/^macos-tests-deferred=//p' "$draft_output")" != true ]]; then
+  printf 'draft source: expected macOS tests to be marked deferred\n' >&2
+  exit 1
+fi
+
+draft_docs_output="${tmp_dir}/draft-docs.output"
+CI_PULL_REQUEST_DRAFT=true GITHUB_OUTPUT="$draft_docs_output" \
+  "${ROOT_DIR}/Scripts/ci_macos_test_gate.sh" "${tmp_dir}/docs-only.paths" >/dev/null
+if [[ "$(sed -n 's/^macos-tests=//p' "$draft_docs_output")" != false ]] \
+  || [[ "$(sed -n 's/^macos-tests-deferred=//p' "$draft_docs_output")" != false ]]
+then
+  printf 'draft docs: expected required=false and deferred=false\n' >&2
+  exit 1
+fi
+
 assert_gate_fails() {
   local name="$1"
   local paths_file="${tmp_dir}/${name}.paths"
@@ -85,6 +122,13 @@ assert_gate_fails missing-rename-score $'R\tREADME.md\tdocs/README.md'
 assert_gate_fails invalid-rename-score $'Rfoo\tREADME.md\tdocs/README.md'
 assert_gate_fails out-of-range-rename-score $'R101\tREADME.md\tdocs/README.md'
 
+if CI_PULL_REQUEST_DRAFT=maybe GITHUB_OUTPUT="${tmp_dir}/invalid-draft.output" \
+  "${ROOT_DIR}/Scripts/ci_macos_test_gate.sh" "${tmp_dir}/docs-only.paths" >/dev/null 2>&1
+then
+  printf 'invalid draft flag unexpectedly succeeded\n' >&2
+  exit 1
+fi
+
 unterminated_paths="${tmp_dir}/unterminated.paths"
 unterminated_output="${tmp_dir}/unterminated.output"
 printf '%s' $'M\tREADME.md\tdocs/configuration.md' > "$unterminated_paths"
@@ -100,8 +144,8 @@ if [[ -s "$unterminated_output" ]]; then
 fi
 
 verify="${ROOT_DIR}/Scripts/ci_verify_test_jobs.sh"
-"$verify" success success true success >/dev/null
-"$verify" success success false skipped >/dev/null
+"$verify" success success true success false >/dev/null
+"$verify" success success false skipped false >/dev/null
 
 assert_verify_fails() {
   if "$verify" "$@" >/dev/null 2>&1; then
@@ -110,10 +154,13 @@ assert_verify_fails() {
   fi
 }
 
-assert_verify_fails success success true skipped
-assert_verify_fails success success false success
-assert_verify_fails success success "" skipped
-assert_verify_fails failure success true success
-assert_verify_fails success failure true success
+assert_verify_fails success success true skipped false
+assert_verify_fails success success true skipped true
+assert_verify_fails success success false skipped true
+assert_verify_fails success success true success true
+assert_verify_fails success success false success false
+assert_verify_fails success success "" skipped false
+assert_verify_fails failure success true success false
+assert_verify_fails success failure true success false
 
 printf 'CI macOS path gate tests passed.\n'

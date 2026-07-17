@@ -262,6 +262,22 @@ struct ProvidersPaneCoverageTests {
     }
 
     @Test
+    func `Neuralwatt menu bar metric picker omits nonexistent spend lane`() {
+        Self.withEnglishLocalization {
+            let settings = Self.makeSettingsStore(suite: "ProvidersPaneCoverageTests-neuralwatt-picker")
+            let store = Self.makeUsageStore(settings: settings)
+            let pane = ProvidersPane(settings: settings, store: store)
+
+            let picker = pane._test_menuBarMetricPicker(for: .neuralwatt)
+            #expect(picker?.options.map(\.id) == [
+                MenuBarMetricPreference.automatic.rawValue,
+                MenuBarMetricPreference.primary.rawValue,
+                MenuBarMetricPreference.secondary.rawValue,
+            ])
+        }
+    }
+
+    @Test
     func `moonshot menu bar metric picker shows balance only copy`() {
         Self.withEnglishLocalization {
             let settings = Self.makeSettingsStore(suite: "ProvidersPaneCoverageTests-moonshot-picker")
@@ -291,21 +307,6 @@ struct ProvidersPaneCoverageTests {
             #expect(picker?.options.first?.title == "Pay-as-you-go")
             #expect(picker?.options.last?.title == "Monthly Plan")
             #expect(picker?.subtitle == "Choose Mistral API spend or Monthly Plan usage for the menu bar.")
-        }
-    }
-
-    @Test
-    func `kimi k2 menu bar metric picker shows credits only copy`() {
-        Self.withEnglishLocalization {
-            let settings = Self.makeSettingsStore(suite: "ProvidersPaneCoverageTests-kimik2-picker")
-            let store = Self.makeUsageStore(settings: settings)
-            let pane = ProvidersPane(settings: settings, store: store)
-
-            let picker = pane._test_menuBarMetricPicker(for: .kimik2)
-            #expect(picker?.options.map(\.id) == [
-                MenuBarMetricPreference.automatic.rawValue,
-            ])
-            #expect(picker?.subtitle == "Shows Kimi K2 API-key credits in the menu bar.")
         }
     }
 
@@ -649,7 +650,6 @@ struct ProvidersPaneCoverageTests {
             minimaxCookieStore: InMemoryMiniMaxCookieStore(),
             minimaxAPITokenStore: InMemoryMiniMaxAPITokenStore(),
             kimiTokenStore: InMemoryKimiTokenStore(),
-            kimiK2TokenStore: InMemoryKimiK2TokenStore(),
             augmentCookieStore: InMemoryCookieHeaderStore(),
             ampCookieStore: InMemoryCookieHeaderStore(),
             copilotTokenStore: InMemoryCopilotTokenStore(),

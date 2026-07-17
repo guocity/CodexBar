@@ -1,8 +1,34 @@
 /* Russian localization for CodexBar */
 
+"tab_stats" = "Stats";
+"tab_hooks" = "Хуки";
+"hooks_enable_title" = "Включить хуки";
+"hooks_enable_subtitle" = "Запускать внешние команды при событиях квоты или провайдера.";
+"hooks_trust_warning" = "Хуки могут выполнять локальные команды на вашем Mac. Настраивайте только доверенные команды.";
+"hooks_rules_header" = "Правила";
+"hooks_empty" = "Хуки не настроены.";
+"hooks_add_rule" = "Добавить правило";
+"hooks_delete_rule" = "Удалить правило";
+"hooks_rule_enabled" = "Включено";
+"hooks_event" = "Событие";
+"hooks_provider" = "Провайдер";
+"hooks_any_provider" = "Любой провайдер";
+"hooks_threshold" = "Запускать при использовании ≥";
+"hooks_threshold_placeholder" = "90";
+"hooks_executable_placeholder" = "/usr/local/bin/my-command";
+"hooks_arguments_placeholder" = "Аргументы";
+"hooks_argument_placeholder" = "Аргумент";
+"hooks_add_argument" = "Добавить аргумент";
+"hooks_delete_argument" = "Удалить аргумент";
+
+"ollama_safari_cookie_access_hint" = "Для файлов cookie Safari приложению CodexBar нужен полный доступ к диску (Системные настройки > Конфиденциальность и безопасность).";
+"ollama_browser_cookie_decryption_denied" = "Расшифровка файлов cookie %@ была отклонена в Связке ключей; повторите попытку с помощью ручного обновления.";
+"ollama_browser_cookie_decryption_disabled" = "Расшифровка файлов cookie %@ отключена в CodexBar; включите доступ к Связке ключей и обновите.";
+
 " providers" = " провайдеров";
 "(System)" = "(Система)";
 "30d" = "30 дн.";
+"7d" = "7 дн.";
 "A managed Codex login is already running. Wait for it to finish before adding " = "Управляемый вход Codex уже активен. Подождите, пока он завершится, прежде чем добавлять ";
 "API key" = "API-ключ";
 "API region" = "Регион API";
@@ -300,7 +326,6 @@
 "Store multiple OpenCode Go Cookie headers." = "Хранить несколько Cookie-заголовков OpenCode Go.";
 "Stored in the CodexBar config file." = "Хранится в конфигурационном файле CodexBar.";
 "Stored in ~/.codexbar/config.json. " = "Хранится в ~/.codexbar/config.json. ";
-"Stored in ~/.codexbar/config.json. Generate one at kimi-k2.ai." = "Хранится в ~/.codexbar/config.json. Создайте ключ на kimi-k2.ai.";
 "Stored in ~/.codexbar/config.json. Paste the key from the Synthetic dashboard." = "Хранится в ~/.codexbar/config.json. Вставьте ключ с дашборда Synthetic.";
 "Stored in ~/.codexbar/config.json. Paste your Coding Plan API key from Model Studio." = "Хранится в ~/.codexbar/config.json. Вставьте API-ключ Coding Plan из Model Studio.";
 "Stored in ~/.codexbar/config.json. Paste your MiniMax API key." = "Хранится в ~/.codexbar/config.json. Вставьте API-ключ MiniMax.";
@@ -526,13 +551,14 @@
 "menu_bar_metric_subtitle_deepseek" = "Показывает баланс DeepSeek в строке меню.";
 "menu_bar_metric_subtitle_moonshot" = "Показывает баланс Moonshot / Kimi API в строке меню.";
 "menu_bar_metric_subtitle_mistral" = "В строке меню показаны расходы Mistral API за текущий месяц.";
-"menu_bar_metric_subtitle_kimik2" = "Показывает кредиты Kimi K2 API в строке меню.";
 "automatic" = "Автоматически";
 "primary_api_key_limit" = "Основной (лимит API-ключа)";
 
 /* Display Pane */
 "menu_bar_style_title" = "Стиль строки меню";
 "menu_bar_style_subtitle" = "Как выглядит элемент строки меню.";
+"menu_bar_inactive_display_contrast_title" = "Повысить видимость на неактивных дисплеях";
+"menu_bar_inactive_display_contrast_subtitle" = "Использует высококонтрастную отрисовку, чтобы значок и показатель оставались читаемыми на других дисплеях.";
 "menu_bar_style_critters" = "Декоративные индикаторы";
 "menu_bar_style_bars" = "Полосы-индикаторы";
 "menu_bar_style_icon_percent" = "Значок и процент";
@@ -713,6 +739,9 @@
 /* Cost estimation */
 "cost_header_estimated" = "Стоимость (оценочная)";
 "cost_estimate_hint" = "Оценка на основе локальных журналов · может отличаться от суммы в счёте.";
+"codex_api_estimate_header" = "Оценка, эквивалентная API";
+"codex_api_estimate_hint" = "Локальное использование × публичные цены API · это не счёт за подписку и не ценность плана";
+"codex_api_estimate_not_billed" = "это не счёт за подписку и не ценность плана";
 "No JetBrains IDE with AI Assistant detected. Install a JetBrains IDE and enable AI Assistant." = "JetBrains IDE с включённым AI Assistant не обнаружена. Установите JetBrains IDE и включите AI Assistant.";
 "OpenRouter API token not configured. Set OPENROUTER_API_KEY environment variable or configure in Settings." = "API-токен OpenRouter не настроен. Задайте переменную окружения OPENROUTER_API_KEY или настройте его в настройках.";
 "z.ai API token not found. Set apiKey in ~/.codexbar/config.json or Z_AI_API_KEY." = "API-токен z.ai не найден. Задайте apiKey в ~/.codexbar/config.json или Z_AI_API_KEY.";
@@ -887,14 +916,13 @@
 "Hourly Usage" = "Использование по часам";
 "Usage remaining" = "Осталось";
 "Usage used" = "Использовано";
-"API key verified. Ollama does not expose Cloud quota limits through the API." = "API-ключ проверен. Ollama не раскрывает лимиты квот Cloud через API.";
+"API key verified. Cloud quotas need browser cookies. Sign in to Ollama." = "API-ключ проверен. Для квот Cloud нужны файлы cookie браузера. Войдите в Ollama.";
 "Last 30 days: %@ tokens" = "За последние 30 дней: %@ токенов";
 "7d spend" = "Расходы за 7 дн.";
 "30d spend" = "Расходы за 30 дн.";
 "Cache read" = "Чтение кэша";
 "Claude Admin API 30 day spend trend" = "Тренд расходов Claude Admin API за 30 дней";
 "OpenRouter API key spend trend" = "Тренд расходов API-ключа OpenRouter";
-"CrossModel API spend trend" = "Тренд расходов CrossModel API";
 "z.ai hourly token trend" = "Почасовой тренд токенов z.ai";
 "MiniMax 30 day token usage trend" = "Тренд использования токенов MiniMax за 30 дней";
 "Today cash" = "Расходы сегодня";
@@ -1022,7 +1050,6 @@
 "CodexBar will ask macOS Keychain for your Cursor cookie header so it can fetch usage. Click OK to continue." = "CodexBar запросит у macOS Keychain Cookie-заголовок Cursor, чтобы получить данные об использовании. Нажмите OK, чтобы продолжить.";
 "CodexBar will ask macOS Keychain for your Factory cookie header so it can fetch usage. Click OK to continue." = "CodexBar запросит у macOS Keychain Cookie-заголовок Factory, чтобы получить данные об использовании. Нажмите OK, чтобы продолжить.";
 "CodexBar will ask macOS Keychain for your GitHub Copilot token so it can fetch usage. Click OK to continue." = "CodexBar запросит у macOS Keychain токен GitHub Copilot, чтобы получить данные об использовании. Нажмите OK, чтобы продолжить.";
-"CodexBar will ask macOS Keychain for your Kimi K2 API key so it can fetch usage. Click OK to continue." = "CodexBar запросит у macOS Keychain API-ключ Kimi K2, чтобы получить данные об использовании. Нажмите OK, чтобы продолжить.";
 "CodexBar will ask macOS Keychain for your Kimi auth token so it can fetch usage. Click OK to continue." = "CodexBar запросит у macOS Keychain токен авторизации Kimi, чтобы получить данные об использовании. Нажмите OK, чтобы продолжить.";
 "CodexBar will ask macOS Keychain for your MiniMax API token so it can fetch usage. Click OK to continue." = "CodexBar запросит у macOS Keychain API-токен MiniMax, чтобы получить данные об использовании. Нажмите OK, чтобы продолжить.";
 "CodexBar will ask macOS Keychain for your MiniMax cookie header so it can fetch usage. Click OK to continue." = "CodexBar запросит у macOS Keychain Cookie-заголовок MiniMax, чтобы получить данные об использовании. Нажмите OK, чтобы продолжить.";
@@ -1187,3 +1214,50 @@
 "Show Codex Spark usage" = "Показывать использование Codex Spark";
 "Shows Codex Spark quota rows in the menu and provider preview. Requires optional credits and extra usage in Display settings." = "Показывает строки квот Codex Spark в меню и предварительном просмотре провайдера. Требует включить «Показывать кредиты и доп. использование» в настройках «Отображение».";
 "Scroll to see more models" = "Прокрутите, чтобы увидеть больше моделей";
+"Copy Image" = "Копировать изображение";
+"Copy Stats" = "Копировать статистику";
+"Could not copy image" = "Не удалось скопировать изображение";
+"Image copied" = "Изображение скопировано";
+"Image saved" = "Изображение сохранено";
+"Nothing is uploaded. This image is created on your Mac." = "Ничего не загружается. Изображение создаётся на вашем Mac.";
+"Save..." = "Сохранить...";
+"Share AI Usage" = "Поделиться использованием ИИ";
+"Share Stats…" = "Поделиться статистикой…";
+"Stats copied" = "Статистика скопирована";
+"DeepSeek this month token usage trend" = "Динамика использования токенов DeepSeek в этом месяце";
+"Chrome profile" = "Профиль Chrome";
+"Choose which signed-in DeepSeek Platform session supplies detailed usage." = "Выберите активный сеанс DeepSeek Platform для получения подробных данных об использовании.";
+"Detailed usage unavailable." = "Подробные данные об использовании недоступны.";
+"Sign in to DeepSeek Platform in Chrome for detailed usage." = "Войдите в DeepSeek Platform через Chrome, чтобы получить подробные данные об использовании.";
+"Select a DeepSeek Chrome profile in Settings." = "Выберите профиль Chrome для DeepSeek в настройках.";
+"Select profile…" = "Выбрать профиль…";
+
+"Choose a supported browser so CodexBar can read the matching account." = "Выберите поддерживаемый браузер, чтобы CodexBar мог прочитать соответствующую учетную запись.";
+"Choose Cursor account" = "Выберите учетную запись Cursor";
+"Choose which Cursor account CodexBar should use." = "Выберите, какую учетную запись Cursor следует использовать CodexBar.";
+"Finish switching to a different Cursor account in your browser, then try again." = "Завершите переключение на другую учетную запись Cursor в браузере, а затем повторите попытку.";
+"Timed out waiting for Cursor account switch. %@" = "Истекло время ожидания переключения учетной записи Cursor. %@";
+"Timed out waiting for Cursor account switch. %@ Last error: %@" = "Истекло время ожидания переключения учетной записи Cursor. %@ Последняя ошибка: %@";
+"Use Account" = "Использовать учетную запись";
+/* Spend dashboard */
+"tab_usage_spend" = "Использование и расходы";
+"Usage & Spend" = "Использование и расходы";
+"Local estimated cost history across supported providers." = "Локальная история предполагаемых расходов у поддерживаемых провайдеров.";
+"Time range" = "Период";
+"Track costs" = "Отслеживать расходы";
+"Cost tracking is off" = "Отслеживание расходов выключено";
+"Turn on Track costs to build local estimates." = "Включите «Отслеживать расходы», чтобы создавать локальные оценки.";
+"No local cost history yet" = "Локальной истории расходов пока нет";
+"Turn on cost tracking or refresh after using a supported provider." = "Включите отслеживание расходов или обновите данные после использования поддерживаемого провайдера.";
+"Refresh failures" = "Ошибки обновления";
+"Native currencies stay separate; Codex account rows exclude Pi session history." = "Исходные валюты остаются раздельными; строки учётных записей Codex не включают историю сеансов Pi.";
+"Spend unavailable" = "Расходы недоступны";
+"Model breakdown unavailable" = "Разбивка по моделям недоступна";
+"Local estimated history" = "Локальная история оценок";
+"Coverage" = "Охват";
+"Estimated spend" = "Предполагаемые расходы";
+"Tracked tokens" = "Отслеживаемые токены";
+"Subscriptions" = "Подписки";
+"By subscription" = "По подпискам";
+"No model-level history" = "Нет истории по моделям";
+"Daily estimated spend" = "Предполагаемые ежедневные расходы";
