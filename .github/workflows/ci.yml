@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +21,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       macos-tests: ${{ steps.macos-tests.outputs.macos-tests }}
+      macos-tests-deferred: ${{ steps.macos-tests.outputs.macos-tests-deferred }}
       macos-tests-reason: ${{ steps.macos-tests.outputs.macos-tests-reason }}
       changed-path-count: ${{ steps.macos-tests.outputs.changed-path-count }}
     steps:
@@ -30,6 +32,8 @@ jobs:
       - name: Detect macOS test impact
         id: macos-tests
         shell: bash
+        env:
+          CI_PULL_REQUEST_DRAFT: ${{ github.event.pull_request.draft || false }}
         run: |
           set -euo pipefail
 
@@ -87,7 +91,7 @@ jobs:
 
   swift-test-macos:
     needs: changes
-    if: ${{ needs.changes.outputs.macos-tests == 'true' }}
+    if: ${{ needs.changes.outputs.macos-tests == 'true' && needs.changes.outputs.macos-tests-deferred != 'true' }}
     runs-on: macos-15-intel
     timeout-minutes: 60
     strategy:
@@ -173,7 +177,8 @@ jobs:
             "${{ needs.lint.result }}" \
             "${{ needs.changes.result }}" \
             "${{ needs.changes.outputs.macos-tests }}" \
-            "${{ needs.swift-test-macos.result }}"
+            "${{ needs.swift-test-macos.result }}" \
+            "${{ needs.changes.outputs.macos-tests-deferred }}"
 
       - name: Summarize aggregate CI gate
         if: ${{ always() }}
@@ -182,6 +187,7 @@ jobs:
           LINT_RESULT: ${{ needs.lint.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           MACOS_TESTS: ${{ needs.changes.outputs.macos-tests }}
+          MACOS_TESTS_DEFERRED: ${{ needs.changes.outputs.macos-tests-deferred }}
           MACOS_TESTS_REASON: ${{ needs.changes.outputs.macos-tests-reason }}
           MACOS_RESULT: ${{ needs.swift-test-macos.result }}
         run: |
@@ -195,6 +201,7 @@ jobs:
             printf '| lint result | `%s` |\n' "$LINT_RESULT"
             printf '| changes result | `%s` |\n' "$CHANGES_RESULT"
             printf '| macOS Swift tests required | `%s` |\n' "${MACOS_TESTS:-<unset>}"
+            printf '| macOS Swift tests deferred | `%s` |\n' "${MACOS_TESTS_DEFERRED:-<unset>}"
             printf '| macOS gate reason | %s |\n' "$reason"
             printf '| swift-test-macos result | `%s` |\n' "$MACOS_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"

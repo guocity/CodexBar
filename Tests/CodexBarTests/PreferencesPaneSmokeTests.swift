@@ -16,6 +16,7 @@ struct PreferencesPaneSmokeTests {
         _ = MenuBarPane(settings: settings, store: store).body
         _ = MenuPane(settings: settings, store: store).body
         _ = AdvancedPane(settings: settings, store: store).body
+        _ = HooksPane(settings: settings).body
         _ = ProvidersPane(settings: settings, store: store).body
         _ = DebugPane(settings: settings, store: store).body
         _ = AboutPane(updater: DisabledUpdaterController()).body
@@ -28,6 +29,7 @@ struct PreferencesPaneSmokeTests {
     func `builds preference panes with toggled settings`() {
         let settings = Self.makeSettingsStore(suite: "PreferencesPaneSmokeTests-toggled")
         settings.menuBarShowsBrandIconWithPercent = true
+        settings.menuBarHighContrastOnInactiveDisplays = true
         settings.menuBarShowsHighestUsage = true
         settings.multiAccountMenuLayout = .stacked
         settings.hidePersonalInfo = true
@@ -93,6 +95,7 @@ struct PreferencesPaneSmokeTests {
         #expect(MenuBarSettingsMenuOptions.iconStyles == MenuBarIconStyle.allCases)
         #expect(MenuBarSettingsMenuOptions.switcherRows == SwitcherRowsOption.allCases)
         #expect(MenuSettingsMenuOptions.weeklyProgressWorkDays == [nil, 4, 5, 7])
+        #expect(MenuSettingsMenuOptions.weeklyProgressWorkDaysLabel(nil) == L("Automatic"))
         #expect(MenuSettingsMenuOptions.multiAccountLayouts == MultiAccountMenuLayout.allCases)
         #expect(MenuSettingsMenuOptions.usageBarsFill == UsageBarsFillOption.allCases)
         #expect(MenuSettingsMenuOptions.resetTimes == ResetTimesOption.allCases)
@@ -119,6 +122,13 @@ struct PreferencesPaneSmokeTests {
 
         #expect(text.contains("3"))
         #expect(!text.contains("%@"))
+    }
+
+    @Test
+    func `inactive display contrast is available only for icon and percent`() {
+        #expect(!MenuBarPane.inactiveDisplayContrastAvailable(for: .critters))
+        #expect(!MenuBarPane.inactiveDisplayContrastAvailable(for: .bars))
+        #expect(MenuBarPane.inactiveDisplayContrastAvailable(for: .iconAndPercent))
     }
 
     @Test
@@ -559,7 +569,6 @@ struct PreferencesPaneSmokeTests {
             minimaxCookieStore: InMemoryMiniMaxCookieStore(),
             minimaxAPITokenStore: InMemoryMiniMaxAPITokenStore(),
             kimiTokenStore: InMemoryKimiTokenStore(),
-            kimiK2TokenStore: InMemoryKimiK2TokenStore(),
             augmentCookieStore: InMemoryCookieHeaderStore(),
             ampCookieStore: InMemoryCookieHeaderStore(),
             copilotTokenStore: InMemoryCopilotTokenStore(),
