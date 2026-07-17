@@ -1232,12 +1232,9 @@
 "Image copied" = "تم نسخ الصورة";
 "Image saved" = "تم حفظ الصورة";
 "Nothing is uploaded. This image is created on your Mac." = "لا يتم رفع أي شيء. تُنشأ هذه الصورة على جهاز Mac.";
-"Preview, copy, or save one private card with all enabled subscriptions." = "عاين بطاقة خاصة واحدة تضم جميع الاشتراكات المفعّلة أو انسخها أو احفظها.";
 "Save..." = "حفظ...";
 "Share AI Usage" = "مشاركة استخدام الذكاء الاصطناعي";
 "Share Stats…" = "مشاركة الإحصاءات…";
-"Share usage card" = "مشاركة بطاقة الاستخدام";
-"Sharing" = "المشاركة";
 "Stats copied" = "تم نسخ الإحصاءات";
 "Finish switching to a different Cursor account in your browser, then try again." = "أكمل التبديل إلى حساب Cursor مختلف في متصفحك، ثم حاول مرة أخرى.";
 "Timed out waiting for Cursor account switch. %@" = "انتهت مهلة انتظار تبديل حساب Cursor. %@";

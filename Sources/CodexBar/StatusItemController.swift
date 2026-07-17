@@ -216,7 +216,6 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
     }
 
     var creditsPurchaseWindow: OpenAICreditsPurchaseWindowController?
-    var shareStatsWindow: ShareStatsWindowController?
 
     var activeLoginProvider: UsageProvider? {
         didSet {
@@ -454,7 +453,6 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
             selector: #selector(self.handleQuotaWarningPosted(_:)),
             name: .codexbarQuotaWarningDidPost,
             object: nil)
-        self.installShareStatsObserver()
         if observeProviderConfigNotifications {
             NotificationCenter.default.addObserver(
                 self,

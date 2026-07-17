@@ -1232,12 +1232,9 @@
 "Image copied" = "Gambar disalin";
 "Image saved" = "Gambar disimpan";
 "Nothing is uploaded. This image is created on your Mac." = "Tidak ada data yang diunggah. Gambar ini dibuat di Mac Anda.";
-"Preview, copy, or save one private card with all enabled subscriptions." = "Pratinjau, salin, atau simpan satu kartu pribadi dengan semua langganan yang diaktifkan.";
 "Save..." = "Simpan...";
 "Share AI Usage" = "Bagikan Penggunaan AI";
 "Share Stats…" = "Bagikan Statistik…";
-"Share usage card" = "Bagikan kartu penggunaan";
-"Sharing" = "Berbagi";
 "Stats copied" = "Statistik disalin";
 "Finish switching to a different Cursor account in your browser, then try again." = "Selesaikan peralihan ke akun Cursor lain di browser Anda, lalu coba lagi.";
 "Timed out waiting for Cursor account switch. %@" = "Waktu tunggu untuk beralih akun Cursor habis. %@";

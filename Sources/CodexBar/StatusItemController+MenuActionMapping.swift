@@ -6,7 +6,6 @@ extension StatusItemController {
         case .installUpdate: (#selector(self.installUpdate), nil)
         case .refresh: (#selector(self.refreshMenuItem(_:)), nil)
         case .refreshAugmentSession: (#selector(self.refreshAugmentSession), nil)
-        case .shareStats: (#selector(self.showShareStats(_:)), nil)
         case .dashboard: (#selector(self.openDashboard), nil)
         case .statusPage: (#selector(self.openStatusPage), nil)
         case .changelog: (#selector(self.openChangelog), nil)

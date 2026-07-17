@@ -5,360 +5,190 @@ import Testing
 
 struct ShareStatsTests {
     @Test
-    func `builder differentiates subscriptions and sums only known totals`() throws {
+    func `builder preserves native currencies and unavailable spend`() throws {
         let payload = try #require(ShareStatsBuilder.make(
-            providers: [
-                ShareStatsProviderSource(
-                    providerName: "Codex",
-                    subscriptionName: "Plus",
-                    tokenSnapshot: Self.codexSnapshot,
-                    usageSnapshot: Self.usage(usedPercent: 64)),
-                ShareStatsProviderSource(
-                    providerName: "Claude",
-                    subscriptionName: "Max",
-                    tokenSnapshot: Self.claudeSnapshot,
-                    usageSnapshot: Self.usage(usedPercent: 38)),
-                ShareStatsProviderSource(
-                    providerName: "Cursor",
-                    subscriptionName: "Pro",
-                    tokenSnapshot: nil,
-                    usageSnapshot: Self.usage(usedPercent: 82)),
-                ShareStatsProviderSource(
-                    providerName: "OpenCode",
-                    subscriptionName: nil,
-                    tokenSnapshot: nil,
-                    usageSnapshot: nil),
-            ],
-            calendar: Self.calendar))
+            model: Self.dashboard,
+            subscriptionNames: ["codex:one": "pro", "cursor": "Cursor Pro", "claude": "Max"]))
 
         #expect(payload.days == 30)
-        #expect(payload.totalTokens == 5_500_000_000)
-        #expect(payload.estimatedCostUSD == 4250)
-        #expect(payload.providers.map(\.providerName) == ["Codex", "Claude", "Cursor", "OpenCode"])
-        #expect(payload.providers.map(\.subscriptionName) == ["Plus", "Max", "Pro", nil])
-        #expect(payload.providers[3].totalTokens == nil)
-        #expect(payload.providers[0].dailyTokens.reduce(0, +) == 4_768_000_000)
-        #expect(payload.tokenProviderCount == 2)
-        #expect(payload.pricedProviderCount == 2)
-        #expect(payload.topModels.map(\.modelName) == ["gpt-5.5", "claude-sonnet-5"])
+        #expect(payload.totalTokens == nil)
+        #expect(payload.currencies == [
+            ShareStatsCurrencyPayload(currencyCode: "GBP", estimatedCost: 12, coveredDayCount: 10),
+            ShareStatsCurrencyPayload(currencyCode: "USD", estimatedCost: nil, coveredDayCount: 0),
+        ])
+        #expect(payload.providers.map(\.providerName) == ["Claude", "Codex · #1", "Cursor"])
+        #expect(payload.providers.map(\.subscriptionName) == ["Max", "Pro 20x", "Cursor Pro"])
+        #expect(payload.providers.last?.estimatedCost == nil)
+        #expect(payload.topModels.map(\.modelName).prefix(2) == ["claude-sonnet-4", "gpt-5.4"])
+
+        let text = ShareStatsFormatting.text(payload)
+        #expect(text.contains("GBP: £12.00 estimated · coverage 10/30 days"))
+        #expect(text.contains("Claude · Max: 300 tokens · ~£12.00 est · 10/30 days"))
+        #expect(text.contains("USD: Spend unavailable estimated · coverage 0/30 days"))
+        #expect(text.contains("Cursor · Cursor Pro: Spend unavailable"))
+        #expect(!text.contains("£12.00 +"))
     }
 
     @Test
-    func `text formatter preserves provider differentiation and provenance`() throws {
+    func `payload sanitizer excludes emails identifiers paths and prompts`() throws {
+        let model = Self.dashboard(models: [
+            "gpt-5.4",
+            "person@example.com",
+            "/Users/peter/private/model",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "summarize my secret project",
+            "abcdefabcdefabcdefabcdef",
+        ])
         let payload = try #require(ShareStatsBuilder.make(
-            providers: [
-                ShareStatsProviderSource(
-                    providerName: "Codex",
-                    subscriptionName: "Plus",
-                    tokenSnapshot: Self.codexSnapshot,
-                    usageSnapshot: nil),
-                ShareStatsProviderSource(
-                    providerName: "Cursor",
-                    subscriptionName: "Pro",
-                    tokenSnapshot: nil,
-                    usageSnapshot: Self.usage(usedPercent: 82)),
-            ],
-            calendar: Self.calendar))
+            model: model,
+            subscriptionNames: [
+                "codex:one": "person@example.com",
+                "cursor": "/Users/peter/plan",
+                "claude": "Max",
+            ]))
         let text = ShareStatsFormatting.text(payload)
 
-        #expect(text.contains("Codex · Plus: 4.77B tokens"))
-        #expect(text.contains("Cursor · Pro: connected"))
-        #expect(text.contains("estimated across priced providers"))
-        #expect(text.contains("gpt-5.5 (Codex)"))
-        #expect(text.contains("Generated locally by CodexBar"))
-        #expect(!text.contains("secret-project"))
+        #expect(payload.topModels.map(\.modelName) == ["claude-sonnet-4", "gpt-5.4"])
+        #expect(payload.providers.map(\.subscriptionName) == ["Max", nil, nil])
+        #expect(!text.contains("person@example.com"))
+        #expect(!text.contains("/Users/"))
+        #expect(!text.contains("550e8400"))
+        #expect(!text.contains("secret project"))
+        #expect(!text.contains("abcdefabcdef"))
     }
 
     @Test
-    func `multiple Codex subscriptions stay distinct and all contribute to totals`() throws {
-        let payload = try #require(ShareStatsBuilder.make(
-            providers: [
-                ShareStatsProviderSource(
-                    providerName: "Codex · #1",
-                    subscriptionName: "Plus",
-                    tokenSnapshot: Self.codexSnapshot,
-                    usageSnapshot: Self.usage(usedPercent: 64)),
-                ShareStatsProviderSource(
-                    providerName: "Codex · #2",
-                    subscriptionName: "Team",
-                    tokenSnapshot: Self.claudeSnapshot,
-                    usageSnapshot: Self.usage(usedPercent: 38)),
-            ],
-            calendar: Self.calendar))
-
-        #expect(payload.providers.map(\.providerName) == ["Codex · #1", "Codex · #2"])
-        #expect(payload.totalTokens == 5_500_000_000)
-        #expect(payload.estimatedCostUSD == 4250)
-        #expect(payload.pricedProviderCount == 2)
-        #expect(payload.tokenProviderCount == 2)
-    }
-
-    @Test
-    func `builder keeps model names when cost history has no model breakdown`() throws {
-        let snapshot = CostUsageTokenSnapshot(
-            sessionTokens: nil,
-            sessionCostUSD: nil,
-            last30DaysTokens: 42000,
-            last30DaysCostUSD: nil,
-            historyDays: 30,
-            daily: [CostUsageDailyReport.Entry(
-                date: "2026-07-07",
-                inputTokens: nil,
-                outputTokens: nil,
-                totalTokens: 42000,
-                costUSD: nil,
-                modelsUsed: ["gpt-5.5-codex", "gpt-5.5-codex"],
-                modelBreakdowns: nil)],
-            projects: [],
-            updatedAt: Date(timeIntervalSince1970: 1_783_382_400))
-        let payload = try #require(ShareStatsBuilder.make(
-            providers: [ShareStatsProviderSource(
-                providerName: "Codex",
-                subscriptionName: "Plus",
-                tokenSnapshot: snapshot,
-                usageSnapshot: nil)],
-            calendar: Self.calendar))
-
-        #expect(payload.topModels == [ShareStatsModelPayload(
-            providerName: "Codex",
-            modelName: "gpt-5.5-codex",
-            totalTokens: nil,
-            estimatedCostUSD: nil)])
-    }
-
-    @Test
-    func `OpenRouter month spend stays visible and separate from trailing period total`() throws {
-        let openRouterUsage = OpenRouterUsageSnapshot(
-            totalCredits: 100,
-            totalUsage: 40,
-            balance: 60,
-            usedPercent: 40,
-            keyDataFetched: true,
-            keyLimit: nil,
-            keyUsage: nil,
-            keyUsageDaily: 1.25,
-            keyUsageWeekly: 7.50,
-            keyUsageMonthly: 18.75,
-            rateLimit: nil,
-            updatedAt: Date(timeIntervalSince1970: 1_783_382_400))
-            .toUsageSnapshot()
-        let payload = try #require(ShareStatsBuilder.make(
-            providers: [
-                ShareStatsProviderSource(
-                    providerName: "Codex",
-                    subscriptionName: "Plus",
-                    tokenSnapshot: Self.codexSnapshot,
-                    usageSnapshot: nil),
-                ShareStatsProviderSource(
-                    providerName: "OpenRouter",
-                    subscriptionName: nil,
-                    tokenSnapshot: nil,
-                    usageSnapshot: openRouterUsage,
-                    reportedSpend: ShareStatsReportedSpend.from(
-                        provider: .openrouter,
-                        snapshot: openRouterUsage)),
-            ],
-            calendar: Self.calendar))
-
-        #expect(payload.estimatedCostUSD == 3750)
-        #expect(payload.monthToDateSpendUSD == 18.75)
-        #expect(payload.providers[1].estimatedCostUSD == 18.75)
-        #expect(payload.providers[1].spendWindow == .monthToDate)
-        #expect(ShareStatsFormatting.text(payload).contains("OpenRouter: ~$18.75 MTD"))
-    }
-
-    @Test
-    func `builder uses one shared calendar window across stale provider snapshots`() throws {
-        let current = Self.snapshot(
-            tokens: 100,
-            cost: 1,
-            modelName: "current-model",
-            projectName: "current")
-        let stale = CostUsageTokenSnapshot(
-            sessionTokens: nil,
-            sessionCostUSD: nil,
-            last30DaysTokens: 900,
-            last30DaysCostUSD: 9,
-            historyDays: 30,
-            daily: [Self.entry(
-                day: "2026-06-01",
-                tokens: 900,
-                cost: 9,
-                modelName: "stale-model")],
-            updatedAt: Date(timeIntervalSince1970: 1_780_272_000))
-        let payload = try #require(ShareStatsBuilder.make(
-            providers: [
-                ShareStatsProviderSource(
-                    providerName: "Current",
-                    subscriptionName: nil,
-                    tokenSnapshot: current,
-                    usageSnapshot: nil),
-                ShareStatsProviderSource(
-                    providerName: "Stale",
-                    subscriptionName: nil,
-                    tokenSnapshot: stale,
-                    usageSnapshot: nil),
-            ],
-            days: 30,
-            calendar: Self.calendar))
-
-        #expect(payload.totalTokens == 100)
-        #expect(payload.estimatedCostUSD == 1)
-        #expect(payload.providers[1].totalTokens == nil)
-        #expect(payload.topModels.map(\.modelName) == ["current-model"])
-    }
-
-    @Test
-    func `subscription labels allow plan tiers but reject overloaded identity details`() {
+    func `subscription labels require a plan tier provider contract`() {
         #expect(ShareStatsSubscriptionName.sanitized(provider: .codex, rawName: "pro") == "Pro 20x")
         #expect(ShareStatsSubscriptionName.sanitized(provider: .cursor, rawName: "Cursor Pro") == "Cursor Pro")
-        #expect(ShareStatsSubscriptionName.sanitized(
-            provider: .deepgram,
-            rawName: "Project: secret-project") == nil)
-        #expect(ShareStatsSubscriptionName.sanitized(
-            provider: .azureopenai,
-            rawName: "Deployment: private-deployment") == nil)
-        #expect(ShareStatsSubscriptionName.sanitized(
-            provider: .openrouter,
-            rawName: "Balance: $49.58") == nil)
-        #expect(ShareStatsSubscriptionName.sanitized(
-            provider: .kilo,
-            rawName: "Pro · Auto top-up: visa") == nil)
+        #expect(ShareStatsSubscriptionName.sanitized(provider: .openrouter, rawName: "Team") == nil)
+        #expect(ShareStatsSubscriptionName.sanitized(provider: .claude, rawName: "name@example.com") == nil)
     }
 
-    @MainActor
     @Test
-    func `card uses standard social preview dimensions without invoking GPU rendering`() {
-        #expect(ShareStatsCardView.size.width == 1200)
-        #expect(ShareStatsCardView.size.height == 630)
+    func `empty dashboard has no share payload`() {
+        #expect(ShareStatsBuilder.make(model: SpendDashboardModel(requestedDays: 30, groups: [])) == nil)
     }
 
-    @MainActor
     @Test
-    func `menu only exposes share stats when the builder can render data`() throws {
-        let suite = "ShareStatsTests-menu-availability"
-        let settings = testSettingsStore(suiteName: suite)
-        settings.statusChecksEnabled = false
-        settings.providerDetectionCompleted = true
-        let metadata = ProviderRegistry.shared.metadata
-        for provider in UsageProvider.allCases {
-            guard let providerMetadata = metadata[provider] else { continue }
-            settings.setProviderEnabled(
-                provider: provider,
-                metadata: providerMetadata,
-                enabled: provider == .claude)
-        }
+    func `non-finite spend becomes unavailable`() throws {
+        let model = SpendDashboardModel(requestedDays: 7, groups: [
+            SpendDashboardModel.CurrencyGroup(
+                currencyCode: "USD",
+                providers: [
+                    SpendDashboardModel.ProviderRow(
+                        id: "codex",
+                        rank: 1,
+                        provider: .codex,
+                        displayName: "Codex",
+                        totalTokens: 10,
+                        totalCost: .nan,
+                        coveredDayCount: 7),
+                ],
+                models: [
+                    SpendDashboardModel.ModelRow(
+                        rank: 1,
+                        provider: .codex,
+                        providerName: "Codex",
+                        modelName: "gpt-5.4",
+                        totalTokens: 10,
+                        totalCost: .infinity),
+                ],
+                dailyPoints: [],
+                totalTokens: 10,
+                totalCost: -.infinity,
+                coveredDayCount: 7,
+                chartDomain: Self.date...Self.date,
+                modelHistoryCompleteness: .complete),
+        ])
+        let payload = try #require(ShareStatsBuilder.make(model: model))
 
-        let store = UsageStore(
-            fetcher: UsageFetcher(environment: [:]),
-            browserDetection: BrowserDetection(cacheTTL: 0),
-            settings: settings,
-            startupBehavior: .testing,
-            environmentBase: [:])
-        store._setSnapshotForTesting(Self.usage(usedPercent: 38), provider: .claude)
-
-        let quotaOnly = Self.menuActions(store: store, settings: settings)
-        #expect(!quotaOnly.contains(.shareStats))
-
-        let localNoon = try #require(Calendar.current.date(from: DateComponents(
-            year: 2026,
-            month: 7,
-            day: 7,
-            hour: 12)))
-        store._setTokenSnapshotForTesting(Self.snapshot(
-            tokens: 732_000_000,
-            cost: 500,
-            modelName: "claude-sonnet-5",
-            projectName: "other-secret",
-            updatedAt: localNoon), provider: .claude)
-        let tokenBacked = Self.menuActions(store: store, settings: settings)
-        #expect(tokenBacked.contains(.shareStats))
+        #expect(payload.providers.first?.estimatedCost == nil)
+        #expect(payload.topModels.first?.estimatedCost == nil)
+        #expect(payload.currencies.first?.estimatedCost == nil)
+        #expect(!ShareStatsFormatting.text(payload).lowercased().contains("nan"))
+        #expect(!ShareStatsFormatting.text(payload).lowercased().contains("inf"))
     }
 
-    private static let codexSnapshot = Self.snapshot(
-        tokens: 4_768_000_000,
-        cost: 3750,
-        modelName: "gpt-5.5",
-        projectName: "secret-project")
-    private static let claudeSnapshot = Self.snapshot(
-        tokens: 732_000_000,
-        cost: 500,
-        modelName: "claude-sonnet-5",
-        projectName: "other-secret")
+    @Test @MainActor
+    func `renderer creates social card PNG`() throws {
+        let payload = try #require(ShareStatsBuilder.make(model: Self.dashboard))
+        let data = try #require(ShareStatsRenderer.pngData(for: payload))
 
-    private static func snapshot(
-        tokens: Int,
-        cost: Double,
-        modelName: String,
-        projectName: String,
-        updatedAt: Date = Date(timeIntervalSince1970: 1_783_382_400)) -> CostUsageTokenSnapshot
-    {
-        CostUsageTokenSnapshot(
-            sessionTokens: nil,
-            sessionCostUSD: nil,
-            last30DaysTokens: tokens,
-            last30DaysCostUSD: cost,
-            historyDays: 30,
-            daily: [self.entry(day: "2026-07-07", tokens: tokens, cost: cost, modelName: modelName)],
-            projects: [
-                CostUsageProjectBreakdown(
-                    name: projectName,
-                    path: "/Users/example/\(projectName)",
-                    totalTokens: 10,
-                    totalCostUSD: 1,
-                    daily: [],
-                    modelBreakdowns: nil),
-            ],
-            updatedAt: updatedAt)
+        #expect(ShareStatsCardView.size == CGSize(width: 1200, height: 630))
+        #expect(data.starts(with: [0x89, 0x50, 0x4E, 0x47]))
     }
 
-    private static func usage(usedPercent: Double) -> UsageSnapshot {
-        UsageSnapshot(
-            primary: RateWindow(
-                usedPercent: usedPercent,
-                windowMinutes: 300,
-                resetsAt: nil,
-                resetDescription: nil),
-            secondary: nil,
-            updatedAt: Date(timeIntervalSince1970: 1_783_382_400))
+    private static let date = Date(timeIntervalSince1970: 1_783_382_400)
+
+    private static var dashboard: SpendDashboardModel {
+        self.dashboard(models: ["gpt-5.4"])
     }
 
-    private static func entry(
-        day: String,
-        tokens: Int,
-        cost: Double,
-        modelName: String) -> CostUsageDailyReport.Entry
-    {
-        CostUsageDailyReport.Entry(
-            date: day,
-            inputTokens: nil,
-            outputTokens: nil,
-            totalTokens: tokens,
-            costUSD: cost,
-            modelsUsed: [modelName],
-            modelBreakdowns: [.init(modelName: modelName, costUSD: cost, totalTokens: tokens)])
-    }
-
-    @MainActor
-    private static func menuActions(store: UsageStore, settings: SettingsStore) -> [MenuDescriptor.MenuAction] {
-        MenuDescriptor.build(
-            provider: .claude,
-            store: store,
-            settings: settings,
-            account: AccountInfo(email: nil, plan: nil),
-            updateReady: false,
-            includeContextualActions: false)
-            .sections
-            .flatMap(\.entries)
-            .compactMap { entry in
-                guard case let .action(_, action) = entry else { return nil }
-                return action
-            }
-    }
-
-    private static var calendar: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        return calendar
+    private static func dashboard(models: [String]) -> SpendDashboardModel {
+        SpendDashboardModel(requestedDays: 30, groups: [
+            SpendDashboardModel.CurrencyGroup(
+                currencyCode: "GBP",
+                providers: [
+                    SpendDashboardModel.ProviderRow(
+                        id: "claude",
+                        rank: 1,
+                        provider: .claude,
+                        displayName: "Claude",
+                        totalTokens: 300,
+                        totalCost: 12,
+                        coveredDayCount: 10),
+                ],
+                models: [
+                    SpendDashboardModel.ModelRow(
+                        rank: 1,
+                        provider: .claude,
+                        providerName: "Claude",
+                        modelName: "claude-sonnet-4",
+                        totalTokens: 1000,
+                        totalCost: 1),
+                ],
+                dailyPoints: [],
+                totalTokens: 300,
+                totalCost: 12,
+                coveredDayCount: 10,
+                chartDomain: self.date...self.date,
+                modelHistoryCompleteness: .complete),
+            SpendDashboardModel.CurrencyGroup(
+                currencyCode: "USD",
+                providers: [
+                    SpendDashboardModel.ProviderRow(
+                        id: "codex:one",
+                        rank: 1,
+                        provider: .codex,
+                        displayName: "Codex · #1",
+                        totalTokens: 200,
+                        totalCost: 4,
+                        coveredDayCount: 30),
+                    SpendDashboardModel.ProviderRow(
+                        id: "cursor",
+                        rank: 2,
+                        provider: .cursor,
+                        displayName: "Cursor",
+                        totalTokens: nil,
+                        totalCost: nil,
+                        coveredDayCount: 0),
+                ],
+                models: models.enumerated().map { index, name in
+                    SpendDashboardModel.ModelRow(
+                        rank: index + 1,
+                        provider: .codex,
+                        providerName: "Codex",
+                        modelName: name,
+                        totalTokens: 200,
+                        totalCost: 4)
+                },
+                dailyPoints: [],
+                totalTokens: nil,
+                totalCost: nil,
+                coveredDayCount: 0,
+                chartDomain: self.date...self.date,
+                modelHistoryCompleteness: .complete),
+        ])
     }
 }

@@ -39,7 +39,6 @@ struct MenuDescriptor {
     enum MenuActionSystemImage: String {
         case installUpdate = "arrow.down.circle"
         case refresh = "arrow.clockwise"
-        case shareStats = "square.and.arrow.up"
         case dashboard = "chart.xyaxis.line"
         case statusPage = "waveform.path.ecg"
         case changelog = "list.bullet.rectangle"
@@ -64,7 +63,6 @@ struct MenuDescriptor {
         case installUpdate
         case refresh
         case refreshAugmentSession
-        case shareStats
         case dashboard
         case statusPage
         case changelog
@@ -150,9 +148,7 @@ struct MenuDescriptor {
                 remoteHosts: remoteAgentHosts,
                 now: now))
         }
-        sections.append(Self.metaSection(
-            updateReady: updateReady,
-            shareStatsAvailable: Self.shareStatsAvailable(store: store)))
+        sections.append(Self.metaSection(updateReady: updateReady))
 
         return MenuDescriptor(sections: sections)
     }
@@ -602,36 +598,18 @@ struct MenuDescriptor {
         return Section(entries: entries)
     }
 
-    private static func metaSection(updateReady: Bool, shareStatsAvailable: Bool) -> Section {
+    private static func metaSection(updateReady: Bool) -> Section {
         var entries: [Entry] = []
         if updateReady {
             entries.append(.action(L("Update ready, restart now?"), .installUpdate))
         }
-        entries.append(.action(L("Refresh"), .refresh))
-        if shareStatsAvailable {
-            entries.append(.action(L("Share Stats..."), .shareStats))
-        }
         entries.append(contentsOf: [
+            .action(L("Refresh"), .refresh),
             .action(L("Settings..."), .settings),
             .action(L("About CodexBar"), .about),
             .action(L("Quit"), .quit),
         ])
         return Section(entries: entries)
-    }
-
-    private static func shareStatsAvailable(store: UsageStore) -> Bool {
-        store.enabledProviders().contains { provider in
-            let usageSnapshot = store.snapshot(for: provider)
-            let local = store.tokenSnapshot(for: provider)
-            let projected = store.tokenSnapshot(fromProviderSnapshot: usageSnapshot, provider: provider)
-            if let snapshot = local ?? projected {
-                let summary = snapshot.summary(forLastDays: 30)
-                if summary.totalTokens != nil || summary.totalCostUSD != nil {
-                    return true
-                }
-            }
-            return ShareStatsReportedSpend.from(provider: provider, snapshot: usageSnapshot) != nil
-        }
     }
 
     private static func statusLine(for provider: UsageProvider?, store: UsageStore) -> String? {
@@ -753,7 +731,6 @@ extension MenuDescriptor.MenuAction {
         case .quit: MenuDescriptor.MenuActionSystemImage.quit.rawValue
         case .refresh: MenuDescriptor.MenuActionSystemImage.refresh.rawValue
         case .refreshAugmentSession: MenuDescriptor.MenuActionSystemImage.refresh.rawValue
-        case .shareStats: MenuDescriptor.MenuActionSystemImage.shareStats.rawValue
         case .dashboard: MenuDescriptor.MenuActionSystemImage.dashboard.rawValue
         case .statusPage: MenuDescriptor.MenuActionSystemImage.statusPage.rawValue
         case .changelog: MenuDescriptor.MenuActionSystemImage.changelog.rawValue

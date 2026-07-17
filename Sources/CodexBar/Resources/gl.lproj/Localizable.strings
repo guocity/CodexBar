@@ -1228,12 +1228,9 @@
 "Image copied" = "Imaxe copiada";
 "Image saved" = "Imaxe gardada";
 "Nothing is uploaded. This image is created on your Mac." = "Non se carga nada. Esta imaxe créase no teu Mac.";
-"Preview, copy, or save one private card with all enabled subscriptions." = "Previsualiza, copia ou garda unha tarxeta privada con todas as subscricións activadas.";
 "Save..." = "Gardar...";
 "Share AI Usage" = "Compartir uso da IA";
 "Share Stats…" = "Compartir estatísticas…";
-"Share usage card" = "Compartir tarxeta de uso";
-"Sharing" = "Compartir";
 "Stats copied" = "Estatísticas copiadas";
 "Finish switching to a different Cursor account in your browser, then try again." = "Completa o cambio a outra conta de Cursor no navegador e téntao de novo.";
 "Timed out waiting for Cursor account switch. %@" = "Esgotouse o tempo de espera para cambiar de conta de Cursor. %@";

@@ -1232,12 +1232,9 @@
 "Image copied" = "คัดลอกรูปภาพแล้ว";
 "Image saved" = "บันทึกรูปภาพแล้ว";
 "Nothing is uploaded. This image is created on your Mac." = "ไม่มีการอัปโหลด รูปภาพนี้สร้างขึ้นบน Mac ของคุณ";
-"Preview, copy, or save one private card with all enabled subscriptions." = "ดูตัวอย่าง คัดลอก หรือบันทึกการ์ดส่วนตัวที่รวมการสมัครสมาชิกทั้งหมดที่เปิดใช้งาน";
 "Save..." = "บันทึก...";
 "Share AI Usage" = "แชร์การใช้งาน AI";
 "Share Stats…" = "แชร์สถิติ…";
-"Share usage card" = "แชร์การ์ดการใช้งาน";
-"Sharing" = "การแชร์";
 "Stats copied" = "คัดลอกสถิติแล้ว";
 "Finish switching to a different Cursor account in your browser, then try again." = "สลับไปยังบัญชี Cursor อื่นในเบราว์เซอร์ให้เสร็จ แล้วลองอีกครั้ง";
 "Timed out waiting for Cursor account switch. %@" = "หมดเวลารอการสลับบัญชี Cursor %@";

@@ -2,6 +2,20 @@ import AppKit
 import SwiftUI
 
 @MainActor
+final class ShareStatsPresenter {
+    static let shared = ShareStatsPresenter()
+
+    private var windowController: ShareStatsWindowController?
+
+    func present(payload: ShareStatsPayload) {
+        let controller = self.windowController ?? ShareStatsWindowController(payload: payload)
+        controller.update(payload: payload)
+        self.windowController = controller
+        controller.present()
+    }
+}
+
+@MainActor
 final class ShareStatsWindowController: NSWindowController, NSWindowDelegate {
     private(set) var payload: ShareStatsPayload
 

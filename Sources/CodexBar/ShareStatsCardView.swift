@@ -69,32 +69,40 @@ struct ShareStatsCardView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 10) {
-                ShareStatsMetric(
-                    label: "EST. \(self.payload.days)-DAY SPEND",
-                    value: self.payload.estimatedCostUSD
-                        .flatMap { $0.isFinite ? ShareStatsFormatting.currencyUSD($0) : nil } ?? "—",
-                    valueSize: 42,
-                    color: self.primary,
-                    secondary: self.secondary)
-                if let monthToDateSpendUSD = self.payload.monthToDateSpendUSD {
-                    ShareStatsMetric(
-                        label: "OPENROUTER · MONTH TO DATE",
-                        value: ShareStatsFormatting.currencyUSD(monthToDateSpendUSD),
-                        valueSize: 34,
-                        color: self.accent,
-                        secondary: self.secondary)
-                } else {
-                    Text(
-                        "\(self.payload.providers.count) subscriptions · "
-                            + "\(self.payload.topModels.count) models surfaced")
-                        .font(.system(size: 18, weight: .medium, design: .rounded))
-                        .foregroundStyle(self.secondary)
+            VStack(alignment: .leading, spacing: 9) {
+                Text("EST. \(self.payload.days)-DAY SPEND")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .tracking(1.2)
+                    .foregroundStyle(self.secondary)
+                ForEach(self.payload.currencies.prefix(2)) { currency in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("\(currency.currencyCode) · \(currency.coveredDayCount)/\(self.payload.days)d")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundStyle(self.secondary)
+                        Spacer()
+                        Text(currency.estimatedCost.map {
+                            ShareStatsFormatting.currency($0, code: currency.currencyCode)
+                        } ?? "Unavailable")
+                            .font(.system(size: 32, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                    }
                 }
+                Text(self.currencySummary)
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundStyle(self.secondary)
             }
             .frame(width: 390, alignment: .leading)
         }
         .frame(height: 132, alignment: .bottom)
+    }
+
+    private var currencySummary: String {
+        let hiddenCount = self.payload.currencies.count - min(self.payload.currencies.count, 2)
+        return hiddenCount > 0
+            ? "+\(hiddenCount) more currencies · see subscription rows"
+            : "\(self.payload.providers.count) subscriptions · native currencies kept separate"
     }
 
     private var rankings: some View {
@@ -103,11 +111,12 @@ struct ShareStatsCardView: View {
                 self.sectionHeader("SUBSCRIPTIONS", detail: "\(self.payload.providers.count) CONNECTED")
                 ForEach(
                     Array(self.payload.providers.prefix(self.providerDisplayLimit).enumerated()),
-                    id: \.element.id)
+                    id: \.offset)
                 { index, provider in
                     ShareStatsProviderRow(
                         rank: index + 1,
                         provider: provider,
+                        days: self.payload.days,
                         color: ShareStatsPalette.color(at: index))
                 }
                 if self.payload.providers.count > self.providerDisplayLimit {
@@ -130,7 +139,7 @@ struct ShareStatsCardView: View {
                     } else {
                         ForEach(
                             Array(self.payload.topModels.prefix(3).enumerated()),
-                            id: \.element.id)
+                            id: \.offset)
                         { index, model in
                             ShareStatsModelRow(
                                 rank: index + 1,
@@ -139,19 +148,10 @@ struct ShareStatsCardView: View {
                         }
                     }
                 }
-                HStack {
-                    Text("ACTIVITY BY SUBSCRIPTION")
-                    Spacer()
-                    Text("\(self.payload.days)D")
-                        .monospacedDigit()
-                }
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .tracking(1.1)
-                .foregroundStyle(self.secondary)
-                .padding(.top, 18)
-                ShareStatsActivityChart(providers: self.payload.providers, emptyColor: self.secondary)
-                    .frame(height: 56)
-                    .padding(.top, 8)
+                Text("Only aggregate usage, plan tier, and estimated spend are included.")
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundStyle(self.secondary)
+                    .padding(.top, 18)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -191,30 +191,6 @@ struct ShareStatsCardView: View {
         .font(.system(size: 14, weight: .medium, design: .rounded))
         .tracking(0.7)
         .foregroundStyle(self.secondary)
-    }
-}
-
-private struct ShareStatsMetric: View {
-    let label: String
-    let value: String
-    let valueSize: CGFloat
-    let color: Color
-    let secondary: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(self.label)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .tracking(1.2)
-                .foregroundStyle(self.secondary)
-                .lineLimit(1)
-            Text(self.value)
-                .font(.system(size: self.valueSize, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(self.color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
     }
 }
 
@@ -260,8 +236,8 @@ private struct ShareStatsModelRow: View {
     }
 
     private var detail: String {
-        if let cost = self.model.estimatedCostUSD, cost.isFinite {
-            return "~\(ShareStatsFormatting.currencyUSD(cost))"
+        if let cost = self.model.estimatedCost, cost.isFinite {
+            return "~\(ShareStatsFormatting.currency(cost, code: self.model.currencyCode))"
         }
         return self.model.totalTokens.map(ShareStatsFormatting.compactCount) ?? "used"
     }
@@ -270,6 +246,7 @@ private struct ShareStatsModelRow: View {
 private struct ShareStatsProviderRow: View {
     let rank: Int
     let provider: ShareStatsProviderPayload
+    let days: Int
     let color: Color
 
     var body: some View {
@@ -316,9 +293,13 @@ private struct ShareStatsProviderRow: View {
         if let tokens = self.provider.totalTokens {
             metrics.append(ShareStatsFormatting.compactCount(tokens))
         }
-        if let cost = self.provider.estimatedCostUSD, cost.isFinite {
-            let window = self.provider.spendWindow == .monthToDate ? " MTD" : ""
-            metrics.append("~\(ShareStatsFormatting.currencyUSD(cost))\(window)")
+        if let cost = self.provider.estimatedCost, cost.isFinite {
+            metrics.append("~\(ShareStatsFormatting.currency(cost, code: self.provider.currencyCode))")
+            if self.provider.coveredDayCount < self.days {
+                metrics.append("\(self.provider.coveredDayCount)/\(self.days)d")
+            }
+        } else {
+            metrics.append("Spend unavailable")
         }
         return metrics.isEmpty ? "connected" : metrics.joined(separator: " · ")
     }
@@ -351,69 +332,5 @@ private struct ShareStatsMark: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    }
-}
-
-private struct ShareStatsActivityChart: View {
-    struct Series: Identifiable {
-        let id: String
-        let values: [Int]
-        let color: Color
-    }
-
-    let providers: [ShareStatsProviderPayload]
-    let emptyColor: Color
-
-    var body: some View {
-        let dailySeries = self.providers.enumerated().map { index, provider in
-            Series(id: provider.id, values: provider.dailyTokens, color: ShareStatsPalette.color(at: index))
-        }
-        let dayCount = dailySeries.map(\.values.count).max() ?? 0
-        let bucketCount = min(10, dayCount)
-        let series = dailySeries.map { item in
-            Series(
-                id: item.id,
-                values: (0..<bucketCount).map { bucket in
-                    let start = bucket * dayCount / max(bucketCount, 1)
-                    let end = (bucket + 1) * dayCount / max(bucketCount, 1)
-                    return (start..<end).reduce(0) { subtotal, day in
-                        subtotal + (item.values.indices.contains(day) ? item.values[day] : 0)
-                    }
-                },
-                color: item.color)
-        }
-        let totals = (0..<bucketCount).map { bucket in
-            series.reduce(0) { total, item in
-                total + (item.values.indices.contains(bucket) ? item.values[bucket] : 0)
-            }
-        }
-        let maximum = max(Double(totals.max() ?? 0), 1)
-
-        GeometryReader { proxy in
-            HStack(alignment: .bottom, spacing: 6) {
-                ForEach(0..<bucketCount, id: \.self) { bucket in
-                    let total = totals[bucket]
-                    if total == 0 {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(self.emptyColor.opacity(0.13))
-                            .frame(maxWidth: .infinity, maxHeight: 4)
-                    } else {
-                        VStack(spacing: 1) {
-                            Spacer(minLength: 0)
-                            ForEach(Array(series.reversed())) { item in
-                                let value = item.values.indices.contains(bucket) ? item.values[bucket] : 0
-                                if value > 0 {
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(item.color.opacity(0.90))
-                                        .frame(height: max(2, proxy.size.height * Double(value) / maximum))
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    }
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .bottom)
-        }
     }
 }

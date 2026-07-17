@@ -69,21 +69,6 @@ struct MenuPane: View {
             CostSummarySettingsSection(settings: self.settings, store: self.store)
 
             Section {
-                LabeledContent {
-                    Button(L("Share Stats…")) {
-                        NotificationCenter.default.post(name: .codexbarShareStats, object: nil)
-                    }
-                    .disabled(self.store.enabledProvidersForDisplay().isEmpty)
-                } label: {
-                    SettingsRowLabel(
-                        L("Share usage card"),
-                        subtitle: L("Preview, copy, or save one private card with all enabled subscriptions."))
-                }
-            } header: {
-                Text(L("Sharing"))
-            }
-
-            Section {
                 Toggle(isOn: self.$settings.agentSessionsEnabled) {
                     SettingsRowLabel(
                         L("agent_sessions_title"),

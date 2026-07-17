@@ -116,8 +116,6 @@ struct MenuContent: View {
             self.actions.refresh()
         case .refreshAugmentSession:
             self.actions.refreshAugmentSession()
-        case .shareStats:
-            self.actions.shareStats()
         case .installUpdate:
             self.actions.installUpdate()
         case .dashboard:
@@ -158,7 +156,6 @@ struct MenuActions {
     let installUpdate: () -> Void
     let refresh: () -> Void
     let refreshAugmentSession: () -> Void
-    let shareStats: () -> Void
     let openDashboard: () -> Void
     let openStatusPage: () -> Void
     let openChangelog: () -> Void

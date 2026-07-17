@@ -1230,12 +1230,9 @@
 "Image copied" = "Görsel kopyalandı";
 "Image saved" = "Görsel kaydedildi";
 "Nothing is uploaded. This image is created on your Mac." = "Hiçbir şey yüklenmez. Bu görsel Mac'inizde oluşturulur.";
-"Preview, copy, or save one private card with all enabled subscriptions." = "Etkin tüm abonelikleri içeren özel bir kartı önizleyin, kopyalayın veya kaydedin.";
 "Save..." = "Kaydet...";
 "Share AI Usage" = "Yapay Zekâ Kullanımını Paylaş";
 "Share Stats…" = "İstatistikleri Paylaş…";
-"Share usage card" = "Kullanım kartını paylaş";
-"Sharing" = "Paylaşım";
 "Stats copied" = "İstatistikler kopyalandı";
 "Finish switching to a different Cursor account in your browser, then try again." = "Tarayıcınızda farklı bir Cursor hesabına geçişi tamamlayın, ardından yeniden deneyin.";
 "Timed out waiting for Cursor account switch. %@" = "Cursor hesap değişikliği beklenirken zaman aşımına uğradı. %@";
