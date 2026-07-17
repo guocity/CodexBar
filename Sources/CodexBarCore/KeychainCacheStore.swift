@@ -41,7 +41,6 @@ public enum KeychainCacheStore {
     private static let log = CodexBarLog.logger(LogCategories.keychainCache)
     private static let cacheService = "com.steipete.codexbar.cache"
     private static let cacheLabel = "CodexBar Cache"
-    private nonisolated(unsafe) static var globalServiceOverride: String?
     @TaskLocal private static var serviceOverride: String?
     @TaskLocal private static var forceImplicitTestStore = false
     #if DEBUG
@@ -261,10 +260,6 @@ public enum KeychainCacheStore {
         #endif
     }
 
-    static func setServiceOverrideForTesting(_ service: String?) {
-        self.globalServiceOverride = service
-    }
-
     public static func withServiceOverrideForTesting<T>(
         _ service: String?,
         operation: () throws -> T) rethrows -> T
@@ -408,7 +403,7 @@ public enum KeychainCacheStore {
     }
 
     private static var serviceName: String {
-        serviceOverride ?? self.globalServiceOverride ?? self.cacheService
+        serviceOverride ?? self.cacheService
     }
 
     private static var canUseRealKeychain: Bool {

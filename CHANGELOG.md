@@ -1,12 +1,50 @@
 # Changelog
 
-## 0.43.1 — Unreleased
+## 0.44.1 — Unreleased
+
+### Fixed
+
+## 0.44.0 — 2026-07-17
 
 ### Added
 - ZenMux: add Management API usage with five-hour and weekly quotas, subscription expiry, and USD PAYG balance. Thanks @kays0x!
+- Settings: add a local Usage & Spend view with honest 7/30-day coverage, native-currency grouping, and exact-home Codex account scans (#2116). Thanks @Chipagosfinest!
+- Settings: add a private local share card for Usage & Spend, with native-currency totals and sanitized plan/model labels (#2112). Thanks @Chipagosfinest!
+- Hooks: add opt-in external commands for quota and provider state changes with shell-free execution and refresh-storm protection (#2001). Thanks @jychp!
+- CLI: add token-gated dashboard snapshots to codexbar serve, keep sensitive responses uncached, and require explicit plain-HTTP opt-in for LAN binds (#2227). Thanks @jethac!
+- CLI: show opt-in claude-swap accounts as full and brief usage cards while preserving explicit account and source overrides (#2188). Thanks @possibilities!
+- ClinePass: add API-key usage tracking for five-hour, weekly, and monthly quota windows (#2219). Thanks @joeVenner and @derekszen!
+- LongCat: add disabled-by-default quota and fuel-pack tracking with manual or browser cookie authentication (#1697). Thanks @LeoLin990405!
+- Neuralwatt: add API-key usage tracking for subscription kWh and prepaid credits (#2220). Thanks @jrimmer and @joeVenner!
+- Codex: add opt-in local session cost estimates for organization API-key users (#2172). Thanks @wicolian!
+- Cursor: add dashboard token-cost reports with per-model API-rate estimates and Cursor-metered totals (#1745). Thanks @EClinick!
+- Copilot: add calendar-month pace projections and markers for reset-aware quotas (#2169). Thanks @Zihao-Qi!
+- Grok: add guarded weekly pace projections for seven-day quota windows (#2170). Thanks @Zihao-Qi!
+- Groq: add console-session spend and token usage with Enterprise Prometheus fallback (#2125). Thanks @3kh0!
+- DeepSeek: add detailed Platform usage, profile-scoped browser sessions, and current-month token history (#2135). Thanks @Zihao-Qi!
+- Menu bar: add an opt-in high-contrast mode for Icon & percent that keeps icons and metrics readable on inactive displays (#2210). Thanks @zpmdd!
+- MiMo: recover session-only Firefox cookies from bounded session restore files (#1565). Thanks @aaronflorey!
+- Confetti: use branded provider palettes for reset celebrations (#2177). Thanks @kreitter!
 
 ### Fixed
-- Claude: distinguish Team Standard and Team Premium seats in web-account plan labels. Thanks @hegelty!
+- Codex: fix copied-prefix subagent accounting so inherited history is not counted as leaf usage (#2228). Thanks @hhh2210!
+- Claude: stop automatic refreshes from launching prompt-capable Claude CLI auth checks or delegated refreshes unless Keychain access is explicitly always allowed (#2191). Thanks @Yuxin-Qiao!
+- Claude: stop automatic startup refreshes from prompting for Claude Code credentials under the default “Only on user action” Keychain policy (#2195). Thanks @avenoxai!
+- Claude: coalesce Keychain prompts within one refresh so concurrent credential reads reuse one result (#2202). Thanks @farzanariel!
+- Claude: prevent duplicate weekly reset confetti after stale usage rebounds (#2231). Thanks @Zihao-Qi!
+- Claude: confirm identity-less CLI reset samples before showing session or weekly confetti (#2224). Thanks @Yuxin-Qiao!
+- Claude: distinguish Team Standard and Team Premium seats in web-account plan labels while preserving legacy Enterprise plan labels (#1965, #2244). Thanks @hegelty!
+- Codex: respect configured work days for weekly pace while keeping Automatic historical projections (#2179). Thanks @Zihao-Qi!
+- Codex: hide pace details for fully depleted weekly quotas while retaining reset countdowns (#2226). Thanks @Yuxin-Qiao!
+- Codex: label USD totals as API-equivalent estimates so subscription users know they are not billed amounts (#2181). Thanks @Yuxin-Qiao!
+- CLI: bound CLI and RPC output buffering to prevent runaway memory growth (#2196). Thanks @Yuxin-Qiao!
+- Cost usage: retain incomplete JSONL tails so active Codex, Claude, Vertex AI, and Pi sessions do not lose appended usage records (#2168). Thanks @ShiroKSH!
+- Browser cookies: block background Chromium Keychain access so Safe Storage prompts occur only after user-initiated refreshes (#2225). Thanks @Yuxin-Qiao!
+- StepFun: show credit-plan usage instead of false 0% and combine mixed balances correctly (#2184). Thanks @douxy1994!
+- Grok: preserve team identity and report unavailable team usage instead of failing on personal-team billing errors (#2186). Thanks @vincent-peng!
+- Ollama: surface Safari Full Disk Access and browser Keychain recovery hints when session cookies cannot be read (#2249). Thanks @fishcharlie!
+- Command Code: fix the billing link to open the generic account settings route instead of a contributor-specific path (#2254).
+- Workflows: prevent third-party upstream commit text from being interpolated into privileged GitHub Actions scripts (#2185). Thanks @Hinotoi-agent!
 - Claude: preserve each account’s last-good OAuth usage during rate limits and isolate retry cooldowns per credential. Thanks @ruushu!
 - Claude: recover a missing credentials file from a valid Claude Code Keychain item without showing Keychain UI when Never prompt is selected (#1975). Thanks @OfficialAbhinavSingh!
 - Codex cost usage: invalidate cached fork totals when the parent session appears, changes, or resolves to a different file, preventing stale inherited baselines. Thanks @xx205!
@@ -17,6 +55,16 @@
 - Ollama: explain that API-key verification cannot show Cloud quota limits and direct users to browser-cookie mode (#2159). Thanks @kiranmagic7!
 - Claude: suppress duplicate all-model scoped quota rows that could appear as “All models only” beside Weekly.
 - Copilot: hide quota bars explicitly marked unlimited while preserving finite Premium and Chat quotas. Thanks @Zihao-Qi!
+
+### Removed
+- Kimi K2: remove the unofficial anonymous relay while retaining official Kimi and Moonshot coverage (#2254).
+- CrossModel: remove the hosted relay pending identifiable operator and verifiable upstream-authorization details (#2254). Thanks @hujuncheng!
+
+### Internal
+- Tests: isolate cookie importer overrides across concurrent tasks (#2212). Thanks @kiranmagic7!
+- CI: defer macOS test shards for draft pull requests (#2161). Thanks @Yuxin-Qiao!
+- Localization: complete app locale coverage across all existing catalogs (#2229). Thanks @Yuxin-Qiao!
+- Dev: verify packaged Sparkle and app signatures and reject quarantine attributes before reporting a successful development package (#2232). Thanks @Yuxin-Qiao!
 
 ## 0.43.0 — 2026-07-14
 

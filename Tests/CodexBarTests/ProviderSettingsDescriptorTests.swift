@@ -51,30 +51,6 @@ struct ProviderSettingsDescriptorTests {
     }
 
     @Test
-    func `codex exposes usage and cookie pickers`() throws {
-        let fixture = try self.makeSettingsFixture(suite: "ProviderSettingsDescriptorTests-codex")
-        let context = fixture.settingsContext(provider: .codex)
-
-        let pickers = CodexProviderImplementation().settingsPickers(context: context)
-        let toggles = CodexProviderImplementation().settingsToggles(context: context)
-        #expect(pickers.contains(where: { $0.id == "codex-usage-source" }))
-        let cookiePicker = try #require(pickers.first(where: { $0.id == "codex-cookie-source" }))
-        #expect(cookiePicker.placement == .connection)
-        #expect(toggles.contains(where: { $0.id == "codex-historical-tracking" }))
-        let sparkToggle = try #require(toggles.first(where: { $0.id == "codex-spark-usage-visible" }))
-        #expect(sparkToggle.title == "Show Codex Spark usage")
-        #expect(sparkToggle.subtitle.contains("menu and provider preview"))
-        #expect(sparkToggle.binding.wrappedValue)
-        #expect(sparkToggle.isEnabled?() == true)
-
-        sparkToggle.binding.wrappedValue = false
-        #expect(fixture.settings.codexSparkUsageVisible == false)
-
-        fixture.settings.showOptionalCreditsAndExtraUsage = false
-        #expect(sparkToggle.isEnabled?() == false)
-    }
-
-    @Test
     func `antigravity usage source picker clarifies local ide and agy`() throws {
         let fixture = try self.makeSettingsFixture(suite: "ProviderSettingsDescriptorTests-antigravity-source")
         let context = fixture.settingsContext(provider: .antigravity)
@@ -341,7 +317,9 @@ struct ProviderSettingsDescriptorTests {
 
         #expect(detailLine == fixture.store.sourceLabel(for: .alibaba))
     }
+}
 
+extension ProviderSettingsDescriptorTests {
     @Test
     func `devin presentation follows store source label`() throws {
         let fixture = try self.makeSettingsFixture(suite: "ProviderSettingsDescriptorTests-devin-presentation")
@@ -853,7 +831,9 @@ extension ProviderSettingsDescriptorTests {
 
         #expect(DeepSeekProviderImplementation().settingsPickers(context: context).isEmpty)
     }
+}
 
+extension ProviderSettingsDescriptorTests {
     private func makeSettingsFixture(
         suite: String,
         environmentBase: [String: String] = [:]) throws -> ProviderSettingsFixture

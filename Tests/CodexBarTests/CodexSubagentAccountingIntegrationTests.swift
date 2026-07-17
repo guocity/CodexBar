@@ -201,6 +201,11 @@ struct CodexSubagentAccountingIntegrationTests {
         #expect(childUsages.allSatisfy {
             $0.forkBaselineDependencyKey == CostUsageScanner.codexForkDependencyNotRequiredKey
         })
+        let sessions = CostUsageScanner.buildCodexSessionBreakdownsFromCache(
+            cache: cache,
+            range: CostUsageScanner.CostUsageDayRange(since: day, until: day))
+        #expect(sessions.count == 3)
+        #expect(sessions.allSatisfy { $0.totalTokens == 55 })
     }
 
     @Test

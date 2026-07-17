@@ -744,7 +744,8 @@ struct CostHistoryChartMenuViewTests {
         historyDays: Int = 30,
         historyLabel: String? = nil,
         daily: [CostUsageDailyReport.Entry]? = nil,
-        projects: [CostUsageProjectBreakdown]? = nil) -> CostUsageTokenSnapshot
+        projects: [CostUsageProjectBreakdown]? = nil,
+        sessions: [CostUsageSessionBreakdown] = []) -> CostUsageTokenSnapshot
     {
         CostUsageTokenSnapshot(
             sessionTokens: 123,
@@ -765,6 +766,7 @@ struct CostHistoryChartMenuViewTests {
                     modelBreakdowns: nil),
             ],
             projects: projects ?? self.makeProjects(count: projectCount, sourcesPerProject: 1),
+            sessions: sessions,
             updatedAt: Date())
     }
 
@@ -776,6 +778,7 @@ struct CostHistoryChartMenuViewTests {
         historyLabel: String? = nil,
         daily: [CostUsageDailyReport.Entry]? = nil,
         projects: [CostUsageProjectBreakdown]? = nil,
+        sessions: [CostUsageSessionBreakdown] = [],
         provider: UsageProvider = .codex) -> CostHistoryChartMenuView.RenderFingerprint
     {
         CostHistoryChartMenuView.renderFingerprint(from: self.makeSnapshot(
@@ -785,7 +788,8 @@ struct CostHistoryChartMenuViewTests {
             historyDays: historyDays,
             historyLabel: historyLabel,
             daily: daily,
-            projects: projects), provider: provider)
+            projects: projects,
+            sessions: sessions), provider: provider)
     }
 
     private static func makeProjects(count: Int, sourcesPerProject: Int) -> [CostUsageProjectBreakdown] {
@@ -857,5 +861,39 @@ struct CostHistoryChartMenuViewTests {
                     totalTokens: 10),
             ],
             sources: sources)
+    }
+}
+
+extension CostHistoryChartMenuViewTests {
+    @Test
+    func `session labels distinguish concurrent uuid v7 identifiers`() {
+        let first = CostHistoryChartMenuView.shortSessionID("019f6d91-970b-7e13-b08e-000000000001")
+        let second = CostHistoryChartMenuView.shortSessionID("019f6d91-970b-7e13-b08e-000000000002")
+
+        #expect(first == "019f...00000001")
+        #expect(second == "019f...00000002")
+        #expect(first != second)
+    }
+
+    @Test
+    @MainActor
+    func `render fingerprint tracks displayed session token components`() {
+        func session(input: Int?, cached: Int?, output: Int?) -> CostUsageSessionBreakdown {
+            CostUsageSessionBreakdown(
+                sessionID: "session-1",
+                lastActivity: Date(timeIntervalSince1970: 100),
+                inputTokens: input,
+                cachedInputTokens: cached,
+                outputTokens: output,
+                totalTokens: 110,
+                requestCount: 1,
+                costUSD: 0.01,
+                modelBreakdowns: [])
+        }
+
+        let base = Self.fingerprint(sessions: [session(input: 100, cached: 20, output: 10)])
+        #expect(base != Self.fingerprint(sessions: [session(input: 90, cached: 20, output: 10)]))
+        #expect(base != Self.fingerprint(sessions: [session(input: 100, cached: 10, output: 10)]))
+        #expect(base != Self.fingerprint(sessions: [session(input: 100, cached: 20, output: 20)]))
     }
 }

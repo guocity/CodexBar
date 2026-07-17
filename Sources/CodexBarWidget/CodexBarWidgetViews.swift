@@ -325,14 +325,12 @@ private struct ProviderSwitchChip: View {
         case .augment: "Augment"
         case .jetbrains: "JetBrains"
         case .kimi: "Kimi"
-        case .kimik2: "Kimi K2"
         case .moonshot: "Moonshot"
         case .amp: "Amp"
         case .t3chat: "T3 Chat"
         case .ollama: "Ollama"
         case .synthetic: "Synthetic"
         case .openrouter: "OpenRouter"
-        case .crossmodel: "CrossModel"
         case .clawrouter: "ClawRouter"
         case .sub2api: "sub2api"
         case .wayfinder: "Wayfinder"
@@ -362,6 +360,7 @@ private struct ProviderSwitchChip: View {
         case .chutes: "Chutes"
         case .longcat: "LongCat"
         case .zed: "Zed"
+        case .neuralwatt: "Neuralwatt"
         case .zenmux: "ZenMux"
         }
     }
@@ -1033,8 +1032,6 @@ enum WidgetColors {
             Color(red: 255 / 255, green: 51 / 255, blue: 153 / 255) // JetBrains pink
         case .kimi:
             Color(red: 254 / 255, green: 96 / 255, blue: 60 / 255) // Kimi orange
-        case .kimik2:
-            Color(red: 76 / 255, green: 0 / 255, blue: 255 / 255) // Kimi K2 purple
         case .moonshot:
             Color(red: 32 / 255, green: 93 / 255, blue: 235 / 255)
         case .amp:
@@ -1047,8 +1044,6 @@ enum WidgetColors {
             Color(red: 20 / 255, green: 20 / 255, blue: 20 / 255) // Synthetic charcoal
         case .openrouter:
             Color(red: 111 / 255, green: 66 / 255, blue: 193 / 255) // OpenRouter purple
-        case .crossmodel:
-            Color(red: 124 / 255, green: 58 / 255, blue: 237 / 255) // CrossModel purple
         case .clawrouter:
             Color(red: 89 / 255, green: 110 / 255, blue: 246 / 255)
         case .sub2api:
@@ -1107,6 +1102,8 @@ enum WidgetColors {
             Color(red: 255 / 255, green: 209 / 255, blue: 0 / 255)
         case .zed:
             Color(red: 64 / 255, green: 156 / 255, blue: 255 / 255)
+        case .neuralwatt:
+            Color(red: 56 / 255, green: 217 / 255, blue: 140 / 255)
         case .zenmux:
             Color(red: 108 / 255, green: 92 / 255, blue: 231 / 255)
         }
