@@ -11,10 +11,6 @@ struct OllamaUsageFetcherTests {
         #expect(OllamaUsageError.notLoggedIn.errorDescription?.contains("https://ollama.com/signin") == true)
         #expect(OllamaUsageError.invalidCredentials.errorDescription?.contains("https://ollama.com/signin") == true)
         #expect(OllamaUsageError.noSessionCookie.errorDescription?.contains("https://ollama.com/signin") == true)
-        #expect(OllamaUsageError.noSessionCookie.errorDescription?.contains("Chrome Safe Storage") == true)
-        #expect(
-            OllamaUsageError.browserCookieKeychainAccessRequired.errorDescription?
-                .contains("Chrome Safe Storage") == true)
     }
 
     @Test

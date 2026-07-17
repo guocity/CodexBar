@@ -1559,7 +1559,7 @@ public enum ClaudeOAuthCredentialsStore {
                 data: overrideData,
                 persistentRefHash: overrideFingerprint?.persistentRefHash).map { .value($0) } ?? .unavailable
         }
-        if self.taskSecurityCLIReadOverride != nil || self.securityCLIReadOverride != nil {
+        if self.taskSecurityCLIReadOverride != nil {
             // A security(1) result cannot be bound to a persistent reference without an exact candidate read.
             return .unavailable
         }

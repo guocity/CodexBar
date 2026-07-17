@@ -60,15 +60,95 @@ public struct AgentSession: Codable, Equatable, Sendable, Identifiable {
 public struct SessionScanConfig: Equatable, Sendable {
     public var activeWindow: TimeInterval
     public var fileOnlyWindow: TimeInterval
+    public var maxProcessCount: Int
+    public var maxCodexRolloutCount: Int
+    public var maxClaudeTranscriptCountPerProject: Int
+    public var maxDirectoryEntryCount: Int
+    public var maxDirectoryDepth: Int
+    public var directoryScanBudget: TimeInterval
 
-    public init(activeWindow: TimeInterval = 120, fileOnlyWindow: TimeInterval = 30 * 60) {
+    public init(
+        activeWindow: TimeInterval = 120,
+        fileOnlyWindow: TimeInterval = 30 * 60,
+        maxProcessCount: Int = 64,
+        maxCodexRolloutCount: Int = 128,
+        maxClaudeTranscriptCountPerProject: Int = 64,
+        maxDirectoryEntryCount: Int = 512,
+        maxDirectoryDepth: Int = 1,
+        directoryScanBudget: TimeInterval = 0.25)
+    {
         self.activeWindow = activeWindow
         self.fileOnlyWindow = fileOnlyWindow
+        self.maxProcessCount = maxProcessCount
+        self.maxCodexRolloutCount = maxCodexRolloutCount
+        self.maxClaudeTranscriptCountPerProject = maxClaudeTranscriptCountPerProject
+        self.maxDirectoryEntryCount = maxDirectoryEntryCount
+        self.maxDirectoryDepth = maxDirectoryDepth
+        self.directoryScanBudget = directoryScanBudget
     }
 
     public func state(lastActivityAt: Date?, now: Date, hasLiveProcess: Bool) -> AgentSession.State {
         guard let lastActivityAt else { return hasLiveProcess ? .active : .idle }
         return now.timeIntervalSince(lastActivityAt) <= self.activeWindow ? .active : .idle
+    }
+}
+
+struct DirectoryMetadataScanBudget {
+    private var remainingEntryCount: Int
+    let maxDepth: Int
+    private let deadline: Date
+
+    init(
+        maxEntryCount: Int,
+        maxDepth: Int,
+        timeLimit: TimeInterval,
+        startedAt: Date = Date())
+    {
+        self.remainingEntryCount = max(0, maxEntryCount)
+        self.maxDepth = max(0, maxDepth)
+        self.deadline = startedAt.addingTimeInterval(max(0, timeLimit))
+    }
+
+    mutating func files(
+        in directory: URL,
+        fileManager: FileManager = .default,
+        clock: () -> Date = Date.init) -> [URL]
+    {
+        self.entries(in: directory, fileManager: fileManager, clock: clock)
+            .compactMap { entry in entry.isDirectory ? nil : entry.url }
+    }
+
+    mutating func childDirectories(
+        in directory: URL,
+        fileManager: FileManager = .default,
+        clock: () -> Date = Date.init) -> [URL]
+    {
+        self.entries(in: directory, fileManager: fileManager, clock: clock)
+            .compactMap { entry in entry.isDirectory ? entry.url : nil }
+    }
+
+    private mutating func entries(
+        in directory: URL,
+        fileManager: FileManager,
+        clock: () -> Date) -> [(url: URL, isDirectory: Bool)]
+    {
+        guard self.maxDepth > 0,
+              self.remainingEntryCount > 0,
+              clock() < self.deadline,
+              let enumerator = fileManager.enumerator(
+                  at: directory,
+                  includingPropertiesForKeys: [.isDirectoryKey],
+                  options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
+        else { return [] }
+
+        var entries: [(url: URL, isDirectory: Bool)] = []
+        while self.remainingEntryCount > 0, clock() < self.deadline {
+            guard let url = enumerator.nextObject() as? URL else { break }
+            self.remainingEntryCount -= 1
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            entries.append((url, isDirectory))
+        }
+        return entries
     }
 }
 
@@ -270,25 +350,66 @@ public enum ClaudeSessionProjectMapper {
     public static func transcripts(
         cwd: String,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        fileManager: FileManager = .default) -> [Transcript]
+        fileManager: FileManager = .default,
+        limit: Int? = nil,
+        now: Date = Date()) -> [Transcript]
     {
-        self.projectDirectories(cwd: cwd, homeDirectory: homeDirectory, fileManager: fileManager)
-            .flatMap { directory -> [(URL, Date)] in
-                guard let files = try? fileManager.contentsOfDirectory(
-                    at: directory,
-                    includingPropertiesForKeys: [.contentModificationDateKey],
-                    options: [.skipsHiddenFiles])
-                else { return [] }
-                return files.compactMap { file in
-                    guard file.pathExtension == "jsonl",
-                          let modifiedAt = try? file.resourceValues(
-                              forKeys: [.contentModificationDateKey]).contentModificationDate
-                    else { return nil }
-                    return (file, modifiedAt)
-                }
+        var budget = DirectoryMetadataScanBudget(
+            maxEntryCount: 4096,
+            maxDepth: 1,
+            timeLimit: 1)
+        return self.transcripts(
+            cwd: cwd,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            limit: limit,
+            now: now,
+            budget: &budget)
+    }
+
+    static func transcripts(
+        cwd: String,
+        homeDirectory: URL,
+        fileManager: FileManager = .default,
+        limit: Int?,
+        now: Date,
+        budget: inout DirectoryMetadataScanBudget,
+        clampModificationDate: (URL, Date, Date) -> Date = { _, modifiedAt, now in min(modifiedAt, now) })
+        -> [Transcript]
+    {
+        let transcripts = self.projectDirectories(
+            cwd: cwd,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            budget: &budget)
+            .flatMap { directory in budget.files(in: directory, fileManager: fileManager) }
+            .compactMap { file -> (URL, Date)? in
+                guard file.pathExtension == "jsonl",
+                      let modifiedAt = try? file.resourceValues(
+                          forKeys: [.contentModificationDateKey]).contentModificationDate
+                else { return nil }
+                return (file, clampModificationDate(file, modifiedAt, now))
             }
             .sorted { $0.1 > $1.1 }
             .map { Transcript(url: $0.0, modifiedAt: $0.1) }
+        guard let limit else { return transcripts }
+        return Array(transcripts.prefix(max(0, limit)))
+    }
+
+    private static func projectDirectories(
+        cwd: String,
+        homeDirectory: URL,
+        fileManager: FileManager,
+        budget: inout DirectoryMetadataScanBudget) -> [URL]
+    {
+        let standardRoot = homeDirectory
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+        return ([standardRoot] + ClaudeDesktopProjectsLocator.roots(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            budget: &budget))
+            .map { $0.appendingPathComponent(self.escapedCWD(cwd), isDirectory: true) }
     }
 }
 
@@ -297,7 +418,9 @@ public enum AgentSessionCorrelation {
         processes.sorted { lhs, rhs in
             let lhsDate = lhs.startedAt ?? .distantPast
             let rhsDate = rhs.startedAt ?? .distantPast
-            if lhsDate != rhsDate { return lhsDate > rhsDate }
+            if lhsDate != rhsDate {
+                return lhsDate > rhsDate
+            }
             return lhs.pid > rhs.pid
         }
     }
