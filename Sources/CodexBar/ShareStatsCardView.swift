@@ -9,6 +9,13 @@ struct ShareStatsCardView: View {
         providerCount > 5 ? 4 : min(providerCount, 5)
     }
 
+    static func providerPaletteIndex(
+        for model: ShareStatsModelPayload,
+        providers: [ShareStatsProviderPayload]) -> Int?
+    {
+        providers.firstIndex { $0.provider == model.provider }
+    }
+
     private let background = Color(red: 0.078, green: 0.067, blue: 0.063)
     private let primary = Color(red: 0.96, green: 0.94, blue: 0.91)
     private let secondary = Color(red: 0.70, green: 0.66, blue: 0.62)
@@ -148,7 +155,7 @@ struct ShareStatsCardView: View {
                             ShareStatsModelRow(
                                 rank: index + 1,
                                 model: model,
-                                color: self.color(forProviderNamed: model.providerName))
+                                color: self.color(for: model))
                         }
                     }
                 }
@@ -165,12 +172,11 @@ struct ShareStatsCardView: View {
         Self.providerDisplayLimit(for: self.payload.providers.count)
     }
 
-    private func color(forProviderNamed name: String) -> Color {
-        ShareStatsPalette.color(at: self.paletteIndex(forProviderNamed: name))
-    }
-
-    private func paletteIndex(forProviderNamed name: String) -> Int {
-        self.payload.providers.firstIndex { $0.providerName == name } ?? 0
+    private func color(for model: ShareStatsModelPayload) -> Color {
+        guard let index = Self.providerPaletteIndex(for: model, providers: self.payload.providers) else {
+            return self.secondary
+        }
+        return ShareStatsPalette.color(at: index)
     }
 
     private func sectionHeader(_ title: String, detail: String) -> some View {

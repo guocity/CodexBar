@@ -2,6 +2,7 @@ import CodexBarCore
 import Foundation
 
 struct ShareStatsProviderPayload: Sendable, Equatable {
+    let provider: UsageProvider
     let providerName: String
     let subscriptionName: String?
     let currencyCode: String
@@ -11,6 +12,7 @@ struct ShareStatsProviderPayload: Sendable, Equatable {
 }
 
 struct ShareStatsModelPayload: Sendable, Equatable {
+    let provider: UsageProvider
     let providerName: String
     let modelName: String
     let currencyCode: String
@@ -19,6 +21,7 @@ struct ShareStatsModelPayload: Sendable, Equatable {
 }
 
 private struct ShareStatsModelFamilyKey: Hashable {
+    let provider: UsageProvider
     let providerName: String
     let modelName: String
     let currencyCode: String
@@ -61,6 +64,7 @@ private struct ShareStatsModelFamilyAccumulator {
     var payload: ShareStatsModelPayload? {
         guard self.totalTokens != nil || self.estimatedCost != nil else { return nil }
         return ShareStatsModelPayload(
+            provider: self.key.provider,
             providerName: self.key.providerName,
             modelName: self.key.modelName,
             currencyCode: self.key.currencyCode,
@@ -209,6 +213,7 @@ enum ShareStatsBuilder {
         let providers = model.groups.flatMap { group in
             group.providers.map { row in
                 ShareStatsProviderPayload(
+                    provider: row.provider,
                     providerName: row.displayName,
                     subscriptionName: ShareStatsSubscriptionName.sanitized(
                         provider: row.provider,
@@ -226,6 +231,7 @@ enum ShareStatsBuilder {
                       row.totalTokens != nil || estimatedCost != nil
                 else { return nil }
                 return ShareStatsModelPayload(
+                    provider: row.provider,
                     providerName: row.providerName,
                     modelName: modelName,
                     currencyCode: group.currencyCode,
@@ -236,6 +242,7 @@ enum ShareStatsBuilder {
         var modelFamilies: [ShareStatsModelFamilyKey: ShareStatsModelFamilyAccumulator] = [:]
         for row in sanitizedModels {
             let key = ShareStatsModelFamilyKey(
+                provider: row.provider,
                 providerName: row.providerName,
                 modelName: row.modelName,
                 currencyCode: row.currencyCode)
@@ -264,10 +271,7 @@ enum ShareStatsBuilder {
                 estimatedCost: self.finiteCost($0.totalCost),
                 coveredDayCount: $0.coveredDayCount)
         }
-        let tokenTotals = model.groups.map(\.totalTokens)
-        let totalTokens = tokenTotals.allSatisfy { $0 != nil }
-            ? tokenTotals.compactMap(\.self).reduce(0, +)
-            : nil
+        let totalTokens = self.combinedTotalTokens(model.groups.map(\.totalTokens))
         let periodEnd = model.groups.map(\.chartDomain.upperBound).max() ?? Date()
         let payload = ShareStatsPayload(
             days: model.requestedDays,
@@ -282,6 +286,17 @@ enum ShareStatsBuilder {
     private static func finiteCost(_ value: Double?) -> Double? {
         guard let value, value.isFinite, value >= 0 else { return nil }
         return value
+    }
+
+    static func combinedTotalTokens(_ values: [Int?]) -> Int? {
+        var total = 0
+        for value in values {
+            guard let value else { return nil }
+            let result = total.addingReportingOverflow(value)
+            guard !result.overflow else { return nil }
+            total = result.partialValue
+        }
+        return total
     }
 }
 

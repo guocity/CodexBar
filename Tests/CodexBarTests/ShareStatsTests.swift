@@ -206,6 +206,21 @@ struct ShareStatsTests {
         #expect(ShareStatsCardView.providerDisplayLimit(for: 12) == 4)
     }
 
+    @Test @MainActor
+    func `model colors use provider identity instead of decorated account name`() throws {
+        let payload = try #require(ShareStatsBuilder.make(model: Self.dashboard))
+        let codexModel = try #require(payload.topModels.first { $0.provider == .codex })
+
+        #expect(ShareStatsCardView.providerPaletteIndex(for: codexModel, providers: payload.providers) == 1)
+    }
+
+    @Test
+    func `overall token total becomes unavailable on overflow`() {
+        #expect(ShareStatsBuilder.combinedTotalTokens([Int.max, 1]) == nil)
+        #expect(ShareStatsBuilder.combinedTotalTokens([10, nil]) == nil)
+        #expect(ShareStatsBuilder.combinedTotalTokens([10, 20]) == 30)
+    }
+
     private static let date = Date(timeIntervalSince1970: 1_783_382_400)
 
     private static var dashboard: SpendDashboardModel {
