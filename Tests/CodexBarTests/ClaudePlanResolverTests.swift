@@ -61,6 +61,12 @@ struct ClaudePlanResolverTests {
                 billingType: "stripe_subscription",
                 seatTier: "team_tier_1")
                 == "Claude Team Premium")
+        #expect(
+            ClaudePlan.webLoginMethod(
+                rateLimitTier: nil,
+                billingType: nil,
+                seatTier: "team_standard")
+                == "Claude Team Standard")
     }
 
     @Test
@@ -77,6 +83,22 @@ struct ClaudePlanResolverTests {
                 billingType: "stripe_subscription",
                 seatTier: "team_standard_plus")
                 == "Claude Team")
+    }
+
+    @Test
+    func `web enterprise seat tiers preserve the enterprise label`() {
+        #expect(
+            ClaudePlan.webLoginMethod(
+                rateLimitTier: "claude_enterprise",
+                billingType: "stripe_subscription",
+                seatTier: "team_standard")
+                == "Claude Enterprise")
+        #expect(
+            ClaudePlan.webLoginMethod(
+                rateLimitTier: "claude_enterprise",
+                billingType: "stripe_subscription",
+                seatTier: "team_tier_1")
+                == "Claude Enterprise")
     }
 
     @Test

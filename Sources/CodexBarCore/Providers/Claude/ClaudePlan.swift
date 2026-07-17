@@ -116,13 +116,18 @@ public enum ClaudePlan: String, CaseIterable, Sendable {
     }
 
     public static func webLoginMethod(rateLimitTier: String?, billingType: String?, seatTier: String?) -> String? {
-        switch self.normalized(seatTier) {
+        let plan = self.fromWebAccount(rateLimitTier: rateLimitTier, billingType: billingType)
+        if let plan, plan != .team {
+            return plan.brandedLoginMethod(rateLimitTier: rateLimitTier)
+        }
+
+        return switch self.normalized(seatTier) {
         case "team_standard":
             "Claude Team Standard"
         case "team_tier_1":
             "Claude Team Premium"
         default:
-            self.webLoginMethod(rateLimitTier: rateLimitTier, billingType: billingType)
+            plan?.brandedLoginMethod(rateLimitTier: rateLimitTier)
         }
     }
 

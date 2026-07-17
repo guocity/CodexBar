@@ -36,4 +36,26 @@ struct ClaudeWebAccountInfoTests {
         #expect(premium?.loginMethod == "Claude Team Premium")
         #expect(standard?.loginMethod == "Claude Team Standard")
     }
+
+    @Test
+    func `enterprise membership preserves its plan when it has a legacy seat tier`() {
+        let json = """
+        {
+          "email_address": "enterprise@example.com",
+          "memberships": [
+            {
+              "seat_tier": "team_tier_1",
+              "organization": {
+                "uuid": "org-enterprise",
+                "name": "Enterprise Org",
+                "rate_limit_tier": "claude_enterprise",
+                "billing_type": "stripe_subscription"
+              }
+            }
+          ]
+        }
+        """
+        let account = ClaudeWebAPIFetcher._parseAccountInfoForTesting(Data(json.utf8), orgId: "org-enterprise")
+        #expect(account?.loginMethod == "Claude Enterprise")
+    }
 }
