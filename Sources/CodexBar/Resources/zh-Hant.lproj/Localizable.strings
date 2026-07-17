@@ -1,5 +1,25 @@
 /* Chinese (Traditional) localization for CodexBar */
 
+"tab_hooks" = "掛鉤";
+"hooks_enable_title" = "啟用掛鉤";
+"hooks_enable_subtitle" = "在配額或提供者事件發生時執行外部指令。";
+"hooks_trust_warning" = "掛鉤可以在 Mac 上執行本機指令。請只設定你信任的指令。";
+"hooks_rules_header" = "規則";
+"hooks_empty" = "尚未設定掛鉤。";
+"hooks_add_rule" = "新增規則";
+"hooks_delete_rule" = "刪除規則";
+"hooks_rule_enabled" = "已啟用";
+"hooks_event" = "事件";
+"hooks_provider" = "提供者";
+"hooks_any_provider" = "任何提供者";
+"hooks_threshold" = "使用率 ≥ 時執行";
+"hooks_threshold_placeholder" = "90";
+"hooks_executable_placeholder" = "/usr/local/bin/my-command";
+"hooks_arguments_placeholder" = "引數";
+"hooks_argument_placeholder" = "引數";
+"hooks_add_argument" = "新增引數";
+"hooks_delete_argument" = "刪除引數";
+
 "ollama_safari_cookie_access_hint" = "CodexBar 需要「完整磁碟存取權」才能讀取 Safari Cookie（系統設定 > 隱私權與安全性）。";
 "ollama_browser_cookie_decryption_denied" = "鑰匙圈拒絕解密 %@ Cookie；請透過手動重新整理再試一次。";
 "ollama_browser_cookie_decryption_disabled" = "CodexBar 中已停用 %@ Cookie 解密；請啟用鑰匙圈存取權並重新整理。";
@@ -313,7 +333,6 @@
 "Store multiple OpenCode Go Cookie headers." = "儲存多個 OpenCode Go Cookie 標頭。";
 "Stored in the CodexBar config file." = "儲存在 CodexBar 設定檔中。";
 "Stored in ~/.codexbar/config.json. " = "儲存在 ~/.codexbar/config.json 中。";
-"Stored in ~/.codexbar/config.json. Generate one at kimi-k2.ai." = "儲存在 ~/.codexbar/config.json 中。可在 kimi-k2.ai 產生。";
 "Stored in ~/.codexbar/config.json. Paste the key from the Synthetic dashboard." = "儲存在 ~/.codexbar/config.json 中。請貼上來自 Synthetic 儀表板的金鑰。";
 "Stored in ~/.codexbar/config.json. Paste your Coding Plan API key from Model Studio." = "儲存在 ~/.codexbar/config.json 中。請貼上來自 Model Studio 的 Coding Plan API 金鑰。";
 "Stored in ~/.codexbar/config.json. Paste your MiniMax API key." = "儲存在 ~/.codexbar/config.json 中。請貼上你的 MiniMax API 金鑰。";
@@ -530,7 +549,6 @@
 "menu_bar_metric_subtitle_deepseek" = "在選單列顯示 DeepSeek 餘額。";
 "menu_bar_metric_subtitle_moonshot" = "在選單列顯示 Moonshot / Kimi API 餘額。";
 "menu_bar_metric_subtitle_mistral" = "在選單列顯示 Mistral API 本月支出。";
-"menu_bar_metric_subtitle_kimik2" = "在選單列顯示 Kimi K2 API 金鑰額度。";
 "automatic" = "自動";
 "primary_api_key_limit" = "主要（API 金鑰限制）";
 "menu_bar_style_title" = "選單列樣式";
@@ -891,7 +909,6 @@
 "CodexBar will ask macOS Keychain for your Cursor cookie header so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 Cursor Cookie 標頭，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your Factory cookie header so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 Factory Cookie 標頭，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your GitHub Copilot token so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 GitHub Copilot token，以取得使用量。按一下「確定」繼續。";
-"CodexBar will ask macOS Keychain for your Kimi K2 API key so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 Kimi K2 API 金鑰，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your Kimi auth token so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 Kimi 認證 token，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your MiniMax API token so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 MiniMax API token，以取得使用量。按一下「確定」繼續。";
 "CodexBar will ask macOS Keychain for your MiniMax cookie header so it can fetch usage. Click OK to continue." = "CodexBar 將向 macOS 鑰匙圈要求你的 MiniMax Cookie 標頭，以取得使用量。按一下「確定」繼續。";
@@ -1047,7 +1064,6 @@
 "byte_unit_megabytes" = "MB";
 "byte_unit_gigabyte" = "GB";
 "byte_unit_gigabytes" = "GB";
-"CrossModel API spend trend" = "CrossModel API 支出趨勢";
 
 /* Added zh-Hant parity with English catalog */
 "minimax_service_music_generation" = "音樂生成";

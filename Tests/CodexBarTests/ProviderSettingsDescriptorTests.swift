@@ -317,7 +317,9 @@ struct ProviderSettingsDescriptorTests {
 
         #expect(detailLine == fixture.store.sourceLabel(for: .alibaba))
     }
+}
 
+extension ProviderSettingsDescriptorTests {
     @Test
     func `devin presentation follows store source label`() throws {
         let fixture = try self.makeSettingsFixture(suite: "ProviderSettingsDescriptorTests-devin-presentation")
@@ -331,7 +333,9 @@ struct ProviderSettingsDescriptorTests {
 
         #expect(detailLine == "web")
     }
+}
 
+extension ProviderSettingsDescriptorTests {
     @Test
     func `alibaba token plan settings expose cookie controls`() throws {
         let fixture = try self.makeSettingsFixture(suite: "ProviderSettingsDescriptorTests-alibaba-token-plan-settings")
@@ -827,7 +831,9 @@ struct ProviderSettingsDescriptorTests {
 
         #expect(DeepSeekProviderImplementation().settingsPickers(context: context).isEmpty)
     }
+}
 
+extension ProviderSettingsDescriptorTests {
     private func makeSettingsFixture(
         suite: String,
         environmentBase: [String: String] = [:]) throws -> ProviderSettingsFixture

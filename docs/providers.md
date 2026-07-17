@@ -8,7 +8,7 @@ read_when:
 
 # Providers
 
-CodexBar currently registers 62 provider IDs. Some companies expose multiple surfaces, such as Codex vs OpenAI API or
+CodexBar currently registers 60 provider IDs. Some companies expose multiple surfaces, such as Codex vs OpenAI API or
 OpenCode vs OpenCode Go, because the auth source and quota shape differ.
 
 ## Fetch strategies (current)
@@ -40,7 +40,6 @@ headers, source selection, provider ordering, and token accounts are stored in `
 | Kimi | Kimi Code API key (`api`), then `kimi-auth` cookie/manual token/env fallback (`web`). |
 | Kilo | API token from config/env → usage API (`api`); auto falls back to CLI session auth (`cli`). |
 | Copilot | Device-flow/env/config token → `copilot_internal` API (`api`). |
-| Kimi K2 (unofficial) | API key from config/env → legacy credit endpoint (`api`). |
 | Kiro | CLI command via `kiro-cli chat --no-interactive "/usage"` (`cli`). |
 | Vertex AI | Google ADC OAuth (gcloud) → Cloud Monitoring quota usage (`oauth`). |
 | Augment | `auggie` CLI first, then browser-cookie web fallback (`cli`, `web`). |
@@ -53,7 +52,6 @@ headers, source selection, provider ordering, and token accounts are stored in `
 | Ollama | API key verifies Cloud API access (`api`); browser cookies expose Cloud quota windows (`web`). |
 | Synthetic | API key from config/env → quota API (`api`). |
 | OpenRouter | API token (config, overrides env) → credits API (`api`). |
-| CrossModel | API key from config/env → credits + usage API (`api`). |
 | Perplexity | Browser cookies/manual cookie/env session token → credits API (`web`). |
 | Xiaomi MiMo | Browser cookies → balance/token plan endpoints (`web`). |
 | Doubao | API key from config/env → Volcengine Ark chat-completions probe (`api`). |
@@ -157,13 +155,6 @@ headers, source selection, provider ordering, and token accounts are stored in `
 - CLI auth source: `~/.local/share/kilo/auth.json` (`kilo.access`), typically created by `kilo login`.
 - Status: none yet.
 - Details: `docs/kilo.md`.
-
-## Kimi K2 (unofficial)
-- API key via `~/.codexbar/config.json` or `KIMI_K2_API_KEY`/`KIMI_API_KEY` env var.
-- Shows credit usage from the legacy `kimi-k2.ai` consumed/remaining totals.
-- Use Moonshot / Kimi API for the official Kimi API account and billing surface.
-- Status: none yet.
-- Details: `docs/kimi-k2.md`.
 
 ## Gemini
 - OAuth-backed quota API (`retrieveUserQuota`) using Gemini CLI credentials.
@@ -318,13 +309,6 @@ headers, source selection, provider ordering, and token accounts are stored in `
 - Status: `https://status.openrouter.ai` (link only, no auto-polling yet).
 - Details: `docs/openrouter.md`.
 
-## CrossModel
-- API key from `~/.codexbar/config.json` (`providers[].apiKey`) or `CROSSMODEL_API_KEY` env var.
-- Reads wallet balance (`/v1/credits`) and matching-currency UTC day/week/month spend (`/v1/usage`).
-- Shows balance plus today/this week/this month spend; no quota meter (prepaid wallet, no per-key limit).
-- Override base URL with `CROSSMODEL_API_URL` env var (loopback HTTP allowed for local testing).
-- Details: `docs/crossmodel.md`.
-
 ## Perplexity
 - Browser session cookie from automatic import, manual header/token, or `PERPLEXITY_SESSION_TOKEN` / `PERPLEXITY_COOKIE`.
 - Tracks recurring credits, bonus/promotional credits, purchased credits, and renewal date when present.
@@ -362,6 +346,7 @@ headers, source selection, provider ordering, and token accounts are stored in `
 
 ## Mistral
 - Session cookie (`ory_session_*`) from browser auto-import or manual `Cookie:` header.
+- Cookie import order: Chrome → Firefox → Safari. Chrome first preserves the original behavior for existing users; Firefox (including Developer Edition) is detected automatically; Safari follows for Full Disk Access users. Other Chromium forks use Manual mode. Automatic import reads only unexpired cookies from the documented Mistral domains.
 - CSRF token (`csrftoken` cookie) sent as `X-CSRFTOKEN` for billing and Vibe usage requests.
 - Domains: `admin.mistral.ai` for API billing and credit balance, and `console.mistral.ai` for optional Vibe subscription usage. Console requests forward only `csrftoken` and `ory_session_*`; all other admin cookies stay origin-bound.
 - Reads monthly usage and pricing from the billing usage endpoint, plus credit balance from the billing credits endpoint, using the Mistral web session.

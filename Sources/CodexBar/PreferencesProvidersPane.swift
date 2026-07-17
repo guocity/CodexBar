@@ -615,8 +615,6 @@ struct ProvidersPane: View {
             L("menu_bar_metric_subtitle_moonshot")
         case .mistral:
             L("menu_bar_metric_subtitle_mistral")
-        case .kimik2:
-            L("menu_bar_metric_subtitle_kimik2")
         default:
             L("menu_bar_metric_subtitle")
         }

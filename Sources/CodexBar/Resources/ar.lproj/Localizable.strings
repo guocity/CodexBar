@@ -307,7 +307,6 @@
 "Store multiple OpenCode Go Cookie headers." = "تخزين عدة رؤوس OpenCode Go Cookie.";
 "Stored in the CodexBar config file." = "مخزنة في ملف الإعدادات CodexBar.";
 "Stored in ~/.codexbar/config.json. " = "مخزنة في ~/.codexbar/config.json. ";
-"Stored in ~/.codexbar/config.json. Generate one at kimi-k2.ai." = "مخزن في ~/.codexbar/config.json. تولد واحدا عند kimi-k2.ai.";
 "Stored in ~/.codexbar/config.json. Paste the key from the Synthetic dashboard." = "مخزنة في ~/.codexbar/config.json. الصق المفتاح من لوحة Synthetic.";
 "Stored in ~/.codexbar/config.json. Paste your Coding Plan API key from Model Studio." = "مخزن في ~/.codexbar/config.json. الصق مفتاح خطة البرمجة الخاصة بك API من Model Studio.";
 "Stored in ~/.codexbar/config.json. Paste your MiniMax API key." = "مخزن في ~/.codexbar/config.json. الصق مفتاح MiniMax API الخاص بك.";
@@ -510,7 +509,28 @@
 "tab_menu_bar" = "شريط القوائم";
 "tab_menu" = "القائمة";
 "tab_advanced" = "متقدمة";
+"tab_hooks" = "الخطافات";
 "tab_about" = "حول";
+
+/* Hooks Pane */
+"hooks_enable_title" = "تفعيل الخطافات";
+"hooks_enable_subtitle" = "تشغيل أوامر خارجية عند وقوع أحداث الحصة أو المزود.";
+"hooks_trust_warning" = "يمكن للخطافات تنفيذ أوامر محلية على جهاز Mac. اضبط فقط الأوامر التي تثق بها.";
+"hooks_rules_header" = "القواعد";
+"hooks_empty" = "لا توجد خطافات مُهيأة.";
+"hooks_add_rule" = "إضافة قاعدة";
+"hooks_delete_rule" = "حذف القاعدة";
+"hooks_rule_enabled" = "مُفعّل";
+"hooks_event" = "الحدث";
+"hooks_provider" = "المزود";
+"hooks_any_provider" = "أي مزود";
+"hooks_threshold" = "التشغيل عند الاستخدام ≥";
+"hooks_threshold_placeholder" = "90";
+"hooks_executable_placeholder" = "/usr/local/bin/my-command";
+"hooks_arguments_placeholder" = "الوسائط";
+"hooks_argument_placeholder" = "الوسيطة";
+"hooks_add_argument" = "إضافة وسيطة";
+"hooks_delete_argument" = "حذف الوسيطة";
 "tab_debug" = "تصحيح الأخطاء";
 
 /* Providers Pane */
@@ -534,7 +554,6 @@
 "menu_bar_metric_subtitle_deepseek" = "يظهر توازن DeepSeek في شريط القوائم.";
 "menu_bar_metric_subtitle_moonshot" = "يظهر توازن Moonshot / Kimi API في شريط القوائم.";
 "menu_bar_metric_subtitle_mistral" = "يعرض الإنفاق Mistral API الشهري الحالي في شريط القوائم.";
-"menu_bar_metric_subtitle_kimik2" = "يعرض Kimi اعتمادات K2 API المفاتيح في شريط القوائم.";
 "automatic" = "أوتوماتيكي";
 "primary_api_key_limit" = "الحد الأساسي (API المفاتيح)";
 
@@ -1041,7 +1060,6 @@
 "CodexBar will ask macOS Keychain for your Cursor cookie header so it can fetch usage. Click OK to continue." = "CodexBar سيطلب macOS Keychain رأس الكوكيز Cursor الخاص بك حتى يتمكن من استخدام الاستخدام. انقر موافقا للمتابعة.";
 "CodexBar will ask macOS Keychain for your Factory cookie header so it can fetch usage. Click OK to continue." = "CodexBar سيطلب macOS Keychain رأس الكوكيز Factory الخاص بك حتى يتمكن من استخدام الاستخدام. انقر موافقا للمتابعة.";
 "CodexBar will ask macOS Keychain for your GitHub Copilot token so it can fetch usage. Click OK to continue." = "CodexBar سيطلب macOS Keychain رمز GitHub Copilot الخاص بك حتى يتمكن من استدعاء الاستخدام. انقر موافقا للمتابعة.";
-"CodexBar will ask macOS Keychain for your Kimi K2 API key so it can fetch usage. Click OK to continue." = "CodexBar سيطلب macOS Keychain مفتاح API K2 Kimi الخاص بك حتى يتمكن من جلب الاستخدام. انقر موافقا للمتابعة.";
 "CodexBar will ask macOS Keychain for your Kimi auth token so it can fetch usage. Click OK to continue." = "CodexBar سيطلب macOS Keychain رمز التوثيق Kimi الخاص بك حتى يتمكن من استدعاء الاستخدام. انقر موافقا للمتابعة.";
 "CodexBar will ask macOS Keychain for your MiniMax API token so it can fetch usage. Click OK to continue." = "CodexBar سيطلب macOS Keychain رمز MiniMax API الخاص بك حتى يتمكن من استدعاء الاستخدام. انقر موافقا للمتابعة.";
 "CodexBar will ask macOS Keychain for your MiniMax cookie header so it can fetch usage. Click OK to continue." = "CodexBar سيطلب macOS Keychain رأس الكوكيز MiniMax الخاص بك حتى يتمكن من استخدام الاستخدام. انقر موافقا للمتابعة.";
@@ -1192,7 +1210,6 @@
 "byte_unit_megabytes" = "ميغابايتات";
 "byte_unit_gigabyte" = "غيغابايت";
 "byte_unit_gigabytes" = "غيغابايتات";
-"CrossModel API spend trend" = "اتجاه إنفاق CrossModel API";
 
 /* Settings sidebar redesign */
 "Enable" = "تفعيل";

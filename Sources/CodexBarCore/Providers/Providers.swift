@@ -27,7 +27,6 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case vertexai
     case augment
     case jetbrains
-    case kimik2
     case moonshot
     case amp
     case t3chat
@@ -59,7 +58,6 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case deepgram
     case poe
     case chutes
-    case crossmodel
     case clawrouter
     case longcat
     case sub2api
@@ -87,7 +85,6 @@ public enum IconStyle: String, Sendable, CaseIterable {
     case copilot
     case devin
     case kimi
-    case kimik2
     case kilo
     case kiro
     case vertexai
@@ -124,7 +121,6 @@ public enum IconStyle: String, Sendable, CaseIterable {
     case deepgram
     case poe
     case chutes
-    case crossmodel
     case clawrouter
     case longcat
     case sub2api
@@ -303,6 +299,19 @@ public enum ProviderBrowserCookieDefaults {
     public static var qoderCookieImportOrder: BrowserCookieImportOrder? {
         #if os(macOS)
         [.chrome]
+        #else
+        nil
+        #endif
+    }
+
+    /// Mistral Auto: Chrome first (matches the original Chrome-only behavior so
+    /// existing users see no change), then Firefox so users signed in via Firefox
+    /// or Firefox Developer Edition are detected without Manual mode. Safari
+    /// follows for Full Disk Access users. Other Chromium forks stay on Manual
+    /// import to avoid scanning the full default order.
+    public static var mistralCookieImportOrder: BrowserCookieImportOrder? {
+        #if os(macOS)
+        [.chrome, .firefox, .safari]
         #else
         nil
         #endif

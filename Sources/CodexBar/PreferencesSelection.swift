@@ -11,6 +11,7 @@ extension SettingsPane {
         case .menuBar: "menuBar"
         case .menu: "menu"
         case .advanced: "advanced"
+        case .hooks: "hooks"
         case .about: "about"
         case .debug: "debug"
         case let .provider(provider): "provider:\(provider.rawValue)"
@@ -26,6 +27,7 @@ extension SettingsPane {
         case "display": self = .menuBar
         case "menu": self = .menu
         case "advanced": self = .advanced
+        case "hooks": self = .hooks
         case "about": self = .about
         case "debug": self = .debug
         default:
