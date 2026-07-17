@@ -57,7 +57,14 @@ struct ProcessPipeCaptureLinuxTests {
             Glibc.sigemptyset(&blockedSignals)
             Glibc.sigaddset(&blockedSignals, SIGPIPE)
             _ = Glibc.pthread_sigmask(SIG_BLOCK, &blockedSignals, &previousSignals)
-            defer { _ = Glibc.pthread_sigmask(SIG_SETMASK, &previousSignals, nil) }
+            defer {
+                var pendingSignals = sigset_t()
+                if Glibc.sigpending(&pendingSignals) == 0, Glibc.sigismember(&pendingSignals, SIGPIPE) == 1 {
+                    var noWait = timespec(tv_sec: 0, tv_nsec: 0)
+                    _ = Glibc.sigtimedwait(&blockedSignals, nil, &noWait)
+                }
+                _ = Glibc.pthread_sigmask(SIG_SETMASK, &previousSignals, nil)
+            }
 
             var bytes = [UInt8](repeating: 0x41, count: 16 * 1024)
             while stopWriter.wait(timeout: .now()) == .timedOut {
