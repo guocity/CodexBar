@@ -302,6 +302,32 @@ extension CodexBarCLI {
         """
     }
 
+    static func cookieHelp(version: String) -> String {
+        """
+        CodexBar \(version)
+
+        Usage:
+          codexbar cookie refresh <--provider <name>|--all>
+                                 [--allow-keychain-prompt]
+                                 [--format text|json]
+                                 [--json]
+                                 [--json-only]
+                                 [--pretty]
+
+        Description:
+          Re-import browser cookies using each provider's configured browser order.
+          Providers that may decrypt Chromium cookies fail before clearing the cache
+          unless --allow-keychain-prompt explicitly acknowledges a possible macOS
+          Keychain prompt. A prior denial keeps its six-hour cooldown unless that
+          explicit interactive retry flag is supplied. Cookie values are never shown.
+
+        Examples:
+          codexbar cookie refresh --provider opencodego --allow-keychain-prompt
+          codexbar cookie refresh --all --allow-keychain-prompt
+          codexbar cookie refresh --provider opencodego --allow-keychain-prompt --format json --pretty
+        """
+    }
+
     static func guardHelp(version: String) -> String {
         """
         CodexBar \(version)
@@ -379,6 +405,7 @@ extension CodexBarCLI {
           codexbar hooks <list|enable|disable> [--format text|json] [--pretty]
           codexbar hooks test <event> --provider <name>
           codexbar cache clear <--cookies|--cost|--all> [--provider <name>]
+          codexbar cookie refresh <--provider <name>|--all> [--allow-keychain-prompt]
           codexbar diagnose --provider <name|all> --format json [--redact] [--output <path>] [--pretty]
           codexbar guard --provider <name> [--min-remaining <percent>] [--window session|weekly] [--json]
 
@@ -405,6 +432,7 @@ extension CodexBarCLI {
           codexbar config set-api-key --provider elevenlabs --stdin
           codexbar hooks test quota_reached --provider codex
           codexbar cache clear --cookies
+          codexbar cookie refresh --provider opencodego --allow-keychain-prompt
           codexbar diagnose --provider minimax --format json --redact --output diagnostic.json
           codexbar diagnose --provider minimax --format json --pretty
           codexbar diagnose --provider all --format json
