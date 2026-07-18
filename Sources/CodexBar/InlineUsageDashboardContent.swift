@@ -255,7 +255,7 @@ extension UsageMenuCardView.Model {
         {
             return Self.poeInlineDashboard(usage, now: input.now)
         }
-        if [.codex, .claude, .vertexai, .bedrock, .cursor].contains(input.provider),
+        if [.codex, .claude, .vertexai, .bedrock, .cursor, .opencodego].contains(input.provider),
            input.tokenCostInlineDashboardEnabled,
            let tokenSnapshot = input.tokenSnapshot,
            !tokenSnapshot.daily.isEmpty || tokenSnapshot.meteredCostUSD != nil
