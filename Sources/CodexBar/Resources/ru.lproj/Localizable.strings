@@ -1,5 +1,6 @@
 /* Russian localization for CodexBar */
 
+"tab_stats" = "Stats";
 "tab_hooks" = "Хуки";
 "hooks_enable_title" = "Включить хуки";
 "hooks_enable_subtitle" = "Запускать внешние команды при событиях квоты или провайдера.";

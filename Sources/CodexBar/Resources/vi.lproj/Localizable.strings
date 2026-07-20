@@ -1,5 +1,6 @@
 /* English localization for CodexBar (base/fallback) */
 
+"tab_stats" = "Stats";
 "tab_hooks" = "Hook";
 "hooks_enable_title" = "Bật hook";
 "hooks_enable_subtitle" = "Chạy lệnh bên ngoài khi có sự kiện hạn mức hoặc nhà cung cấp.";

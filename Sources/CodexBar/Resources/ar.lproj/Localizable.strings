@@ -510,6 +510,7 @@
 "tab_menu_bar" = "شريط القوائم";
 "tab_menu" = "القائمة";
 "tab_advanced" = "متقدمة";
+"tab_stats" = "Stats";
 "tab_hooks" = "الخطافات";
 "tab_about" = "حول";
 

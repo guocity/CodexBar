@@ -1,5 +1,6 @@
 /* Brazilian Portuguese localization for CodexBar */
 
+"tab_stats" = "Stats";
 "tab_hooks" = "Hooks";
 "hooks_enable_title" = "Ativar hooks";
 "hooks_enable_subtitle" = "Executa comandos externos quando ocorrerem eventos de cota ou provedor.";

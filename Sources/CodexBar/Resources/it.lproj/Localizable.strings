@@ -512,6 +512,7 @@
 "tab_menu_bar" = "Barra menu";
 "tab_menu" = "Menu";
 "tab_advanced" = "Avanzate";
+"tab_stats" = "Stats";
 "tab_hooks" = "Hook";
 
 /* Hooks Pane */

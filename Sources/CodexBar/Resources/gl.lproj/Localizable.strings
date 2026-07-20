@@ -485,6 +485,7 @@
 "tab_menu_bar" = "Barra de menús";
 "tab_menu" = "Menú";
 "tab_advanced" = "Avanzado";
+"tab_stats" = "Stats";
 "tab_hooks" = "Ganchos";
 
 /* Hooks Pane */

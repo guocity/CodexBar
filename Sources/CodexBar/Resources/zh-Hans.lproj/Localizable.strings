@@ -1,5 +1,6 @@
 /* Chinese (Simplified) localization for CodexBar */
 
+"tab_stats" = "Stats";
 "tab_hooks" = "钩子";
 "hooks_enable_title" = "启用钩子";
 "hooks_enable_subtitle" = "在配额或提供商事件发生时运行外部命令。";

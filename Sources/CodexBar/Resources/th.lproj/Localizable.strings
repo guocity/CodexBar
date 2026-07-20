@@ -510,6 +510,7 @@
 "tab_menu_bar" = "แถบเมนู";
 "tab_menu" = "เมนู";
 "tab_advanced" = "ขั้นสูง";
+"tab_stats" = "Stats";
 "tab_hooks" = "ฮุก";
 "tab_about" = "เกี่ยวกับ";
 

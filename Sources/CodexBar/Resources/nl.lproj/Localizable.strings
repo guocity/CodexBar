@@ -1,5 +1,6 @@
 /* Dutch localization for CodexBar */
 
+"tab_stats" = "Stats";
 "tab_hooks" = "Hooks";
 "hooks_enable_title" = "Hooks inschakelen";
 "hooks_enable_subtitle" = "Voer externe opdrachten uit bij quota- of providergebeurtenissen.";

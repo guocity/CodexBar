@@ -8,7 +8,9 @@
 - Menu: hover shows absolute reset time; reset timeline markers on quota bars.
 
 ### Fixed
+- Telemetry: send plan-utilization samples on every refresh, even when history storage does not change (flat usage previously skipped the pipeline after the July 5 main merge).
 - Ollama: clarify when Chrome Safe Storage Keychain access is blocking cookie import, instead of claiming no session exists after a signed-in Chrome login.
+- Ollama: adopt upstream cookie-access error surfacing so the macOS app reports Keychain/Full Disk Access issues instead of a generic missing-session message.
 
 ## 0.45.3 — Unreleased
 
@@ -149,6 +151,11 @@
 - CI: defer macOS test shards for draft pull requests (#2161). Thanks @Yuxin-Qiao!
 - Localization: complete app locale coverage across all existing catalogs (#2229). Thanks @Yuxin-Qiao!
 - Dev: verify packaged Sparkle and app signatures and reject quarantine attributes before reporting a successful development package (#2232). Thanks @Yuxin-Qiao!
+
+## 0.43.2 — 2026-07-14
+
+### Fixed
+- Ollama: clarify when Chrome Safe Storage Keychain access is blocking cookie import, instead of claiming no session exists after a signed-in Chrome login.
 
 ## 0.43.1 — 2026-07-14
 

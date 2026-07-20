@@ -1,5 +1,6 @@
 /* English localization for CodexBar (base/fallback) */
 
+"tab_stats" = "Stats";
 "tab_hooks" = "Hooks";
 "hooks_enable_title" = "Hooks aktivieren";
 "hooks_enable_subtitle" = "Externe Befehle bei Kontingent- oder Anbieterereignissen ausführen.";

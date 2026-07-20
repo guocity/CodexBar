@@ -1,5 +1,6 @@
 /* Japanese localization for CodexBar */
 
+"tab_stats" = "Stats";
 "tab_hooks" = "フック";
 "hooks_enable_title" = "フックを有効にする";
 "hooks_enable_subtitle" = "クォータまたはプロバイダーのイベント発生時に外部コマンドを実行します。";

@@ -512,6 +512,7 @@
 "tab_menu_bar" = "Pasek menu";
 "tab_menu" = "Menu";
 "tab_advanced" = "Zaawansowane";
+"tab_stats" = "Stats";
 "tab_hooks" = "Haki";
 
 /* Hooks Pane */

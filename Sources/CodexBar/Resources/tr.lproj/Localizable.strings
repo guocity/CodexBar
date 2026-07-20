@@ -510,6 +510,7 @@
 "tab_menu_bar" = "Menü çubuğu";
 "tab_menu" = "Menü";
 "tab_advanced" = "Gelişmiş";
+"tab_stats" = "Stats";
 "tab_hooks" = "Kancalar";
 
 /* Hooks Pane */

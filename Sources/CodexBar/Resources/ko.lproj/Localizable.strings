@@ -1,5 +1,6 @@
 /* Korean (한국어) localization for CodexBar */
 
+"tab_stats" = "Stats";
 "tab_hooks" = "훅";
 "hooks_enable_title" = "훅 활성화";
 "hooks_enable_subtitle" = "할당량 또는 공급자 이벤트가 발생하면 외부 명령을 실행합니다.";

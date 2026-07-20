@@ -16,6 +16,11 @@ extension UsageStore {
     nonisolated static let planUtilizationUnscopedPreferredKey = "__unscoped__"
     private nonisolated static let claudeOAuthPlanUtilizationAccountKeyPrefix = "__claude_oauth__:"
 
+    /// Whether the plan-utilization history menu/chart is surfaced for this
+    /// provider. Codex and Claude always qualify; every other provider qualifies
+    /// once it has accumulated history in the store, or as soon as its live snapshot
+    /// can produce samples. This fork always records history, so the toggle does not
+    /// gate surfacing here.
     func supportsPlanUtilizationHistory(for provider: UsageProvider) -> Bool {
         switch provider {
         case .codex, .claude, .antigravity, .opencodego:
