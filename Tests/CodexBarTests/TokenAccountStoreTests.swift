@@ -27,6 +27,20 @@ func `ProviderTokenAccountData encoding`() throws {
 }
 
 @Test
+func `ollama bare session token wraps as Secure-session cookie`() throws {
+    let support = try #require(TokenAccountSupportCatalog.support(for: .ollama))
+    #expect(support.cookieName == "__Secure-session")
+
+    for bare in ["fixture-session-value=", "fixture-session-value=="] {
+        #expect(TokenAccountSupportCatalog.normalizedCookieHeader(bare, support: support) ==
+            "__Secure-session=\(bare)")
+    }
+    for header in ["__Secure-session=already-wrapped-value", "Cookie: __Secure-session=fixture; foo=bar"] {
+        #expect(TokenAccountSupportCatalog.normalizedCookieHeader(header, support: support) == header)
+    }
+}
+
+@Test
 func `FileTokenAccountStore round trip`() throws {
     let tempDir = FileManager.default.temporaryDirectory
     let fileURL = tempDir.appendingPathComponent("codexbar-token-accounts-test.json")

@@ -99,7 +99,15 @@ public enum TokenAccountSupportCatalog {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let cookieName = support.cookieName else { return trimmed }
         let lower = trimmed.lowercased()
-        if lower.contains("cookie:") || trimmed.contains("=") {
+        if lower.contains("cookie:") {
+            return trimmed
+        }
+        // Bare session values can end in base64 `=` padding. Only treat parsed pairs with
+        // non-padding values as already-formed Cookie headers.
+        let pairs = CookieHeaderNormalizer.pairs(from: trimmed)
+        if pairs.contains(where: { pair in
+            !pair.value.isEmpty && !pair.value.allSatisfy { $0 == "=" }
+        }) {
             return trimmed
         }
         return "\(cookieName)=\(trimmed)"

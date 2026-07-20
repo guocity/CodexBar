@@ -104,10 +104,10 @@ extension TokenAccountSupportCatalog {
         .ollama: TokenAccountSupport(
             title: "Session tokens",
             subtitle: "Store multiple Ollama Cookie headers.",
-            placeholder: "Cookie: …",
+            placeholder: "Cookie: … or __Secure-session value",
             injection: .cookieHeader,
             requiresManualCookieSource: true,
-            cookieName: nil),
+            cookieName: "__Secure-session"),
         .abacus: TokenAccountSupport(
             title: "Session tokens",
             subtitle: "Store multiple Abacus AI Cookie headers.",

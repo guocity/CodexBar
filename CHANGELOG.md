@@ -9,6 +9,7 @@
 
 ### Fixed
 - Telemetry: send plan-utilization samples on every refresh, even when history storage does not change (flat usage previously skipped the pipeline after the July 5 main merge).
+- Ollama: accept bare `__Secure-session` values with base64 padding in saved token accounts.
 - Ollama: clarify when Chrome Safe Storage Keychain access is blocking cookie import, instead of claiming no session exists after a signed-in Chrome login.
 - Ollama: adopt upstream cookie-access error surfacing so the macOS app reports Keychain/Full Disk Access issues instead of a generic missing-session message.
 
