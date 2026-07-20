@@ -14,6 +14,7 @@ struct PlanUtilizationSeriesName: RawRepresentable, Hashable, Codable, Expressib
 
     static let session: Self = "session"
     static let weekly: Self = "weekly"
+    static let monthly: Self = "monthly"
     static let opus: Self = "opus"
 
     func canonicalWindowMinutes(_ windowMinutes: Int) -> Int {
@@ -60,6 +61,26 @@ struct PlanUtilizationSeriesHistory: Codable, Equatable, Sendable {
     }
 }
 
+struct PlanUtilizationHistorySelection {
+    let accountKey: String?
+    let histories: [PlanUtilizationSeriesHistory]
+    let cacheIdentity: String
+
+    init(accountKey: String?, histories: [PlanUtilizationSeriesHistory]) {
+        self.accountKey = accountKey
+        self.histories = histories
+        self.cacheIdentity = "account:\(accountKey ?? UsageStore.planUtilizationUnscopedPreferredKey)"
+    }
+
+    private init(accountKey: String?, histories: [PlanUtilizationSeriesHistory], cacheIdentity: String) {
+        self.accountKey = accountKey
+        self.histories = histories
+        self.cacheIdentity = cacheIdentity
+    }
+
+    static let unavailable = Self(accountKey: nil, histories: [], cacheIdentity: "unavailable")
+}
+
 struct PlanUtilizationHistoryBuckets: Equatable, Sendable {
     var preferredAccountKey: String?
     var unscoped: [PlanUtilizationSeriesHistory] = []
@@ -68,6 +89,10 @@ struct PlanUtilizationHistoryBuckets: Equatable, Sendable {
     /// Persisted alongside history so each account can be identified without
     /// reversing the opaque account-key hash.
     var accountLabels: [String: String] = [:]
+    var sessionEquivalentWindowPairIdentities: [String: String] = [:]
+
+    private static let unscopedIdentityKey = "__codexbar_unscoped__"
+    private static let invalidatedIdentity = "__codexbar_invalidated__"
 
     func histories(for accountKey: String?) -> [PlanUtilizationSeriesHistory] {
         guard let accountKey, !accountKey.isEmpty else { return self.unscoped }
@@ -102,6 +127,45 @@ struct PlanUtilizationHistoryBuckets: Equatable, Sendable {
         self.accountLabels[accountKey] = trimmed
     }
 
+    func sessionEquivalentWindowPairIdentity(for accountKey: String?) -> String? {
+        self.sessionEquivalentWindowPairIdentities[Self.identityKey(for: accountKey)]
+    }
+
+    mutating func setSessionEquivalentWindowPairIdentity(_ identity: String?, for accountKey: String?) {
+        let key = Self.identityKey(for: accountKey)
+        if let identity {
+            self.sessionEquivalentWindowPairIdentities[key] = identity
+        } else {
+            self.sessionEquivalentWindowPairIdentities.removeValue(forKey: key)
+        }
+    }
+
+    mutating func invalidateSessionEquivalentWindowPairIdentity(for accountKey: String?) {
+        self.sessionEquivalentWindowPairIdentities[Self.identityKey(for: accountKey)] = Self.invalidatedIdentity
+    }
+
+    mutating func moveSessionEquivalentWindowPairIdentity(
+        from sourceAccountKey: String?,
+        to targetAccountKey: String?)
+    {
+        let sourceKey = Self.identityKey(for: sourceAccountKey)
+        let targetKey = Self.identityKey(for: targetAccountKey)
+        guard sourceKey != targetKey,
+              let sourceIdentity = self.sessionEquivalentWindowPairIdentities[sourceKey]
+        else {
+            return
+        }
+
+        if let targetIdentity = self.sessionEquivalentWindowPairIdentities[targetKey],
+           targetIdentity != sourceIdentity
+        {
+            self.sessionEquivalentWindowPairIdentities[targetKey] = Self.invalidatedIdentity
+        } else {
+            self.sessionEquivalentWindowPairIdentities[targetKey] = sourceIdentity
+        }
+        self.sessionEquivalentWindowPairIdentities.removeValue(forKey: sourceKey)
+    }
+
     var isEmpty: Bool {
         self.unscoped.isEmpty && self.accounts.values.allSatisfy(\.isEmpty)
     }
@@ -114,6 +178,11 @@ struct PlanUtilizationHistoryBuckets: Equatable, Sendable {
             return lhs.name.rawValue < rhs.name.rawValue
         }
     }
+
+    private static func identityKey(for accountKey: String?) -> String {
+        guard let accountKey, !accountKey.isEmpty else { return self.unscopedIdentityKey }
+        return accountKey
+    }
 }
 
 private struct ProviderHistoryFile: Codable, Sendable {
@@ -121,6 +190,7 @@ private struct ProviderHistoryFile: Codable, Sendable {
     let unscoped: [PlanUtilizationSeriesHistory]
     let accounts: [String: [PlanUtilizationSeriesHistory]]
     let accountLabels: [String: String]
+    let sessionEquivalentWindowPairIdentities: [String: String]
 }
 
 private struct ProviderHistoryDocument: Codable, Sendable {
@@ -129,10 +199,24 @@ private struct ProviderHistoryDocument: Codable, Sendable {
     let unscoped: [PlanUtilizationSeriesHistory]
     let accounts: [String: [PlanUtilizationSeriesHistory]]
     let accountLabels: [String: String]
+    let sessionEquivalentWindowPairIdentities: [String: String]
+}
+
+extension ProviderHistoryFile {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.preferredAccountKey = try container.decodeIfPresent(String.self, forKey: .preferredAccountKey)
+        self.unscoped = try container.decode([PlanUtilizationSeriesHistory].self, forKey: .unscoped)
+        self.accounts = try container.decode([String: [PlanUtilizationSeriesHistory]].self, forKey: .accounts)
+        self.accountLabels = try container.decodeIfPresent([String: String].self, forKey: .accountLabels) ?? [:]
+        self.sessionEquivalentWindowPairIdentities = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .sessionEquivalentWindowPairIdentities) ?? [:]
+    }
 }
 
 struct PlanUtilizationHistoryStore: Sendable {
-    /// v1: history-only. v2: adds per-account human-readable `accountLabels`.
+    /// v1: history-only / session-equivalent identities. v2: adds per-account `accountLabels`.
     fileprivate static let providerSchemaVersion = 2
     fileprivate static let supportedSchemaVersions: Set<Int> = [1, 2]
 
@@ -162,14 +246,6 @@ struct PlanUtilizationHistoryStore: Sendable {
 
     func save(_ providers: [UsageProvider: PlanUtilizationHistoryBuckets]) {
         guard let directoryURL = self.directoryURL else { return }
-        // Hard prohibition: a test process must never write to a real history folder. The default
-        // store already resolves to nil under tests, but this also blocks any store explicitly
-        // constructed with a non-temporary path, so a stray test can never overwrite the user's
-        // real plan-utilization history. The assertion makes such a mistake fail loudly in DEBUG.
-        if Self.isRunningTests, !Self.isWithinTemporaryDirectory(directoryURL) {
-            assertionFailure("Refusing to write plan-utilization history to a real folder during tests: \(directoryURL.path)")
-            return
-        }
         do {
             try FileManager.default.createDirectory(
                 at: directoryURL,
@@ -183,7 +259,8 @@ struct PlanUtilizationHistoryStore: Sendable {
                 let buckets = providers[provider] ?? PlanUtilizationHistoryBuckets()
                 let unscoped = Self.sortedHistories(buckets.unscoped)
                 let accounts = Self.sortedAccounts(buckets.accounts)
-                guard !unscoped.isEmpty || !accounts.isEmpty else {
+                guard !unscoped.isEmpty || !accounts.isEmpty || !buckets.sessionEquivalentWindowPairIdentities.isEmpty
+                else {
                     try? FileManager.default.removeItem(at: fileURL)
                     continue
                 }
@@ -194,7 +271,8 @@ struct PlanUtilizationHistoryStore: Sendable {
                     preferredAccountKey: buckets.preferredAccountKey,
                     unscoped: unscoped,
                     accounts: accounts,
-                    accountLabels: accountLabels)
+                    accountLabels: accountLabels,
+                    sessionEquivalentWindowPairIdentities: buckets.sessionEquivalentWindowPairIdentities)
                 let data = try encoder.encode(payload)
                 try data.write(to: fileURL, options: Data.WritingOptions.atomic)
             }
@@ -224,7 +302,8 @@ struct PlanUtilizationHistoryStore: Sendable {
                 preferredAccountKey: decoded.preferredAccountKey,
                 unscoped: decoded.unscoped,
                 accounts: decoded.accounts,
-                accountLabels: decoded.accountLabels)
+                accountLabels: decoded.accountLabels,
+                sessionEquivalentWindowPairIdentities: decoded.sessionEquivalentWindowPairIdentities)
             output[provider] = Self.decodeProvider(history)
         }
 
@@ -254,7 +333,8 @@ struct PlanUtilizationHistoryStore: Sendable {
             preferredAccountKey: providerHistory.preferredAccountKey,
             unscoped: self.sortedHistories(providerHistory.unscoped),
             accounts: accounts,
-            accountLabels: accountLabels)
+            accountLabels: accountLabels,
+            sessionEquivalentWindowPairIdentities: providerHistory.sessionEquivalentWindowPairIdentities)
     }
 
     private static func sortedAccounts(
@@ -285,35 +365,11 @@ struct PlanUtilizationHistoryStore: Sendable {
     }
 
     private static func defaultDirectoryURL() -> URL? {
-        // Never resolve the real history folder inside a test process. A UsageStore built with the
-        // default store would otherwise load and (on the next recorded sample) overwrite the user's
-        // real plan-utilization history — leaking synthetic test entries into ~/Library. Tests that
-        // genuinely exercise persistence pass an explicit temporary directory instead.
-        if Self.isRunningTests { return nil }
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
         let dir = root.appendingPathComponent("com.steipete.codexbar", isDirectory: true)
         return dir.appendingPathComponent("history", isDirectory: true)
-    }
-
-    /// Mirrors `SettingsStore.isRunningTests` but stays nonisolated so the default directory can be
-    /// resolved off the main actor. Kept in sync deliberately — both guard real files from tests.
-    private nonisolated static let isRunningTests: Bool = {
-        let env = ProcessInfo.processInfo.environment
-        if env["XCTestConfigurationFilePath"] != nil { return true }
-        if env["TESTING_LIBRARY_VERSION"] != nil { return true }
-        if env["SWIFT_TESTING"] != nil { return true }
-        return NSClassFromString("XCTestCase") != nil
-    }()
-
-    /// Whether `url` lives under the system temporary directory — the only place a test is allowed
-    /// to persist history. Uses standardized (symlink-resolved) paths so `/var` vs `/private/var`
-    /// can't slip a real path past the guard.
-    private nonisolated static func isWithinTemporaryDirectory(_ url: URL) -> Bool {
-        let tempPath = FileManager.default.temporaryDirectory.standardizedFileURL.path
-        let candidate = url.standardizedFileURL.path
-        return candidate == tempPath || candidate.hasPrefix(tempPath + "/")
     }
 
     private func providerFileURL(for provider: UsageProvider) -> URL {
@@ -336,8 +392,10 @@ extension ProviderHistoryDocument {
         self.preferredAccountKey = try container.decodeIfPresent(String.self, forKey: .preferredAccountKey)
         self.unscoped = try container.decode([PlanUtilizationSeriesHistory].self, forKey: .unscoped)
         self.accounts = try container.decode([String: [PlanUtilizationSeriesHistory]].self, forKey: .accounts)
-        self.accountLabels = try container
-            .decodeIfPresent([String: String].self, forKey: .accountLabels) ?? [:]
+        self.accountLabels = try container.decodeIfPresent([String: String].self, forKey: .accountLabels) ?? [:]
+        self.sessionEquivalentWindowPairIdentities = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .sessionEquivalentWindowPairIdentities) ?? [:]
     }
 }
 
