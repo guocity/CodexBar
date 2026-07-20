@@ -43,6 +43,7 @@ public enum OllamaUsageError: LocalizedError, Sendable {
     case networkError(String)
     case noSessionCookie
     case safariCookieAccessDenied
+    case browserCookieKeychainAccessRequired(String)
     case browserCookieDecryptionDenied(String)
     case browserCookieDecryptionDisabled(String)
 
@@ -61,9 +62,11 @@ public enum OllamaUsageError: LocalizedError, Sendable {
         case let .networkError(message):
             "Ollama request failed: \(message)"
         case .noSessionCookie:
-            "No Ollama session cookie found. Please sign in at \(Self.signInURL) in your browser."
+            "No Ollama session cookie found in Chrome. Sign in at \(Self.signInURL) in Chrome, then press Refresh."
         case .safariCookieAccessDenied:
             "Safari cookies need Full Disk Access for CodexBar (System Settings > Privacy & Security)."
+        case let .browserCookieKeychainAccessRequired(browserName):
+            "CodexBar needs Keychain access to read your \(browserName) Ollama session. Press Refresh and choose Allow for \(browserName) Safe Storage."
         case let .browserCookieDecryptionDenied(browserName):
             "\(browserName) cookie decryption was declined in Keychain; retry with a manual refresh."
         case let .browserCookieDecryptionDisabled(browserName):
@@ -78,9 +81,9 @@ private let ollamaCookieImportOrder: BrowserCookieImportOrder =
 
 public enum OllamaCookieImporter {
     private static let cookieClient = BrowserCookieClient()
-    private static let cookieDomains = ["ollama.com", "www.ollama.com"]
+    private static let cookieDomains = ["ollama.com", "www.ollama.com", "signin.ollama.com"]
     static let defaultPreferredBrowsers: [Browser] = [.chrome]
-    static let defaultAllowFallbackBrowsers = true
+    static let defaultAllowFallbackBrowsers = false
 
     public struct SessionInfo: Sendable {
         public let cookies: [HTTPCookie]
@@ -121,7 +124,9 @@ public enum OllamaCookieImporter {
             }
         }
 
-        let fallbackOrder = ollamaCookieImportOrder.filter { !preferredBrowsers.contains($0) }
+        let fallbackOrder = ollamaCookieImportOrder.filter {
+            !preferredBrowsers.contains($0) && !$0.usesKeychainForCookieDecryption
+        }
         let fallbackSources = self.cookieSources(
             from: fallbackOrder,
             browserDetection: browserDetection,
@@ -236,8 +241,16 @@ public enum OllamaCookieImporter {
         if KeychainAccessGate.isDisabled {
             return .browserCookieDecryptionDisabled(browser.displayName)
         }
-        guard BrowserCookieAccessGate.hasActiveDenial(for: browser, now: now) else { return nil }
-        return .browserCookieDecryptionDenied(browser.displayName)
+        if BrowserCookieAccessGate.hasActiveDenial(for: browser, now: now) {
+            return .browserCookieDecryptionDenied(browser.displayName)
+        }
+        // Background refreshes intentionally skip Keychain-backed browsers to avoid a
+        // Safe Storage prompt. Without this hint, empty candidates collapse into a
+        // misleading "no session cookie" error even when Chrome still has a session.
+        if ProviderInteractionContext.current != .userInitiated {
+            return .browserCookieKeychainAccessRequired(browser.displayName)
+        }
+        return nil
     }
 
     private static func cookieSources(

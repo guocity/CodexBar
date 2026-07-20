@@ -261,6 +261,16 @@ public enum ProviderBrowserCookieDefaults {
         #endif
     }
 
+    /// Ollama cloud sessions are Chrome-only. Do not probe Safari/Comet/Atlas — those trigger
+    /// Full Disk Access or unrelated Safe Storage prompts.
+    public static var ollamaCookieImportOrder: BrowserCookieImportOrder? {
+        #if os(macOS)
+        [.chrome]
+        #else
+        nil
+        #endif
+    }
+
     /// MiMo Auto: Safari first (no Keychain prompt), keep the existing Chrome-family
     /// entries from main, and add Firefox/Edge per #1304. Other Chromium forks stay on
     /// Manual import to avoid scanning the full SweetCookieKit default order.

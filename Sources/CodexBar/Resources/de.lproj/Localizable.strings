@@ -22,6 +22,7 @@
 "hooks_delete_argument" = "Argument löschen";
 
 "ollama_safari_cookie_access_hint" = "Safari-Cookies benötigen vollen Festplattenzugriff für CodexBar (Systemeinstellungen > Datenschutz & Sicherheit).";
+"ollama_browser_cookie_keychain_access_required" = "CodexBar benötigt Keychain-Zugriff, um deine %@-Ollama-Sitzung zu lesen. Aktualisieren drücken und „Erlauben“ für %@ Safe Storage wählen.";
 "ollama_browser_cookie_decryption_denied" = "Die Entschlüsselung der %@-Cookies wurde im Schlüsselbund abgelehnt; versuchen Sie es mit einer manuellen Aktualisierung erneut.";
 "ollama_browser_cookie_decryption_disabled" = "Die Entschlüsselung der %@-Cookies ist in CodexBar deaktiviert; aktivieren Sie den Schlüsselbundzugriff und aktualisieren Sie.";
 

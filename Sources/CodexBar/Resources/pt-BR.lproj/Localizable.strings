@@ -22,6 +22,7 @@
 "hooks_delete_argument" = "Excluir argumento";
 
 "ollama_safari_cookie_access_hint" = "Os cookies do Safari precisam de Acesso Total ao Disco para o CodexBar (Ajustes do Sistema > Privacidade e Segurança).";
+"ollama_browser_cookie_keychain_access_required" = "O CodexBar precisa de acesso ao Porta-chaves para ler sua sessão Ollama do %@. Toque em Atualizar e escolha Permitir para %@ Safe Storage.";
 "ollama_browser_cookie_decryption_denied" = "A descriptografia dos cookies do %@ foi recusada nas Chaves; tente novamente com uma atualização manual.";
 "ollama_browser_cookie_decryption_disabled" = "A descriptografia dos cookies do %@ está desativada no CodexBar; ative o acesso às Chaves e atualize.";
 

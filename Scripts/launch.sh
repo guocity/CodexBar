@@ -19,7 +19,9 @@ if [[ ! -d "$APP_PATH" ]]; then
 fi
 
 echo "==> Launching CodexBar from $APP_PATH"
-open -n "$APP_PATH"
+# Never inherit agent/debug keychain kills into the GUI app. Those make browser-cookie
+# providers (Ollama, Cursor, etc.) fail with "cookie decryption is disabled".
+env -u CODEXBAR_DISABLE_KEYCHAIN_ACCESS -u CODEXBAR_KEYCHAIN_NO_UI open -n "$APP_PATH"
 
 # Wait a moment and check if it's running
 sleep 1

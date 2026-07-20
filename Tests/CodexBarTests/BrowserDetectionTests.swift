@@ -270,7 +270,7 @@ struct BrowserDetectionTests {
     }
 
     @Test
-    func `background cookie import skips chromium before keychain preflight`() {
+    func `background cookie import uses chromium when keychain already allowed`() {
         BrowserCookieAccessGate.resetForTesting()
         defer { BrowserCookieAccessGate.resetForTesting() }
 
@@ -282,17 +282,17 @@ struct BrowserDetectionTests {
                 return .allowed
             } operation: {
                 ProviderInteractionContext.$current.withValue(.background) {
-                    #expect(BrowserCookieAccessGate.shouldAttempt(.chrome) == false)
+                    #expect(BrowserCookieAccessGate.shouldAttempt(.chrome) == true)
                     #expect(BrowserCookieAccessGate.shouldAttempt(.safari) == true)
                 }
             }
         }
 
-        #expect(preflightCount == 0)
+        #expect(preflightCount >= 1)
     }
 
     @Test
-    func `background cookie import skips chromium without probing keychain interaction`() {
+    func `background cookie import skips chromium when keychain prompt would appear`() {
         BrowserCookieAccessGate.resetForTesting()
         defer { BrowserCookieAccessGate.resetForTesting() }
 
@@ -310,7 +310,7 @@ struct BrowserDetectionTests {
             }
         }
 
-        #expect(preflightCount == 0)
+        #expect(preflightCount >= 1)
     }
 
     @Test
@@ -684,6 +684,28 @@ struct BrowserDetectionTests {
         #expect(detection.cookieSourceProfileAccessIssue(.chrome) == .accessDenied)
         #expect(!detection.isCookieSourceAvailable(.chrome))
         #expect(!detection.isInteractiveCookieSourceAvailable(.chrome))
+    }
+
+    @Test
+    func `chromium cookie store stays available when profile listing is denied`() {
+        let home = "/tmp/codexbar-chrome-direct-cookies"
+        let profileRoot = "\(home)/Library/Application Support/Google/Chrome"
+        let cookieDB = "\(profileRoot)/Default/Cookies"
+        let applicationPath = "/Applications/Google Chrome.app"
+        let detection = BrowserDetection(
+            homeDirectory: home,
+            cacheTTL: 0,
+            now: Date.init,
+            fileExists: { path in
+                path == applicationPath || path == profileRoot || path == cookieDB
+            },
+            directoryContents: { _ in nil },
+            applicationURLs: { _ in [] },
+            profileAccessIssue: { _ in .accessDenied })
+
+        #expect(detection.isCookieSourceAvailable(.chrome))
+        #expect(detection.isInteractiveCookieSourceAvailable(.chrome))
+        #expect(detection.cookieSourceProfileAccessIssue(.chrome) == nil)
     }
 
     @Test

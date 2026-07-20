@@ -136,6 +136,11 @@ public final class BrowserDetection: Sendable {
             return false
         }
 
+        // Prefer a readable cookie DB even when listing the profile root is TCC-blocked.
+        if self.hasUsableCookieStore(browser) {
+            return true
+        }
+
         return self.profileAccessIssue(profilePath) == nil
     }
 
@@ -149,7 +154,13 @@ public final class BrowserDetection: Sendable {
             return nil
         }
 
-        return self.profileAccessIssue(profilePath)
+        guard let issue = self.profileAccessIssue(profilePath) else { return nil }
+        // Chromium cookie DBs are often still readable by direct path when the profile root
+        // cannot be listed. That is a Keychain concern, not Full Disk Access.
+        if self.hasValidCookieStore(for: browser, at: profilePath) {
+            return nil
+        }
+        return issue
     }
 
     /// Cursor interactive login needs a concrete readable Safari source before it can safely pin Safari. Keep the
@@ -312,44 +323,71 @@ public final class BrowserDetection: Sendable {
     }
 
     private func hasValidProfileDirectory(for browser: Browser, at profilePath: String) -> Bool {
-        guard let contents = self.directoryContents(profilePath) else { return false }
-
-        // Check for Default/ or Profile*/ subdirectories for Chromium browsers
-        let hasProfile = contents.contains { name in
-            name == "Default" || name.hasPrefix("Profile ") || name.hasPrefix("user-")
-        }
-
-        if browser.usesGeckoProfileStore {
-            return contents.contains { name in
-                name.range(of: ".default", options: [.caseInsensitive]) != nil
+        if let contents = self.directoryContents(profilePath) {
+            // Check for Default/ or Profile*/ subdirectories for Chromium browsers
+            let hasProfile = contents.contains { name in
+                name == "Default" || name.hasPrefix("Profile ") || name.hasPrefix("user-")
             }
-        }
 
-        return hasProfile
-    }
-
-    private func hasValidCookieStore(for browser: Browser, at profilePath: String) -> Bool {
-        guard let contents = self.directoryContents(profilePath) else { return false }
-
-        if browser.usesGeckoProfileStore {
-            for name in contents where name.range(of: ".default", options: [.caseInsensitive]) != nil {
-                let cookieDB = "\(profilePath)/\(name)/cookies.sqlite"
-                if self.fileExists(cookieDB) {
-                    return true
+            if browser.usesGeckoProfileStore {
+                return contents.contains { name in
+                    name.range(of: ".default", options: [.caseInsensitive]) != nil
                 }
             }
-            return false
+
+            return hasProfile
         }
 
-        for name in contents where name == "Default" || name.hasPrefix("Profile ") || name.hasPrefix("user-") {
-            let cookieDBLegacy = "\(profilePath)/\(name)/Cookies"
-            let cookieDBNetwork = "\(profilePath)/\(name)/Network/Cookies"
-            if self.fileExists(cookieDBLegacy) || self.fileExists(cookieDBNetwork) {
-                return true
+        // Listing the Chromium root can fail under TCC while known profile dirs remain readable.
+        if browser.usesChromiumProfileStore {
+            return self.knownChromiumProfileNames.contains {
+                self.fileExists("\(profilePath)/\($0)")
             }
         }
 
         return false
+    }
+
+    private func hasValidCookieStore(for browser: Browser, at profilePath: String) -> Bool {
+        if let contents = self.directoryContents(profilePath) {
+            if browser.usesGeckoProfileStore {
+                for name in contents where name.range(of: ".default", options: [.caseInsensitive]) != nil {
+                    let cookieDB = "\(profilePath)/\(name)/cookies.sqlite"
+                    if self.fileExists(cookieDB) {
+                        return true
+                    }
+                }
+                return false
+            }
+
+            for name in contents where name == "Default" || name.hasPrefix("Profile ") || name.hasPrefix("user-") {
+                if self.chromiumCookieStoreExists(profilePath: profilePath, profileName: name) {
+                    return true
+                }
+            }
+
+            return false
+        }
+
+        // Directory listing can fail under TCC while Default/Cookies (legacy) or
+        // Default/Network/Cookies remain directly readable — don't skip Chrome for that.
+        if browser.usesChromiumProfileStore {
+            return self.knownChromiumProfileNames.contains {
+                self.chromiumCookieStoreExists(profilePath: profilePath, profileName: $0)
+            }
+        }
+
+        return false
+    }
+
+    private var knownChromiumProfileNames: [String] {
+        ["Default"] + (1 ... 10).map { "Profile \($0)" }
+    }
+
+    private func chromiumCookieStoreExists(profilePath: String, profileName: String) -> Bool {
+        let cookieDBLegacy = "\(profilePath)/\(profileName)/Cookies"
+        let cookieDBNetwork = "\(profilePath)/\(profileName)/Network/Cookies"
+        return self.fileExists(cookieDBLegacy) || self.fileExists(cookieDBNetwork)
     }
 
     private static func probeProfileAccessIssue(_ path: String) -> BrowserProfileAccessIssue? {

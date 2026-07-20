@@ -25,7 +25,7 @@ Usage limits for session and weekly windows.
 1. Open **Settings → Providers**.
 2. Enable **Ollama**.
 3. For API-key mode, paste an API key from `https://ollama.com/settings/keys` or set `OLLAMA_API_KEY`.
-4. For quota bars, leave **Cookie source** on **Auto** (recommended, imports Chrome cookies by default).
+4. For quota bars, leave **Cookie source** on **Auto** (recommended, imports Chrome cookies only).
 
 Ollama API keys currently do not expire, but they can be revoked from the key settings page.
 
@@ -60,7 +60,7 @@ If a Keychain dialog asks for **Chrome Safe Storage**, choose **Allow** (prefer 
 refreshes cannot show that prompt, so the menu can claim you’re signed out even when Chrome has a valid
 `__Secure-session` / `wos-session` cookie.
 
-If your active session is only in Safari (or another browser), use **Cookie source → Manual** and paste a cookie header.
+If your active session is only in another browser, use **Cookie source → Manual** and paste a cookie header.
 
 ### “CodexBar needs Keychain access…”
 

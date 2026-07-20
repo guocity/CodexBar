@@ -35,6 +35,19 @@ struct OllamaUIErrorMapperTests {
     }
 
     @Test
+    func `maps Keychain access required with browser name`() {
+        let message = OllamaUIErrorMapper.userFacingMessage(
+            OllamaUsageError.browserCookieKeychainAccessRequired("Chrome").localizedDescription,
+            localize: { key in
+                key == "ollama_browser_cookie_keychain_access_required"
+                    ? "localized refresh %@ / %@"
+                    : key
+            })
+
+        #expect(message == "localized refresh Chrome / Chrome")
+    }
+
+    @Test
     func `preserves generic Ollama errors`() {
         let raw = OllamaUsageError.noSessionCookie.localizedDescription
         #expect(OllamaUIErrorMapper.userFacingMessage(raw, localize: { $0 }) == raw)

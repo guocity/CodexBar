@@ -1,6 +1,7 @@
 /* Galician localization for CodexBar */
 
 "ollama_safari_cookie_access_hint" = "As cookies de Safari precisan acceso total ao disco para CodexBar (Axustes do Sistema > Privacidade e seguridade).";
+"ollama_browser_cookie_keychain_access_required" = "CodexBar needs Keychain access to read your %@ Ollama session. Press Refresh and choose Allow for %@ Safe Storage.";
 "ollama_browser_cookie_decryption_denied" = "Rexeitouse no Chaveiro o descifrado das cookies de %@; téntao de novo cunha actualización manual.";
 "ollama_browser_cookie_decryption_disabled" = "O descifrado das cookies de %@ está desactivado en CodexBar; activa o acceso ao Chaveiro e actualiza.";
 

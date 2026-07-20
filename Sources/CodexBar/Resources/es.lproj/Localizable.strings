@@ -22,6 +22,7 @@
 "hooks_delete_argument" = "Eliminar argumento";
 
 "ollama_safari_cookie_access_hint" = "Las cookies de Safari necesitan acceso total al disco para CodexBar (Ajustes del Sistema > Privacidad y seguridad).";
+"ollama_browser_cookie_keychain_access_required" = "CodexBar necesita acceso al llavero para leer tu sesión de Ollama en %@. Pulsa Actualizar y elige Permitir para %@ Safe Storage.";
 "ollama_browser_cookie_decryption_denied" = "Se rechazó en el Llavero el descifrado de las cookies de %@; vuelve a intentarlo con una actualización manual.";
 "ollama_browser_cookie_decryption_disabled" = "El descifrado de las cookies de %@ está desactivado en CodexBar; activa el acceso al Llavero y actualiza.";
 

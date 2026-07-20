@@ -402,9 +402,11 @@ ensure_widget_extension_project() {
 widget_source_packages_healthy() {
   local derived_dir="$1"
   local repos_dir="$derived_dir/SourcePackages/repositories"
-  local repo first_pack
+  local resolved="$ROOT/WidgetExtension/CodexBarWidgetExtension.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+  local repo first_pack identity revision match base base_lc identity_lc
 
   [[ -d "$repos_dir" ]] || return 1
+  [[ -f "$resolved" ]] || return 1
   shopt -s nullglob
   local repos=("$repos_dir"/*)
   shopt -u nullglob
@@ -420,6 +422,37 @@ widget_source_packages_healthy() {
       return 1
     fi
   done
+
+  # Packs + HEAD can still be stale: mirrors may lack the pinned Package.resolved
+  # revisions, which then fail checkout with "unable to read tree".
+  while IFS=$'\t' read -r identity revision; do
+    [[ -n "$identity" && -n "$revision" ]] || continue
+    match=""
+    identity_lc=$(printf '%s' "$identity" | tr '[:upper:]' '[:lower:]')
+    for repo in "${repos[@]}"; do
+      [[ -d "$repo" ]] || continue
+      base="$(basename "$repo")"
+      base_lc=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')
+      if [[ "$base_lc" == "${identity_lc}-"* ]]; then
+        match="$repo"
+        break
+      fi
+    done
+    [[ -n "$match" ]] || return 1
+    if ! git -C "$match" cat-file -e "${revision}^{commit}" >/dev/null 2>&1; then
+      return 1
+    fi
+  done < <(python3 - "$resolved" <<'PY'
+import json, sys
+from pathlib import Path
+data = json.loads(Path(sys.argv[1]).read_text())
+for pin in data.get("pins", []):
+    identity = pin.get("identity") or ""
+    revision = (pin.get("state") or {}).get("revision") or ""
+    if identity and revision:
+        print(f"{identity}\t{revision}")
+PY
+)
   return 0
 }
 

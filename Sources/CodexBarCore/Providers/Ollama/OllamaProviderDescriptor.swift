@@ -20,7 +20,7 @@ public enum OllamaProviderDescriptor {
                 defaultEnabled: false,
                 isPrimaryProvider: false,
                 usesAccountFallback: false,
-                browserCookieOrder: ProviderBrowserCookieDefaults.defaultImportOrder,
+                browserCookieOrder: ProviderBrowserCookieDefaults.ollamaCookieImportOrder,
                 dashboardURL: "https://ollama.com/settings",
                 statusPageURL: nil),
             branding: ProviderBranding(

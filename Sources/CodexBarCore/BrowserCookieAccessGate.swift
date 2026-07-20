@@ -86,12 +86,6 @@ public enum BrowserCookieAccessGate {
     public static func shouldAttempt(_ browser: Browser, now: Date = Date()) -> Bool {
         guard browser.usesKeychainForCookieDecryption else { return true }
         guard !KeychainAccessGate.isDisabled else { return false }
-        guard ProviderInteractionContext.current == .userInitiated else {
-            self.log.info(
-                "Skipping background Chromium cookie import to avoid a Keychain prompt",
-                metadata: ["browser": browser.displayName])
-            return false
-        }
         if self.deniedBrowsersForTesting?.contains(browser) == true {
             return self.isExplicitRetryAllowed(for: browser)
         }
@@ -115,6 +109,12 @@ public enum BrowserCookieAccessGate {
             }
             if let blockedUntil = state.chromiumFamilyDeniedUntil {
                 if blockedUntil > now {
+                    if self.isExplicitRetryAllowed(for: browser) {
+                        self.log.info(
+                            "Explicit Chromium-family cookie retry allowed",
+                            metadata: ["browser": browser.displayName])
+                        return true
+                    }
                     self.log.debug(
                         "Chromium-family cookie access blocked",
                         metadata: ["browser": browser.displayName, "until": "\(blockedUntil.timeIntervalSince1970)"])
@@ -129,6 +129,14 @@ public enum BrowserCookieAccessGate {
 
         let requiresInteraction = self.chromiumKeychainRequiresInteraction(for: browser)
         if requiresInteraction {
+            // Never open a Safe Storage prompt from background refresh — that spams Keychain ACL
+            // entries when the user keeps pressing Refresh after a misleading error.
+            guard ProviderInteractionContext.current == .userInitiated else {
+                self.log.info(
+                    "Skipping background Chromium cookie import; Keychain prompt would be required",
+                    metadata: ["browser": browser.displayName])
+                return false
+            }
             self.recordDenied(for: browser, now: now)
             if self.isExplicitRetryAllowed(for: browser) {
                 self.log.info(
@@ -321,7 +329,7 @@ extension BrowserCookieClient {
             throw BrowserCookieStoreAccessSuppressedError()
         }
         guard BrowserCookieAccessGate.shouldAttempt(browser) else { return [] }
-        return self.stores(for: browser)
+        return self.resolvedChromiumAwareStores(for: browser)
     }
 
     public func codexBarRecords(
@@ -337,13 +345,80 @@ extension BrowserCookieClient {
         guard BrowserCookieAccessGate.shouldAttempt(browser) else { return [] }
         guard BrowserCookieAccessGate.claimExplicitRetryCookieReadIfNeeded(for: browser) else { return [] }
         do {
-            let records = try self.records(matching: query, in: browser, logger: logger)
+            let discovered = self.stores(for: browser)
+            let stores = discovered.isEmpty
+                ? self.knownChromiumCookieStores(for: browser)
+                : discovered
+            guard !stores.isEmpty else {
+                throw BrowserCookieError.notFound(
+                    browser: browser,
+                    details: "\(browser.displayName) cookie store not found.")
+            }
+            if discovered.isEmpty {
+                logger?(
+                    "\(browser.displayName): using direct cookie DB paths (profile root listing unavailable)")
+            }
+            let records = try stores.compactMap { store -> BrowserCookieStoreRecords? in
+                let loaded = try self.records(matching: query, in: store, logger: logger)
+                guard !loaded.isEmpty else { return nil }
+                return BrowserCookieStoreRecords(store: store, records: loaded)
+            }
             BrowserCookieAccessGate.recordAllowed(for: browser)
             return records
         } catch {
             BrowserCookieAccessGate.recordIfNeeded(error)
             throw error
         }
+    }
+
+    private func resolvedChromiumAwareStores(for browser: Browser) -> [BrowserCookieStore] {
+        let discovered = self.stores(for: browser)
+        if !discovered.isEmpty {
+            return discovered
+        }
+        // SweetCookieKit discovers Chromium profiles by listing the profile root. On some
+        // macOS setups that listing is blocked while Default/Cookies remains readable —
+        // probe known paths so Chrome Safe Storage is used instead of falling through to
+        // unrelated browsers (Comet/Atlas) and prompting the wrong Keychain item.
+        return self.knownChromiumCookieStores(for: browser)
+    }
+
+    private func knownChromiumCookieStores(for browser: Browser) -> [BrowserCookieStore] {
+        guard browser.usesChromiumProfileStore,
+              let relativePath = browser.chromiumProfileRelativePath
+        else {
+            return []
+        }
+
+        let profileNames = ["Default"] + (1 ... 10).map { "Profile \($0)" }
+        var stores: [BrowserCookieStore] = []
+        for home in self.configuration.homeDirectories {
+            let root = home
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+                .appendingPathComponent(relativePath, isDirectory: true)
+            for profileName in profileNames {
+                let profileDir = root.appendingPathComponent(profileName, isDirectory: true)
+                let legacyDB = profileDir.appendingPathComponent("Cookies")
+                let networkDB = profileDir
+                    .appendingPathComponent("Network", isDirectory: true)
+                    .appendingPathComponent("Cookies")
+                let candidates: [(BrowserCookieStoreKind, URL)] = [
+                    (.primary, legacyDB),
+                    (.network, networkDB),
+                ]
+                for (kind, databaseURL) in candidates {
+                    guard FileManager.default.fileExists(atPath: databaseURL.path) else { continue }
+                    let labelSuffix = kind == .network ? " (Network)" : ""
+                    stores.append(BrowserCookieStore(
+                        browser: browser,
+                        profile: BrowserProfile(id: profileDir.path, name: profileName),
+                        kind: kind,
+                        label: "\(browser.displayName) \(profileName)\(labelSuffix)",
+                        databaseURL: databaseURL))
+                }
+            }
+        }
+        return stores
     }
 }
 #else

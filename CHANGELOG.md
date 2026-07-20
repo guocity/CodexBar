@@ -14,6 +14,12 @@
 
 ## 0.45.3 — Unreleased
 
+### Fixes
+- Ollama/Chrome: Chrome-only cookie import (no Safari/Comet/Atlas). Probe Chrome cookie DBs by direct path when the profile root cannot be listed, and prompt only for Chrome Safe Storage.
+- Browser cookies: allow background Chromium import when Chrome Safe Storage is already allowed, so a granted Keychain ACL is not ignored and does not spam new Allow entries.
+- Ollama: surface Keychain Safe Storage guidance only when a prompt would actually be required.
+- Browser cookies: let manual Refresh bypass Chromium-family Keychain denial cooldowns so Chrome can be retried after an Atlas Deny.
+
 ### Fixed
 
 ## 0.45.2 — 2026-07-19

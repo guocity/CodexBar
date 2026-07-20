@@ -11,6 +11,9 @@ struct OllamaUsageFetcherTests {
         #expect(OllamaUsageError.notLoggedIn.errorDescription?.contains("https://ollama.com/signin") == true)
         #expect(OllamaUsageError.invalidCredentials.errorDescription?.contains("https://ollama.com/signin") == true)
         #expect(OllamaUsageError.noSessionCookie.errorDescription?.contains("https://ollama.com/signin") == true)
+        #expect(OllamaUsageError.noSessionCookie.errorDescription?.contains("Chrome") == true)
+        #expect(OllamaUsageError.browserCookieKeychainAccessRequired("Chrome").errorDescription?
+            .contains("Chrome Safe Storage") == true)
     }
 
     @Test
@@ -132,7 +135,8 @@ struct OllamaUsageFetcherTests {
     @Test
     func `cookie importer defaults to chrome first`() {
         #expect(OllamaCookieImporter.defaultPreferredBrowsers == [.chrome])
-        #expect(OllamaCookieImporter.defaultAllowFallbackBrowsers)
+        #expect(!OllamaCookieImporter.defaultAllowFallbackBrowsers)
+        #expect(ProviderBrowserCookieDefaults.ollamaCookieImportOrder == [.chrome])
     }
 
     @Test
@@ -192,6 +196,44 @@ struct OllamaUsageFetcherTests {
                 return
             }
             #expect(browserName == "Brave")
+        }
+    }
+
+    @Test
+    func `background refresh skip maps to keychain refresh hint only when prompt required`() {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+
+        KeychainAccessGate.withTaskOverrideForTesting(false) {
+            KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in
+                .interactionRequired
+            } operation: {
+                ProviderInteractionContext.$current.withValue(.background) {
+                    var accessError: OllamaUsageError?
+                    let shouldAttempt = OllamaCookieImporter.shouldAttemptCookieSource(
+                        .chrome,
+                        accessError: &accessError)
+                    #expect(!shouldAttempt)
+                    guard case let .browserCookieKeychainAccessRequired(browserName) = accessError else {
+                        Issue.record("Expected Chrome Keychain refresh hint, got \(String(describing: accessError))")
+                        return
+                    }
+                    #expect(browserName == "Chrome")
+                }
+            }
+
+            KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in
+                .allowed
+            } operation: {
+                ProviderInteractionContext.$current.withValue(.background) {
+                    var accessError: OllamaUsageError?
+                    let shouldAttempt = OllamaCookieImporter.shouldAttemptCookieSource(
+                        .chrome,
+                        accessError: &accessError)
+                    #expect(shouldAttempt)
+                    #expect(accessError == nil)
+                }
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 /* Turkish localization for CodexBar */
 
 "ollama_safari_cookie_access_hint" = "Safari çerezleri için CodexBar’a Tam Disk Erişimi gerekir (Sistem Ayarları > Gizlilik ve Güvenlik).";
+"ollama_browser_cookie_keychain_access_required" = "CodexBar needs Keychain access to read your %@ Ollama session. Press Refresh and choose Allow for %@ Safe Storage.";
 "ollama_browser_cookie_decryption_denied" = "%@ çerezlerinin şifresini çözme Anahtar Zinciri’nde reddedildi; manuel yenilemeyle tekrar deneyin.";
 "ollama_browser_cookie_decryption_disabled" = "%@ çerezlerinin şifresini çözme CodexBar’da devre dışı; Anahtar Zinciri erişimini etkinleştirip yenileyin.";
 
