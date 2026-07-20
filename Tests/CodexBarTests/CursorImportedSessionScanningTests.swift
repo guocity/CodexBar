@@ -268,6 +268,46 @@ struct CursorImportedSessionScanningTests {
     }
 
     @Test
+    func `resolved session keeps result when cache ownership is lost without replacement`() async throws {
+        let probe = CursorStatusProbe(browserDetection: BrowserDetection(cacheTTL: 0))
+        let session = Self.makeSessionInfo(sourceLabel: "Background", cookieValue: "background")
+        let service = "cursor-login-lost-ownership-\(UUID().uuidString)"
+        let legacyBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        try await KeychainCacheStore.withServiceOverrideForTesting(service) {
+            try await CookieHeaderCache.withLegacyBaseURLOverrideForTesting(legacyBase) {
+                KeychainCacheStore.setTestStoreForTesting(true)
+                defer { KeychainCacheStore.setTestStoreForTesting(false) }
+
+                let observation = CookieHeaderCache.observeForConditionalMutation(provider: .cursor)
+                var gate: CookieHeaderCache.ConditionalMutationGate?
+                defer {
+                    if let gate {
+                        CookieHeaderCache.endConditionalMutationGate(gate)
+                    }
+                }
+
+                let outcome = try await probe.resolveImportedSession(
+                    session,
+                    perform: { cookieHeader, _ in
+                        gate = CookieHeaderCache.beginConditionalMutationGate(provider: .cursor)
+                        return cookieHeader
+                    },
+                    log: { _ in },
+                    cacheObservation: observation)
+
+                guard case let .succeeded(cookieHeader) = outcome else {
+                    Issue.record("Expected the fetched result to be kept when cache write was blocked")
+                    return
+                }
+                #expect(cookieHeader == session.cookieHeader)
+                #expect(CookieHeaderCache.load(provider: .cursor) == nil)
+            }
+        }
+    }
+
+    @Test
     func `resolved session accepts result when the same credential is cached concurrently`() async throws {
         let probe = CursorStatusProbe(browserDetection: BrowserDetection(cacheTTL: 0))
         let session = Self.makeSessionInfo(sourceLabel: "Background", cookieValue: "background")

@@ -15,6 +15,7 @@
 ## 0.45.3 — Unreleased
 
 ### Fixed
+- Cursor: keep a successful usage fetch when cookie-cache ownership is lost mid-refresh, instead of showing “session changed during refresh”.
 
 ## 0.45.2 — 2026-07-19
 

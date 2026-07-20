@@ -1322,8 +1322,13 @@ public struct CursorStatusProbe: Sendable {
             sourceLabel: context.sourceLabel)
         guard !stored else { return value }
         guard let replacement = CookieHeaderCache.load(provider: .cursor) else {
-            context.log("Cursor session from \(context.sourceLabel) lost cache ownership without a replacement")
-            throw CursorStatusProbeError.networkError("Cursor session changed during refresh")
+            // A successful fetch already completed. Losing cache ownership with no
+            // replacement usually means Keychain was briefly unavailable, an
+            // interactive login gate blocked the write, or the cache was cleared.
+            // Keep the usable result instead of surfacing a hard refresh failure.
+            context.log(
+                "Cursor session from \(context.sourceLabel) lost cache ownership without a replacement; keeping fetched result")
+            return value
         }
         let fetchedFingerprint = CookieHeaderCache.credentialFingerprint(context.cookieHeader)
         let replacementFingerprint = CookieHeaderCache.credentialFingerprint(replacement.cookieHeader)
