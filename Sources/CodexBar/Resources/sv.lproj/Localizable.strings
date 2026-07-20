@@ -22,6 +22,7 @@
 "hooks_delete_argument" = "Ta bort argument";
 
 "ollama_safari_cookie_access_hint" = "Safari-cookies kräver full skivåtkomst för CodexBar (Systeminställningar > Integritet och säkerhet).";
+"ollama_browser_cookie_keychain_access_required" = "CodexBar needs Keychain access to read your %@ Ollama session. Press Refresh and choose Allow for %@ Safe Storage.";
 "ollama_browser_cookie_decryption_denied" = "Dekryptering av %@-cookies nekades i Nyckelhanteraren; försök igen med en manuell uppdatering.";
 "ollama_browser_cookie_decryption_disabled" = "Dekryptering av %@-cookies är inaktiverad i CodexBar; aktivera åtkomst till Nyckelhanteraren och uppdatera.";
 

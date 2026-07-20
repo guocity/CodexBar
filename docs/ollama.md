@@ -54,11 +54,13 @@ Ollama API keys currently do not expire, but they can be revoked from the key se
 
 ### “No Ollama session cookie found”
 
-Sign in at `https://ollama.com/signin` in Chrome, then press **Refresh** in CodexBar.
+Sign in at `https://ollama.com/signin` in Chrome, then press **Refresh** in CodexBar (a background
+refresh will not prompt for Keychain access).
 
 If a Keychain dialog asks for **Chrome Safe Storage**, choose **Allow** (prefer Always Allow). Background
-refreshes cannot show that prompt, so the menu can claim you’re signed out even when Chrome has a valid
-`__Secure-session` / `wos-session` cookie.
+refreshes skip Chromium cookie import on purpose; use manual Refresh once so CodexBar can unlock the
+session. Shell-only `OLLAMA_API_KEY` works in the CLI but is not visible to the menu bar app unless the
+key is also saved in Settings / `~/.codexbar/config.json`.
 
 If your active session is only in Safari (or another browser), use **Cookie source → Manual** and paste a cookie header.
 

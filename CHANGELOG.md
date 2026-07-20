@@ -15,6 +15,7 @@
 ## 0.45.3 — Unreleased
 
 ### Fixed
+- Ollama: explain Keychain/manual Refresh when background cookie import is skipped, instead of a misleading missing-session error.
 
 ## 0.45.2 — 2026-07-19
 

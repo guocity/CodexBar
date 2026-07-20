@@ -196,6 +196,27 @@ struct OllamaUsageFetcherTests {
     }
 
     @Test
+    func `background refresh skip maps to keychain refresh hint`() {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+
+        KeychainAccessGate.withTaskOverrideForTesting(false) {
+            ProviderInteractionContext.$current.withValue(.background) {
+                var accessError: OllamaUsageError?
+                let shouldAttempt = OllamaCookieImporter.shouldAttemptCookieSource(
+                    .chrome,
+                    accessError: &accessError)
+                #expect(!shouldAttempt)
+                guard case let .browserCookieKeychainAccessRequired(browserName) = accessError else {
+                    Issue.record("Expected Chrome Keychain refresh hint, got \(String(describing: accessError))")
+                    return
+                }
+                #expect(browserName == "Chrome")
+            }
+        }
+    }
+
+    @Test
     func `manual refresh bypasses browser denial cooldown`() async {
         await BrowserCookieAccessGate.withDeniedBrowsersForTesting([.brave]) {
             KeychainAccessGate.withTaskOverrideForTesting(false) {

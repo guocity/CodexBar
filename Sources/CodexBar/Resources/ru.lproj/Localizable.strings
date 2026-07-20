@@ -22,6 +22,7 @@
 "hooks_delete_argument" = "Удалить аргумент";
 
 "ollama_safari_cookie_access_hint" = "Для файлов cookie Safari приложению CodexBar нужен полный доступ к диску (Системные настройки > Конфиденциальность и безопасность).";
+"ollama_browser_cookie_keychain_access_required" = "CodexBar needs Keychain access to read your %@ Ollama session. Press Refresh and choose Allow for %@ Safe Storage.";
 "ollama_browser_cookie_decryption_denied" = "Расшифровка файлов cookie %@ была отклонена в Связке ключей; повторите попытку с помощью ручного обновления.";
 "ollama_browser_cookie_decryption_disabled" = "Расшифровка файлов cookie %@ отключена в CodexBar; включите доступ к Связке ключей и обновите.";
 
