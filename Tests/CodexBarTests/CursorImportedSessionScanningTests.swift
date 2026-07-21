@@ -268,6 +268,75 @@ struct CursorImportedSessionScanningTests {
     }
 
     @Test
+    func `resolved session keeps fetched result when cookie cache cannot persist`() async throws {
+        let probe = CursorStatusProbe(browserDetection: BrowserDetection(cacheTTL: 0))
+        let session = Self.makeSessionInfo(sourceLabel: "Safari", cookieValue: "safari-session")
+        let service = "cursor-cache-persist-failure-\(UUID().uuidString)"
+        let legacyBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        try await KeychainCacheStore.withServiceOverrideForTesting(service) {
+            try await CookieHeaderCache.withLegacyBaseURLOverrideForTesting(legacyBase) {
+                KeychainCacheStore.setTestStoreForTesting(true)
+                defer { KeychainCacheStore.setTestStoreForTesting(false) }
+
+                let observation = CookieHeaderCache.observeForConditionalMutation(provider: .cursor)
+                let outcome = try await KeychainCacheStore.withStoreFailureStatusOverrideForTesting(
+                    errSecInteractionNotAllowed)
+                {
+                    try await probe.resolveImportedSession(
+                        session,
+                        perform: { cookieHeader, _ in cookieHeader },
+                        log: { _ in },
+                        cacheObservation: observation)
+                }
+
+                guard case let .succeeded(cookieHeader) = outcome else {
+                    Issue.record("Expected the fetched session to be kept when caching fails")
+                    return
+                }
+                #expect(cookieHeader == session.cookieHeader)
+                #expect(CookieHeaderCache.load(provider: .cursor) == nil)
+            }
+        }
+    }
+
+    @Test
+    func `fetchIfSessionAccepted keeps snapshot when cookie cache cannot persist`() async {
+        let probe = CursorStatusProbe(browserDetection: BrowserDetection(cacheTTL: 0))
+        let session = Self.makeSessionInfo(sourceLabel: "Safari", cookieValue: "safari-session")
+        let expected = Self.makeBrowserLoginSnapshot(accountID: "user-id", email: "user@example.com")
+        let service = "cursor-accept-persist-failure-\(UUID().uuidString)"
+        let legacyBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        await KeychainCacheStore.withServiceOverrideForTesting(service) {
+            await CookieHeaderCache.withLegacyBaseURLOverrideForTesting(legacyBase) {
+                KeychainCacheStore.setTestStoreForTesting(true)
+                defer { KeychainCacheStore.setTestStoreForTesting(false) }
+
+                let observation = CookieHeaderCache.observeForConditionalMutation(provider: .cursor)
+                let outcome = await KeychainCacheStore.withStoreFailureStatusOverrideForTesting(
+                    errSecInteractionNotAllowed)
+                {
+                    await probe.fetchIfSessionAccepted(
+                        session,
+                        log: { _ in },
+                        fetchSnapshot: { _ in expected },
+                        cacheObservation: observation)
+                }
+
+                guard case let .succeeded(snapshot) = outcome else {
+                    Issue.record("Expected the accepted snapshot to be kept when caching fails")
+                    return
+                }
+                #expect(snapshot.accountID == expected.accountID)
+                #expect(CookieHeaderCache.load(provider: .cursor) == nil)
+            }
+        }
+    }
+
+    @Test
     func `resolved session accepts result when the same credential is cached concurrently`() async throws {
         let probe = CursorStatusProbe(browserDetection: BrowserDetection(cacheTTL: 0))
         let session = Self.makeSessionInfo(sourceLabel: "Background", cookieValue: "background")

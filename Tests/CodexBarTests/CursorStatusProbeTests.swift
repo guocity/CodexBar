@@ -976,6 +976,62 @@ extension CursorStatusProbeTests {
     }
 
     @Test
+    func `fetch keeps Cursor app auth result when cookie cache cannot persist`() async throws {
+        let accessToken = try makeCursorAppAuthToken()
+        let expectedCookie = "WorkosCursorSessionToken=user_test%3A%3A\(accessToken)"
+        let testSession = CursorStatusProbeTestSession { request in
+            let requestURL = try #require(request.url)
+            #expect(request.value(forHTTPHeaderField: "Cookie") == expectedCookie)
+
+            switch requestURL.path {
+            case "/api/usage-summary":
+                return makeCursorStatusProbeResponse(
+                    url: requestURL,
+                    body: """
+                    {
+                      "membershipType": "pro",
+                      "individualUsage": {
+                        "plan": { "used": 100, "limit": 2000, "totalPercentUsed": 5 }
+                      }
+                    }
+                    """,
+                    statusCode: 200)
+            case "/api/auth/me":
+                return makeCursorStatusProbeResponse(
+                    url: requestURL,
+                    body: #"{"email":"user@example.com","name":"Test User","sub":"auth0|user_test"}"#,
+                    statusCode: 200)
+            case "/api/usage":
+                return makeCursorStatusProbeResponse(
+                    url: requestURL,
+                    body: #"{"gpt-4":{},"startOfMonth":"2026-05-23"}"#,
+                    statusCode: 200)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+
+        CookieHeaderCache.clear(provider: .cursor)
+        defer { CookieHeaderCache.clear(provider: .cursor) }
+        let baseURL = try #require(URL(string: "https://cursor-web.test"))
+        let snapshot = try await KeychainCacheStore.withStoreFailureStatusOverrideForTesting(
+            errSecInteractionNotAllowed)
+        {
+            try await CursorStatusProbe(
+                baseURL: baseURL,
+                browserDetection: BrowserDetection(cacheTTL: 0),
+                browserCookieImportOrder: [],
+                urlSession: testSession.urlSession,
+                appAuthStore: CursorAppAuthSessionProviderStub(session: CursorAppAuthSession(
+                    accessToken: accessToken))).fetch(allowCachedSessions: false)
+        }
+
+        #expect(abs(snapshot.planPercentUsed - 5) < 0.0001)
+        #expect(snapshot.accountEmail == "user@example.com")
+        #expect(CookieHeaderCache.load(provider: .cursor) == nil)
+    }
+
+    @Test
     func `fetch can disable Cursor app auth during browser login verification`() async throws {
         let testSession = CursorStatusProbeTestSession { request in
             Issue.record("Disabled app auth unexpectedly requested \(request.url?.path ?? "<unknown>")")

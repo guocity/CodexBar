@@ -1322,8 +1322,10 @@ public struct CursorStatusProbe: Sendable {
             sourceLabel: context.sourceLabel)
         guard !stored else { return value }
         guard let replacement = CookieHeaderCache.load(provider: .cursor) else {
-            context.log("Cursor session from \(context.sourceLabel) lost cache ownership without a replacement")
-            throw CursorStatusProbeError.networkError("Cursor session changed during refresh")
+            // Persist failed without a competing cache entry (common when Keychain access is
+            // disabled). The fetch already succeeded — keep that result instead of failing.
+            context.log("Cursor session from \(context.sourceLabel) could not be cached; using fetched result")
+            return value
         }
         let fetchedFingerprint = CookieHeaderCache.credentialFingerprint(context.cookieHeader)
         let replacementFingerprint = CookieHeaderCache.credentialFingerprint(replacement.cookieHeader)
@@ -1363,9 +1365,13 @@ public struct CursorStatusProbe: Sendable {
                     expected: cacheObservation,
                     cookieHeader: session.cookieHeader,
                     sourceLabel: session.sourceLabel)
-                guard stored else {
-                    log("Cursor session from \(session.sourceLabel) lost cache ownership; discarding snapshot")
-                    return .tryNextBrowser
+                if !stored {
+                    if CookieHeaderCache.load(provider: .cursor) == nil {
+                        log("Cursor session from \(session.sourceLabel) could not be cached; keeping snapshot")
+                    } else {
+                        log("Cursor session from \(session.sourceLabel) lost cache ownership; discarding snapshot")
+                        return .tryNextBrowser
+                    }
                 }
             } else {
                 CookieHeaderCache.store(
