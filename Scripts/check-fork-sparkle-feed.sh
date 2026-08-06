@@ -113,10 +113,17 @@ if [[ -n "$SIGN_TOOL" && -n "${CODEXBAR_SPARKLE_PRIVATE_KEY_FILE:-}" && -f "$COD
   fi
   echo
 elif [[ -n "$SIGN_TOOL" ]]; then
-  if "$SIGN_TOOL" -p /dev/null >/dev/null 2>&1; then
-    echo "==> Sparkle private key: found in login Keychain"
+  # Keychain-stored key: verify the published enclosure instead of probing the Keychain.
+  # `sign_update -p /dev/null` fails on the zero-length file even when the key is present,
+  # so it reported a missing key for every keychain-based release.
+  ZIP_TMP=$(mktemp "${TMPDIR:-/tmp}/codexbar-zip.XXXXXX")
+  trap 'rm -f "$APPCAST_TMP" "$ZIP_TMP"' EXIT
+  echo "==> Verifying enclosure signature with your Keychain key"
+  curl -fsSL "$ENCLOSURE_URL" -o "$ZIP_TMP"
+  if "$SIGN_TOOL" --verify "$ZIP_TMP" "$ED_SIG" >/dev/null 2>&1; then
+    echo "    signature:   OK (matches the Sparkle key in your login Keychain)"
   else
-    echo "WARN: no Sparkle ed25519 key in login Keychain."
+    echo "ERROR: enclosure signature does not match any Sparkle key in your login Keychain."
     echo "      Set CODEXBAR_SPARKLE_PRIVATE_KEY_FILE in .fork-release.env, or run:"
     echo "        .build/artifacts/sparkle/Sparkle/bin/generate_keys"
     ISSUES=$((ISSUES + 1))

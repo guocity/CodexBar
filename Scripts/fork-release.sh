@@ -163,7 +163,7 @@ SIGN_ARGS=()
 while IFS= read -r sign_arg; do
   SIGN_ARGS+=("$sign_arg")
 done < <(codexbar_sparkle_sign_args)
-if ! SIG_LINE=$("$SIGN_TOOL" "${SIGN_ARGS[@]}" "$ZIP_NAME" 2>&1); then
+if ! SIG_LINE=$("$SIGN_TOOL" ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} "$ZIP_NAME" 2>&1); then
   echo "$SIG_LINE" >&2
   echo "ERROR: sign_update failed — private key does not match CODEXBAR_SU_PUBLIC_ED_KEY?" >&2
   exit 1
@@ -171,7 +171,7 @@ fi
 ED_SIG=$(printf '%s' "$SIG_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
 LENGTH=$(printf '%s' "$SIG_LINE" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
 [[ -n "$ED_SIG" && -n "$LENGTH" ]] || { echo "Failed to parse sign_update output: $SIG_LINE" >&2; exit 1; }
-if ! "$SIGN_TOOL" "${SIGN_ARGS[@]}" --verify "$ZIP_NAME" "$ED_SIG" >/dev/null; then
+if ! "$SIGN_TOOL" ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} --verify "$ZIP_NAME" "$ED_SIG" >/dev/null; then
   echo "ERROR: signed zip failed local Sparkle verification" >&2
   exit 1
 fi

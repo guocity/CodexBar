@@ -252,7 +252,12 @@ fi
 PROVISIONING_PROFILE_SOURCE="$ROOT/Scripts/profiles/CodexBar-DeveloperID.provisionprofile"
 EMBED_PROVISIONING_PROFILE=0
 ICLOUD_ENTITLEMENT_KEYS=""
-if [[ "$SIGNING_MODE" == "identity" && "$LOWER_CONF" == "release" && "$BUNDLE_ID" == "com.steipete.codexbar" ]]; then
+# Fork builds sign with a different team, so upstream's profile cannot authorize them:
+# set CODEXBAR_EMBED_PROVISIONING_PROFILE=0 to build without the profile and without the
+# iCloud entitlements it covers (iCloud sync is then unavailable, as in fork 0.46.0).
+if [[ "${CODEXBAR_EMBED_PROVISIONING_PROFILE:-1}" == "1" &&
+      "$SIGNING_MODE" == "identity" && "$LOWER_CONF" == "release" &&
+      "$BUNDLE_ID" == "com.steipete.codexbar" ]]; then
   if [[ ! -f "$PROVISIONING_PROFILE_SOURCE" ]]; then
     echo "ERROR: Missing $PROVISIONING_PROFILE_SOURCE (required for iCloud entitlements in release builds)" >&2
     exit 1
