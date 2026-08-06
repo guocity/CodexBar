@@ -1,8 +1,7 @@
 name: Release CLI
 
+# Disabled for this fork: no automatic release packaging.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:

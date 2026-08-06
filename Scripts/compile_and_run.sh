@@ -252,6 +252,10 @@ for arg in "$@"; do
   esac
 done
 
+# Select a full Xcode toolchain (CommandLineTools can't run `swift build` here); honors an
+# explicit DEVELOPER_DIR so Xcode and Xcode-beta both work. Exported, so package_app.sh inherits it.
+source "${ROOT_DIR}/Scripts/select_xcode_toolchain.sh"
+codexbar_select_xcode_toolchain
 ensure_swift_version
 resolve_signing_mode
 if [[ "${CLEAR_ADHOC_KEYCHAIN}" == "1" && "${SIGNING_MODE}" != "adhoc" ]]; then

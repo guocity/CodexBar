@@ -45,7 +45,7 @@ func showAbout() {
     }
 
     let options: [NSApplication.AboutPanelOptionKey: Any] = [
-        .applicationName: "CodexBar",
+        .applicationName: "GUOCITY-CodexBar",
         .applicationVersion: versionString,
         .version: versionString,
         .credits: credits,

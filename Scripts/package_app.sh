@@ -38,6 +38,9 @@ SIGNING_MODE=
 resolve_package_signing_mode
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+# `swift build` needs a full Xcode toolchain (CommandLineTools can't load BuildServerProtocol here).
+source "$ROOT/Scripts/select_xcode_toolchain.sh"
+codexbar_select_xcode_toolchain
 LOWER_CONF=$(printf "%s" "$CONF" | tr '[:upper:]' '[:lower:]')
 case "$LOWER_CONF" in
   debug|release) ;;
@@ -217,7 +220,8 @@ if [[ -f "$ICON_SOURCE" ]]; then
 fi
 
 BUNDLE_ID="com.steipete.codexbar"
-FEED_URL="https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml"
+# Fork override: set CODEXBAR_FEED_URL to point auto-update at your own appcast.
+FEED_URL="${CODEXBAR_FEED_URL:-https://raw.githubusercontent.com/steipete/CodexBar/main/appcast.xml}"
 AUTO_CHECKS=true
 if [[ "$LOWER_CONF" == "debug" ]]; then
   BUNDLE_ID="com.steipete.codexbar.debug"
@@ -320,7 +324,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>Icon</string>
     <key>NSHumanReadableCopyright</key><string>© 2026 Peter Steinberger. MIT License.</string>
     <key>SUFeedURL</key><string>${FEED_URL}</string>
-    <key>SUPublicEDKey</key><string>AGCY8w5vHirVfGGDGc8Szc5iuOqupZSh9pMj/Qs67XI=</string>
+    <key>SUPublicEDKey</key><string>${CODEXBAR_SU_PUBLIC_ED_KEY:-AGCY8w5vHirVfGGDGc8Szc5iuOqupZSh9pMj/Qs67XI=}</string>
     <key>SUEnableAutomaticChecks</key><${AUTO_CHECKS}/>
     <key>CodexBuildTimestamp</key><string>${BUILD_TIMESTAMP}</string>
     <key>CodexGitCommit</key><string>${GIT_COMMIT}</string>
@@ -426,6 +430,63 @@ ensure_widget_extension_project() {
   xcodegen generate --spec "$spec" --project "$ROOT/WidgetExtension" --quiet
 }
 
+widget_source_packages_healthy() {
+  local derived_dir="$1"
+  local repos_dir="$derived_dir/SourcePackages/repositories"
+  local resolved="$ROOT/WidgetExtension/CodexBarWidgetExtension.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+  local repo first_pack identity revision match base base_lc identity_lc
+
+  [[ -d "$repos_dir" ]] || return 1
+  [[ -f "$resolved" ]] || return 1
+  shopt -s nullglob
+  local repos=("$repos_dir"/*)
+  shopt -u nullglob
+  [[ ${#repos[@]} -gt 0 ]] || return 1
+
+  for repo in "${repos[@]}"; do
+    [[ -d "$repo" ]] || continue
+    # Bare SPM mirror repos store objects in pack files; empty/corrupt packs
+    # surface as "unable to read tree" during xcodebuild checkout.
+    first_pack=$(find "$repo/objects/pack" -name '*.pack' -type f 2>/dev/null | head -1 || true)
+    [[ -n "$first_pack" ]] || return 1
+    if ! git -C "$repo" rev-parse --verify HEAD >/dev/null 2>&1; then
+      return 1
+    fi
+  done
+
+  # Packs + HEAD can still be stale: mirrors may lack the pinned Package.resolved
+  # revisions, which then fail checkout with "unable to read tree".
+  while IFS=$'\t' read -r identity revision; do
+    [[ -n "$identity" && -n "$revision" ]] || continue
+    match=""
+    identity_lc=$(printf '%s' "$identity" | tr '[:upper:]' '[:lower:]')
+    for repo in "${repos[@]}"; do
+      [[ -d "$repo" ]] || continue
+      base="$(basename "$repo")"
+      base_lc=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')
+      if [[ "$base_lc" == "${identity_lc}-"* ]]; then
+        match="$repo"
+        break
+      fi
+    done
+    [[ -n "$match" ]] || return 1
+    if ! git -C "$match" cat-file -e "${revision}^{commit}" >/dev/null 2>&1; then
+      return 1
+    fi
+  done < <(python3 - "$resolved" <<'PY'
+import json, sys
+from pathlib import Path
+data = json.loads(Path(sys.argv[1]).read_text())
+for pin in data.get("pins", []):
+    identity = pin.get("identity") or ""
+    revision = (pin.get("state") or {}).get("revision") or ""
+    if identity and revision:
+        print(f"{identity}\t{revision}")
+PY
+)
+  return 0
+}
+
 build_widget_extension() {
   local xcode_conf="Release"
   if [[ "$LOWER_CONF" == "debug" ]]; then
@@ -439,17 +500,25 @@ build_widget_extension() {
   local build_log="$derived_dir/xcodebuild.log"
   local timeout_seconds="${CODEXBAR_WIDGET_EXTENSION_TIMEOUT_SECONDS:-900}"
   local archs="${ARCH_LIST[*]}"
+  local package_args=()
 
   mkdir -p "$derived_dir"
+  if widget_source_packages_healthy "$derived_dir"; then
+    package_args+=(-skipPackageUpdates -disableAutomaticPackageResolution)
+  else
+    echo "Refreshing CodexBarWidget SourcePackages cache (missing or corrupt)." >&2
+    rm -rf "$derived_dir/SourcePackages"
+  fi
+
   echo "Building CodexBarWidget Xcode extension (${xcode_conf}, ${archs})." >&2
+  # shellcheck disable=SC2086 # intentional: package_args may be empty under bash 3.2 + set -u
   xcodebuild \
     -project "$project_dir" \
     -scheme CodexBarWidgetExtension \
     -configuration "$xcode_conf" \
     -destination "generic/platform=macOS" \
     -derivedDataPath "$derived_dir" \
-    -skipPackageUpdates \
-    -disableAutomaticPackageResolution \
+    ${package_args[@]+"${package_args[@]}"} \
     -skipMacroValidation \
     -skipPackagePluginValidation \
     CODEXBAR_WIDGET_BUNDLE_ID="$WIDGET_BUNDLE_ID" \

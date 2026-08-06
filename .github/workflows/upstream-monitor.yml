@@ -1,9 +1,7 @@
 name: Monitor Upstream Changes
 
+# Disabled for this fork: no scheduled upstream checks.
 on:
-  schedule:
-    # Run Monday and Thursday at 9 AM UTC
-    - cron: '0 9 * * 1,4'
   workflow_dispatch:
     inputs:
       target:
