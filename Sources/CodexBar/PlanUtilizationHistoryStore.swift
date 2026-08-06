@@ -85,6 +85,10 @@ struct PlanUtilizationHistoryBuckets: Equatable, Sendable {
     var preferredAccountKey: String?
     var unscoped: [PlanUtilizationSeriesHistory] = []
     var accounts: [String: [PlanUtilizationSeriesHistory]] = [:]
+    /// Human-readable name for each account key (email/login → displayName → key).
+    /// Persisted alongside history so each account can be identified without
+    /// reversing the opaque account-key hash.
+    var accountLabels: [String: String] = [:]
     var sessionEquivalentWindowPairIdentities: [String: String] = [:]
 
     private static let unscopedIdentityKey = "__codexbar_unscoped__"
@@ -95,6 +99,11 @@ struct PlanUtilizationHistoryBuckets: Equatable, Sendable {
         return self.accounts[accountKey] ?? []
     }
 
+    func label(for accountKey: String?) -> String? {
+        guard let accountKey, !accountKey.isEmpty else { return nil }
+        return self.accountLabels[accountKey]
+    }
+
     mutating func setHistories(_ histories: [PlanUtilizationSeriesHistory], for accountKey: String?) {
         let sorted = Self.sortedHistories(histories)
         guard let accountKey, !accountKey.isEmpty else {
@@ -103,9 +112,19 @@ struct PlanUtilizationHistoryBuckets: Equatable, Sendable {
         }
         if sorted.isEmpty {
             self.accounts.removeValue(forKey: accountKey)
+            self.accountLabels.removeValue(forKey: accountKey)
         } else {
             self.accounts[accountKey] = sorted
         }
+    }
+
+    mutating func setLabel(_ label: String?, for accountKey: String?) {
+        guard let accountKey, !accountKey.isEmpty else { return }
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return }
+        // Only retain labels for keys that actually hold history.
+        guard self.accounts[accountKey] != nil else { return }
+        self.accountLabels[accountKey] = trimmed
     }
 
     func sessionEquivalentWindowPairIdentity(for accountKey: String?) -> String? {
@@ -170,6 +189,7 @@ private struct ProviderHistoryFile: Codable, Sendable {
     let preferredAccountKey: String?
     let unscoped: [PlanUtilizationSeriesHistory]
     let accounts: [String: [PlanUtilizationSeriesHistory]]
+    let accountLabels: [String: String]
     let sessionEquivalentWindowPairIdentities: [String: String]
 }
 
@@ -178,6 +198,7 @@ private struct ProviderHistoryDocument: Codable, Sendable {
     let preferredAccountKey: String?
     let unscoped: [PlanUtilizationSeriesHistory]
     let accounts: [String: [PlanUtilizationSeriesHistory]]
+    let accountLabels: [String: String]
     let sessionEquivalentWindowPairIdentities: [String: String]
 }
 
@@ -187,6 +208,7 @@ extension ProviderHistoryFile {
         self.preferredAccountKey = try container.decodeIfPresent(String.self, forKey: .preferredAccountKey)
         self.unscoped = try container.decode([PlanUtilizationSeriesHistory].self, forKey: .unscoped)
         self.accounts = try container.decode([String: [PlanUtilizationSeriesHistory]].self, forKey: .accounts)
+        self.accountLabels = try container.decodeIfPresent([String: String].self, forKey: .accountLabels) ?? [:]
         self.sessionEquivalentWindowPairIdentities = try container.decodeIfPresent(
             [String: String].self,
             forKey: .sessionEquivalentWindowPairIdentities) ?? [:]
@@ -194,7 +216,9 @@ extension ProviderHistoryFile {
 }
 
 struct PlanUtilizationHistoryStore: Sendable {
-    fileprivate static let providerSchemaVersion = 1
+    /// v1: history-only / session-equivalent identities. v2: adds per-account `accountLabels`.
+    fileprivate static let providerSchemaVersion = 2
+    fileprivate static let supportedSchemaVersions: Set<Int> = [1, 2]
 
     let directoryURL: URL?
 
@@ -242,11 +266,13 @@ struct PlanUtilizationHistoryStore: Sendable {
                     continue
                 }
 
+                let accountLabels = buckets.accountLabels.filter { key, _ in accounts[key] != nil }
                 let payload = ProviderHistoryDocument(
                     version: Self.providerSchemaVersion,
                     preferredAccountKey: buckets.preferredAccountKey,
                     unscoped: unscoped,
                     accounts: accounts,
+                    accountLabels: accountLabels,
                     sessionEquivalentWindowPairIdentities: buckets.sessionEquivalentWindowPairIdentities)
                 let data = try encoder.encode(payload)
                 try data.write(to: fileURL, options: Data.WritingOptions.atomic)
@@ -281,6 +307,7 @@ struct PlanUtilizationHistoryStore: Sendable {
                 preferredAccountKey: decoded.preferredAccountKey,
                 unscoped: decoded.unscoped,
                 accounts: decoded.accounts,
+                accountLabels: decoded.accountLabels,
                 sessionEquivalentWindowPairIdentities: decoded.sessionEquivalentWindowPairIdentities)
             output[instanceID] = Self.decodeProvider(history)
         }
@@ -300,15 +327,18 @@ struct PlanUtilizationHistoryStore: Sendable {
     }
 
     private static func decodeProvider(_ providerHistory: ProviderHistoryFile) -> PlanUtilizationHistoryBuckets {
-        PlanUtilizationHistoryBuckets(
+        let accounts: [String: [PlanUtilizationSeriesHistory]] = Dictionary(
+            uniqueKeysWithValues: providerHistory.accounts.compactMap { accountKey, histories in
+                let sorted = Self.sortedHistories(histories)
+                guard !sorted.isEmpty else { return nil }
+                return (accountKey, sorted)
+            })
+        let accountLabels = providerHistory.accountLabels.filter { key, _ in accounts[key] != nil }
+        return PlanUtilizationHistoryBuckets(
             preferredAccountKey: providerHistory.preferredAccountKey,
             unscoped: self.sortedHistories(providerHistory.unscoped),
-            accounts: Dictionary(
-                uniqueKeysWithValues: providerHistory.accounts.compactMap { accountKey, histories in
-                    let sorted = Self.sortedHistories(histories)
-                    guard !sorted.isEmpty else { return nil }
-                    return (accountKey, sorted)
-                }),
+            accounts: accounts,
+            accountLabels: accountLabels,
             sessionEquivalentWindowPairIdentities: providerHistory.sessionEquivalentWindowPairIdentities)
     }
 
@@ -357,7 +387,7 @@ extension ProviderHistoryDocument {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let version = try container.decode(Int.self, forKey: .version)
-        guard version == PlanUtilizationHistoryStore.providerSchemaVersion else {
+        guard PlanUtilizationHistoryStore.supportedSchemaVersions.contains(version) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .version,
                 in: container,
@@ -367,6 +397,7 @@ extension ProviderHistoryDocument {
         self.preferredAccountKey = try container.decodeIfPresent(String.self, forKey: .preferredAccountKey)
         self.unscoped = try container.decode([PlanUtilizationSeriesHistory].self, forKey: .unscoped)
         self.accounts = try container.decode([String: [PlanUtilizationSeriesHistory]].self, forKey: .accounts)
+        self.accountLabels = try container.decodeIfPresent([String: String].self, forKey: .accountLabels) ?? [:]
         self.sessionEquivalentWindowPairIdentities = try container.decodeIfPresent(
             [String: String].self,
             forKey: .sessionEquivalentWindowPairIdentities) ?? [:]

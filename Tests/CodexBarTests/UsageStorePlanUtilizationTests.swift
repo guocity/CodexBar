@@ -6,7 +6,7 @@ import Testing
 // swiftlint:disable:next type_body_length
 struct UsageStorePlanUtilizationTests {
     @Test
-    func `coalesces changed usage within hour into single entry`() throws {
+    func `keeps each changed usage reading within an hour`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -26,8 +26,33 @@ struct UsageStorePlanUtilizationTests {
                 existingEntries: initial,
                 entry: second))
 
-        #expect(updated.count == 1)
-        #expect(updated.last == second)
+        #expect(updated.count == 2)
+        #expect(updated[0] == first)
+        #expect(updated[1] == second)
+    }
+
+    @Test
+    func `keeps a refresh even when the value is unchanged`() throws {
+        let first = planEntry(at: Date(timeIntervalSince1970: 1_700_000_000), usedPercent: 35)
+        let second = planEntry(at: first.capturedAt.addingTimeInterval(15 * 60), usedPercent: 35)
+
+        let updated = try #require(
+            UsageStore._updatedPlanUtilizationEntriesForTesting(
+                existingEntries: [first],
+                entry: second))
+
+        #expect(updated == [first, second])
+    }
+
+    @Test
+    func `drops only an exact duplicate sample`() {
+        let entry = planEntry(at: Date(timeIntervalSince1970: 1_700_000_000), usedPercent: 35)
+
+        let updated = UsageStore._updatedPlanUtilizationEntriesForTesting(
+            existingEntries: [entry],
+            entry: entry)
+
+        #expect(updated == nil)
     }
 
     @Test
@@ -63,7 +88,7 @@ struct UsageStorePlanUtilizationTests {
     }
 
     @Test
-    func `first known reset boundary within hour replaces earlier provisional peak even when usage drops`() throws {
+    func `keeps provisional and known reset readings as distinct entries`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -89,8 +114,9 @@ struct UsageStorePlanUtilizationTests {
                 existingEntries: initial,
                 entry: second))
 
-        #expect(updated.count == 1)
-        #expect(updated[0] == second)
+        #expect(updated.count == 2)
+        #expect(updated[0] == first)
+        #expect(updated[1] == second)
     }
 
     @Test
@@ -1039,7 +1065,7 @@ struct UsageStorePlanUtilizationTests {
 
     @MainActor
     @Test
-    func `generic history opt in controls recording while saved history stays visible`() async throws {
+    func `generic history is always recorded regardless of opt in toggle`() async throws {
         let store = Self.makeStore()
         let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
         let before = UsageSnapshot(
@@ -1051,26 +1077,18 @@ struct UsageStorePlanUtilizationTests {
             .appendingPathComponent("zai.json", isDirectory: false))
 
         #expect(store.settings.historicalTrackingEnabled == false)
-        #expect(store.supportsPlanUtilizationHistory(for: .zai) == false)
-        await store.recordPlanUtilizationHistorySample(provider: .zai, snapshot: before, now: before.updatedAt)
-        #expect(store.planUtilizationHistory(for: .zai).isEmpty)
-        #expect(FileManager.default.fileExists(atPath: providerURL.path) == false)
-
-        store.settings.historicalTrackingEnabled = true
         #expect(store.supportsPlanUtilizationHistory(for: .zai))
         await store.recordPlanUtilizationHistorySample(provider: .zai, snapshot: before, now: before.updatedAt)
         #expect(findSeries(store.planUtilizationHistory(for: .zai), name: .weekly, windowMinutes: 10080)?
             .entries.map(\.usedPercent) == [42])
 
-        store.settings.historicalTrackingEnabled = false
-        #expect(store.supportsPlanUtilizationHistory(for: .zai))
         let after = UsageSnapshot(
             primary: RateWindow(usedPercent: 58, windowMinutes: 10080, resetsAt: nil, resetDescription: nil),
             secondary: nil,
             updatedAt: firstDate.addingTimeInterval(3600))
         await store.recordPlanUtilizationHistorySample(provider: .zai, snapshot: after, now: after.updatedAt)
         #expect(findSeries(store.planUtilizationHistory(for: .zai), name: .weekly, windowMinutes: 10080)?
-            .entries.map(\.usedPercent) == [42])
+            .entries.map(\.usedPercent) == [42, 58])
 
         for _ in 0..<20 where !FileManager.default.fileExists(atPath: providerURL.path) {
             try await Task.sleep(nanoseconds: 50_000_000)
@@ -1165,7 +1183,7 @@ struct UsageStorePlanUtilizationTests {
 
     @MainActor
     @Test
-    func `concurrent plan history writes coalesce within single hour bucket per series`() async throws {
+    func `concurrent plan history writes each persist as a separate record`() async throws {
         let store = Self.makeStore()
         let snapshot = Self.makeSnapshot(provider: .codex, email: "alice@example.com")
         store._setSnapshotForTesting(snapshot, provider: .codex)
@@ -1194,8 +1212,8 @@ struct UsageStorePlanUtilizationTests {
         }
 
         let histories = try #require(store.planUtilizationHistory[.codex]?.accounts.values.first)
-        #expect(findSeries(histories, name: .session, windowMinutes: 300)?.entries.count == 1)
-        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 1)
+        #expect(findSeries(histories, name: .session, windowMinutes: 300)?.entries.count == 3)
+        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 3)
     }
 
     @Test

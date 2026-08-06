@@ -70,6 +70,9 @@ struct AboutPane: View {
                 AboutLinkRow(icon: "globe", title: L("link_website"), url: "https://steipete.me")
                 AboutLinkRow(icon: "bird", title: L("link_twitter"), url: "https://twitter.com/steipete")
                 AboutLinkRow(icon: "envelope", title: L("link_email"), url: "mailto:peter@steipete.me")
+                AboutActionRow(icon: "antenna.radiowaves.left.and.right", title: "Telemetry") {
+                    TelemetrySettingsWindow.show()
+                }
             } header: {
                 Text(L("section_links"))
             } footer: {

@@ -13,6 +13,7 @@ extension SettingsPane {
         case .menuBar: "menuBar"
         case .menu: "menu"
         case .advanced: "advanced"
+        case .stats: "stats"
         case .hooks: "hooks"
         case .plugins: "plugins"
         case .about: "about"
@@ -32,6 +33,7 @@ extension SettingsPane {
         case "display": self = .menuBar
         case "menu": self = .menu
         case "advanced": self = .advanced
+        case "stats": self = .stats
         case "hooks": self = .hooks
         case "plugins": self = .plugins
         case "about": self = .about

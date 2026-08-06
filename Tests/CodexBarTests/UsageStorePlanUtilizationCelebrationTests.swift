@@ -884,7 +884,7 @@ extension UsageStorePlanUtilizationTests {
 
     @MainActor
     @Test
-    func `weekly quota celebration posts when reset lands mid hour without history split`() async {
+    func `weekly quota celebration posts when reset lands mid hour and keeps both history samples`() async {
         let store = Self.makeStore()
         let accountLabel = "mid-hour-reset@example.com"
         let recorder = WeeklyLimitResetEventRecorder(provider: .claude, accountLabel: accountLabel)
@@ -921,8 +921,8 @@ extension UsageStorePlanUtilizationTests {
         await store.recordPlanUtilizationHistorySample(provider: .claude, snapshot: after, now: after.updatedAt)
 
         let histories = store.planUtilizationHistory(for: .claude)
-        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 1)
-        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.last?.usedPercent == 40)
+        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 2)
+        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.map(\.usedPercent) == [40, 0])
         let events = recorder.events
         #expect(events.count == 1)
         #expect(events[0].usedPercent == 0)
@@ -1245,7 +1245,10 @@ extension UsageStorePlanUtilizationTests {
         #expect(events[0].provider == .copilot)
         #expect(events[0].accountLabel == accountLabel)
         #expect(events[0].usedPercent == 0)
-        #expect(store.planUtilizationHistory(for: .copilot).isEmpty)
+        #expect(findSeries(
+            store.planUtilizationHistory(for: .copilot),
+            name: .weekly,
+            windowMinutes: 43200)?.entries.map(\.usedPercent) == [88, 0])
     }
 
     @MainActor
@@ -1280,7 +1283,10 @@ extension UsageStorePlanUtilizationTests {
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events.first?.usedPercent == 0)
-        #expect(store.planUtilizationHistory(for: .zai).isEmpty)
+        #expect(findSeries(
+            store.planUtilizationHistory(for: .zai),
+            name: .session,
+            windowMinutes: 300)?.entries.map(\.usedPercent) == [88, 0])
     }
 
     @MainActor

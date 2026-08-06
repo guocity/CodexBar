@@ -553,6 +553,10 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         self.openSettings(pane: nil)
     }
 
+    @objc func showSettingsStats() {
+        self.openSettings(pane: .stats)
+    }
+
     @objc func showSettingsAbout() {
         self.openSettings(pane: .about)
     }

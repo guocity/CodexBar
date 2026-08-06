@@ -206,6 +206,7 @@ extension UsageMenuCardView.Model {
                 percentStyle: metric.percentStyle,
                 statusText: PersonalInfoRedactor.redactEmails(in: metric.statusText, isEnabled: true),
                 resetText: PersonalInfoRedactor.redactEmails(in: metric.resetText, isEnabled: true),
+                resetHelpText: PersonalInfoRedactor.redactEmails(in: metric.resetHelpText, isEnabled: true),
                 detailText: Self.redactedMetricDetail(
                     metric.detailText,
                     provider: provider,
@@ -215,6 +216,7 @@ extension UsageMenuCardView.Model {
                 pacePercent: metric.pacePercent,
                 paceOnTop: metric.paceOnTop,
                 warningMarkerPercents: metric.warningMarkerPercents,
+                resetTimeline: metric.resetTimeline,
                 workdayMarkerPercents: metric.workdayMarkerPercents,
                 cardStyle: metric.cardStyle,
                 sessionEquivalentDetail: metric.sessionEquivalentDetail)
@@ -345,9 +347,12 @@ extension UsageMenuCardView.Model {
             current.percentStyle == candidate.percentStyle &&
             (current.statusText == nil) == (candidate.statusText == nil) &&
             (current.resetText == nil) == (candidate.resetText == nil) &&
+            (current.resetHelpText == nil) == (candidate.resetHelpText == nil) &&
             (current.detailText == nil) == (candidate.detailText == nil) &&
             (current.detailLeftText == nil) == (candidate.detailLeftText == nil) &&
             (current.detailRightText == nil) == (candidate.detailRightText == nil) &&
+            (current.resetTimeline == nil) == (candidate.resetTimeline == nil) &&
+            current.workdayMarkerPercents == candidate.workdayMarkerPercents &&
             current.cardStyle == candidate.cardStyle
     }
 
@@ -482,6 +487,26 @@ extension UsageMenuCardView.Model {
         now: Date) -> String?
     {
         UsageFormatter.resetLine(for: window, style: style, now: now)
+    }
+
+    /// When the menu shows a countdown reset line, hover swaps the label to the absolute reset time.
+    static func resetHelpText(
+        for window: RateWindow,
+        style: ResetTimeDisplayStyle,
+        now: Date) -> String?
+    {
+        guard style == .countdown, window.resetsAt != nil else { return nil }
+        return UsageFormatter.resetLine(for: window, style: .absolute, now: now)
+    }
+
+    /// Builds the countdown-timeline data for a window. Returns nil unless both an absolute
+    /// reset time and a known window length are available (needed to draw a proportional bar).
+    static func resetTimeline(for window: RateWindow) -> ResetTimeline? {
+        guard let resetsAt = window.resetsAt,
+              let windowMinutes = window.windowMinutes,
+              windowMinutes > 0
+        else { return nil }
+        return ResetTimeline(resetsAt: resetsAt, windowSeconds: Double(windowMinutes) * 60)
     }
 
     static func placeholder(input: Input) -> String? {
@@ -788,6 +813,12 @@ extension UsageMenuCardView.Model {
             } else {
                 nil
             }
+            let resetHelpText = usageKnown
+                ? Self.resetHelpText(
+                    for: namedWindow.window,
+                    style: input.resetTimeDisplayStyle,
+                    now: input.now)
+                : nil
             let statusText: String? = if usageKnown {
                 nil
             } else if let resetText {
@@ -808,11 +839,13 @@ extension UsageMenuCardView.Model {
                 percentStyle: percentStyle,
                 statusText: statusText,
                 resetText: usageKnown ? resetText : nil,
+                resetHelpText: usageKnown ? resetHelpText : nil,
                 detailText: usageKnown ? detailText : nil,
                 detailLeftText: usageKnown ? paceDetail?.leftLabel : nil,
                 detailRightText: usageKnown ? paceDetail?.rightLabel : nil,
                 pacePercent: usageKnown ? paceDetail?.pacePercent : nil,
                 paceOnTop: paceDetail?.paceOnTop ?? true,
+                resetTimeline: usageKnown ? Self.resetTimeline(for: namedWindow.window) : nil,
                 sessionEquivalentDetail: usageKnown
                     ? Self.sessionEquivalentDetail(
                         input: input,
@@ -972,11 +1005,16 @@ extension UsageMenuCardView.Model {
             percent: Self.clamped(percent),
             percentStyle: percentStyle,
             resetText: Self.resetText(for: window, style: input.resetTimeDisplayStyle, now: input.now),
+            resetHelpText: Self.resetHelpText(
+                for: window,
+                style: input.resetTimeDisplayStyle,
+                now: input.now),
             detailText: nil,
             detailLeftText: paceDetail?.leftLabel,
             detailRightText: paceDetail?.rightLabel,
             pacePercent: paceDetail?.pacePercent,
-            paceOnTop: paceDetail?.paceOnTop ?? true)
+            paceOnTop: paceDetail?.paceOnTop ?? true,
+            resetTimeline: Self.resetTimeline(for: window))
     }
 
     static func syntheticRegenDetail(

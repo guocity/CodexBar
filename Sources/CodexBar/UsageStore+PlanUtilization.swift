@@ -1,6 +1,8 @@
 import CodexBarCore
 import Foundation
 
+// swiftlint:disable file_length
+
 extension UsageStore {
     nonisolated static let sessionLimitResetDetectorDefaultsKey = "sessionLimitResetDetectorStates"
     private nonisolated static let weeklyLimitResetDetectorDefaultsKey = "weeklyLimitResetDetectorStates"
@@ -11,9 +13,18 @@ extension UsageStore {
         "ClaudeOAuthHistoryOwnerAccountCandidateMapV1"
     nonisolated static let sessionWindowMinutes = 5 * 60
     nonisolated static let weeklyWindowMinutes = 7 * 24 * 60
+    /// Canonical window length for Copilot's monthly-resetting quotas/budgets, which report
+    /// no window duration of their own. Stamped on recorded samples so they reach history and
+    /// stay grouped as one stable series across refreshes (real month lengths vary).
+    nonisolated static let copilotMonthlyWindowMinutes = 30 * 24 * 60
     nonisolated static let planUtilizationUnscopedPreferredKey = "__unscoped__"
     private nonisolated static let claudeOAuthPlanUtilizationAccountKeyPrefix = "__claude_oauth__:"
 
+    /// Whether the plan-utilization history menu/chart is surfaced for this
+    /// provider. Codex and Claude always qualify; every other provider qualifies
+    /// once it has accumulated history in the store, or as soon as its live snapshot
+    /// can produce samples. This fork always records history, so the toggle does not
+    /// gate surfacing here.
     func supportsPlanUtilizationHistory(for provider: UsageProvider) -> Bool {
         if ProviderDescriptorRegistry.descriptor(for: provider).history.alwaysTracksPlanUtilization {
             return true
@@ -21,7 +32,7 @@ extension UsageStore {
         if self.planUtilizationHistory[provider.instanceID]?.isEmpty == false {
             return true
         }
-        guard self.settings.historicalTrackingEnabled, let snapshot = self.snapshots[provider.instanceID] else {
+        guard let snapshot = self.snapshots[provider.instanceID] else {
             return false
         }
         return !self.planUtilizationSeriesSamples(
@@ -217,17 +228,17 @@ extension UsageStore {
         now: Date = Date())
         async
     {
-        let detectorSamples = self.planUtilizationSeriesSamples(
+        let samples = self.planUtilizationSeriesSamples(
             provider: provider,
             snapshot: snapshot,
             capturedAt: now)
-        let samples = provider == .antigravity
+        let detectorSamples = provider == .antigravity
             ? self.planUtilizationSeriesSamples(
                 provider: provider,
                 snapshot: snapshot,
                 capturedAt: now,
                 forSessionEquivalents: true)
-            : detectorSamples
+            : samples
         var effectiveOwner = claudeOAuthHistoryOwnerIdentifier
         if provider == .claude, isClaudeOAuthSample, let owner = claudeOAuthHistoryOwnerIdentifier {
             effectiveOwner = self.resolvedClaudeOAuthHistoryOwner(evidence: ClaudeOAuthHistoryEvidence(
@@ -285,6 +296,7 @@ extension UsageStore {
         }
 
         var snapshotToPersist: [ProviderInstanceID: PlanUtilizationHistoryBuckets]?
+        var telemetryAccountKey: String?
         await MainActor.run {
             var providerBuckets = self.planUtilizationHistory[provider.instanceID] ?? PlanUtilizationHistoryBuckets()
             let originalProviderBuckets = providerBuckets
@@ -327,19 +339,46 @@ extension UsageStore {
                 providerBuckets.setHistories(updatedHistories, for: accountKey)
             }
 
+            let accountLabel = self.planUtilizationAccountLabel(
+                provider: provider,
+                snapshot: snapshot,
+                account: preferredAccount,
+                accountKey: accountKey)
+            providerBuckets.setLabel(accountLabel, for: accountKey)
+            telemetryAccountKey = accountKey
+
             guard providerBuckets != originalProviderBuckets else { return }
             self.planUtilizationHistory[provider.instanceID] = providerBuckets
             self.planUtilizationHistoryRevision &+= 1
             snapshotToPersist = self.planUtilizationHistory
         }
 
-        guard let snapshotToPersist else { return }
-        await self.planUtilizationPersistenceCoordinator.enqueue(snapshotToPersist)
+        if let snapshotToPersist {
+            await self.planUtilizationPersistenceCoordinator.enqueue(snapshotToPersist)
+        }
+
+        // Mirror the freshly recorded samples to the self-hosted telemetry pipeline.
+        // Self-contained in Sources/CodexBar/Telemetry/; no-ops when telemetry is off.
+        // Detached from this call so a slow or unreachable ingest host (30s timeout plus
+        // retries per sample) can never delay the refresh that recorded these samples.
+        let telemetrySamples = samples.map { sample in
+            TelemetryUsageSample(
+                provider: provider.rawValue,
+                accountKey: telemetryAccountKey,
+                series: sample.name.rawValue,
+                windowMinutes: sample.windowMinutes,
+                usedPercent: sample.entry.usedPercent,
+                capturedAt: sample.entry.capturedAt,
+                resetsAt: sample.entry.resetsAt)
+        }
+        Task { await TelemetryService.shared.send(usageSamples: telemetrySamples) }
     }
 
-    private func shouldRecordPlanUtilizationHistory(for provider: UsageProvider) -> Bool {
-        ProviderDescriptorRegistry.descriptor(for: provider).history.alwaysTracksPlanUtilization ||
-            self.settings.historicalTrackingEnabled
+    private func shouldRecordPlanUtilizationHistory(for _: UsageProvider) -> Bool {
+        // This fork always records plan-utilization history for every provider, regardless of
+        // the `historicalTrackingEnabled` toggle, so usage charts keep accumulating. The toggle
+        // still governs its other consumers (e.g. Codex historical pace).
+        true
     }
 
     private nonisolated static func updatedPlanUtilizationHistories(
@@ -414,20 +453,10 @@ extension UsageStore {
         existingEntries: [PlanUtilizationHistoryEntry],
         entry: PlanUtilizationHistoryEntry) -> [PlanUtilizationHistoryEntry]?
     {
+        guard !existingEntries.contains(entry) else { return nil }
         var entries = existingEntries
         let insertionIndex = entries.firstIndex(where: { $0.capturedAt > entry.capturedAt }) ?? entries.endIndex
-        let sampleHourBucket = self.planUtilizationHourBucket(for: entry.capturedAt)
-        let sameHourRange = self.planUtilizationHourRange(
-            entries: entries,
-            insertionIndex: insertionIndex,
-            hourBucket: sampleHourBucket)
-        let existingHourEntries = Array(entries[sameHourRange])
-        let canonicalHourEntries = self.canonicalPlanUtilizationHourEntries(
-            existingHourEntries: existingHourEntries,
-            incomingEntry: entry)
-
-        guard canonicalHourEntries != existingHourEntries else { return nil }
-        entries.replaceSubrange(sameHourRange, with: canonicalHourEntries)
+        entries.insert(entry, at: insertionIndex)
 
         if entries.count > self.planUtilizationMaxSamples {
             entries.removeFirst(entries.count - self.planUtilizationMaxSamples)
@@ -537,11 +566,15 @@ extension UsageStore {
     {
         var samplesByKey: [PlanUtilizationSeriesKey: PlanUtilizationSeriesSample] = [:]
 
-        func appendWindow(_ window: RateWindow?, name: PlanUtilizationSeriesName?) {
+        func appendWindow(
+            _ window: RateWindow?,
+            name: PlanUtilizationSeriesName?,
+            windowMinutesOverride: Int? = nil)
+        {
             guard let name,
                   let window,
                   !window.isSyntheticPlaceholder,
-                  let windowMinutes = window.windowMinutes,
+                  let windowMinutes = windowMinutesOverride ?? window.windowMinutes,
                   windowMinutes > 0,
                   let usedPercent = Self.clampedPercent(window.usedPercent)
             else {
@@ -585,6 +618,27 @@ extension UsageStore {
             appendWindow(snapshot.primary, name: .session)
             appendWindow(snapshot.secondary, name: .weekly)
             appendWindow(snapshot.tertiary, name: .opus)
+        case .cursor:
+            // All three lanes share the billing-cycle duration, so the generic
+            // window-duration name would collapse them into one series. Name them by
+            // lane instead so total/auto/api each persist as their own series.
+            appendWindow(snapshot.primary, name: "total")
+            appendWindow(snapshot.secondary, name: "auto")
+            appendWindow(snapshot.tertiary, name: "api")
+        case .copilot:
+            // Copilot's premium-interaction and chat quotas (plus any configured budgets) reset
+            // monthly but report no window duration, so the generic path — which requires a window
+            // length — skips them and nothing reaches history. Stamp the shared monthly window and
+            // record the two core lanes by role (Premium → session, Chat → weekly) so both persist
+            // as distinct series; record each named budget under its own slug.
+            appendWindow(snapshot.primary, name: .session, windowMinutesOverride: Self.copilotMonthlyWindowMinutes)
+            appendWindow(snapshot.secondary, name: .weekly, windowMinutesOverride: Self.copilotMonthlyWindowMinutes)
+            for extra in snapshot.extraRateWindows ?? [] where extra.usageKnown {
+                appendWindow(
+                    extra.window,
+                    name: Self.copilotSeriesName(for: extra),
+                    windowMinutesOverride: Self.copilotMonthlyWindowMinutes)
+            }
         case .opencodego:
             appendWindow(snapshot.primary, name: .session)
             appendWindow(snapshot.secondary, name: .weekly)
@@ -597,12 +651,8 @@ extension UsageStore {
             }
         case .antigravity:
             if forSessionEquivalents {
-                guard let windows = self.sessionEquivalentWindows(provider: provider, snapshot: snapshot) else {
-                    return []
-                }
-                appendWindow(windows.session, name: .session)
-                appendWindow(windows.weekly, name: .weekly)
-            } else {
+                let windows = self.sessionEquivalentWindows(provider: provider, snapshot: snapshot)
+                appendWindow(windows?.session, name: .session)
                 let namedWeeklyWindows = snapshot.extraRateWindows?
                     .filter {
                         $0.usageKnown
@@ -610,12 +660,33 @@ extension UsageStore {
                             && $0.window.windowMinutes == Self.weeklyWindowMinutes
                     }
                     .map(\.window) ?? []
-                if let mostUsedWeeklyWindow = namedWeeklyWindows.max(by: { $0.usedPercent < $1.usedPercent }) {
-                    appendWindow(mostUsedWeeklyWindow, name: .weekly)
+                appendWindow(
+                    namedWeeklyWindows.max(by: { $0.usedPercent < $1.usedPercent }) ?? windows?.weekly,
+                    name: .weekly)
+            } else {
+                // Record one series per named quota pool so Stats keeps every bucket.
+                let namedWindows = snapshot.extraRateWindows?.filter {
+                    $0.usageKnown && $0.id.hasPrefix("antigravity-quota-summary-")
+                } ?? []
+                if namedWindows.isEmpty {
+                    let namedWeeklyWindows = snapshot.extraRateWindows?
+                        .filter {
+                            $0.usageKnown
+                                && $0.id.hasPrefix("antigravity-quota-summary-")
+                                && $0.window.windowMinutes == Self.weeklyWindowMinutes
+                        }
+                        .map(\.window) ?? []
+                    if let mostUsedWeeklyWindow = namedWeeklyWindows.max(by: { $0.usedPercent < $1.usedPercent }) {
+                        appendWindow(mostUsedWeeklyWindow, name: .weekly)
+                    } else {
+                        appendWindow(
+                            self.planUtilizationWeeklyWindow(provider: provider, snapshot: snapshot),
+                            name: .weekly)
+                    }
                 } else {
-                    appendWindow(
-                        self.planUtilizationWeeklyWindow(provider: provider, snapshot: snapshot),
-                        name: .weekly)
+                    for namedWindow in namedWindows {
+                        appendWindow(namedWindow.window, name: Self.antigravitySeriesName(for: namedWindow))
+                    }
                 }
             }
         default:
@@ -868,6 +939,64 @@ extension UsageStore {
 
     private func shouldDeferClaudePlanUtilizationHistory(provider: UsageProvider) -> Bool {
         provider == .claude && self.shouldHidePlanUtilizationMenuItem(for: .claude)
+    }
+
+    /// Stable, human-readable series name for an Antigravity named quota window,
+    /// derived from its title (e.g. "Gemini Weekly" → `gemini-weekly`).
+    private nonisolated static func antigravitySeriesName(
+        for namedWindow: NamedRateWindow) -> PlanUtilizationSeriesName
+    {
+        let slug = self.seriesSlug(namedWindow.title)
+        return PlanUtilizationSeriesName(rawValue: slug.isEmpty ? namedWindow.id : slug)
+    }
+
+    /// Stable, human-readable series name for a Copilot named budget window, derived
+    /// from its title (e.g. "Premium requests" → `premium-requests`). Falls back to the
+    /// window id when the title has no alphanumeric characters to slug.
+    private nonisolated static func copilotSeriesName(
+        for namedWindow: NamedRateWindow) -> PlanUtilizationSeriesName
+    {
+        let slug = self.seriesSlug(namedWindow.title)
+        return PlanUtilizationSeriesName(rawValue: slug.isEmpty ? namedWindow.id : slug)
+    }
+
+    /// Lowercases `raw` and collapses every run of non-alphanumeric characters into
+    /// a single dash, trimming leading/trailing dashes.
+    private nonisolated static func seriesSlug(_ raw: String) -> String {
+        var result = ""
+        var pendingDash = false
+        for character in raw.lowercased() {
+            if character.isLetter || character.isNumber {
+                if pendingDash, !result.isEmpty { result.append("-") }
+                pendingDash = false
+                result.append(character)
+            } else {
+                pendingDash = true
+            }
+        }
+        return result
+    }
+
+    /// Human-readable name persisted alongside an account's history so each
+    /// account can be identified in the history folder. Prefers the account
+    /// email/login, falls back to the displayName, then the opaque account key.
+    private func planUtilizationAccountLabel(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        account: ProviderTokenAccount?,
+        accountKey: String?) -> String?
+    {
+        func cleaned(_ value: String?) -> String? {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed?.isEmpty ?? true) ? nil : trimmed
+        }
+
+        let identity = snapshot.identity(for: provider.instanceID)
+        if let email = cleaned(identity?.accountEmail) { return email }
+        if let login = cleaned(account?.externalIdentifier) { return login }
+        if let organization = cleaned(identity?.accountOrganization) { return organization }
+        if let displayName = cleaned(account?.displayName) { return displayName }
+        return cleaned(accountKey)
     }
 
     nonisolated static func limitResetDetectorStateKey(

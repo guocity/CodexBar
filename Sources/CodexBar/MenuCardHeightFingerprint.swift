@@ -115,6 +115,7 @@ extension UsageMenuCardView.Model.Metric {
             self.cardStyle ? "card=1" : "card=0",
             "warningMarkers=\(self.warningMarkerPercents.count)",
             "workdayMarkers=\(self.workdayMarkerPercents.count)",
+            self.resetTimeline == nil ? "resetTimeline=0" : "resetTimeline=1",
         ])
     }
 }

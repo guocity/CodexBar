@@ -58,6 +58,10 @@ extension UsageMenuCardView.Model {
                 percent: Self.clamped(input.usageBarsShowUsed ? window.usedPercent : window.remainingPercent),
                 percentStyle: percentStyle,
                 resetText: Self.resetText(for: window, style: input.resetTimeDisplayStyle, now: input.now),
+                resetHelpText: Self.resetHelpText(
+                    for: window,
+                    style: input.resetTimeDisplayStyle,
+                    now: input.now),
                 detailText: nil,
                 detailLeftText: paceDetail?.leftLabel,
                 detailRightText: paceDetail?.rightLabel,
@@ -66,6 +70,7 @@ extension UsageMenuCardView.Model {
                 warningMarkerPercents: Self.warningMarkerPercents(
                     thresholds: lane.quotaWarningWindow.flatMap { input.quotaWarningThresholds[$0] },
                     showUsed: input.usageBarsShowUsed),
+                resetTimeline: Self.resetTimeline(for: window),
                 workdayMarkerPercents: lane == .weekly
                     ? workDayMarkerPercents(
                         workDays: input.workDaysPerWeek,

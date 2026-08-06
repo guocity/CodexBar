@@ -513,9 +513,33 @@
 "tab_menu_bar" = "Menu Bar";
 "tab_menu" = "Menu";
 "tab_advanced" = "Advanced";
+"tab_stats" = "Stats";
 "tab_hooks" = "Hooks";
 "tab_about" = "About";
 "tab_debug" = "Debug";
+
+/* Stats Pane */
+"stats_title" = "Stats";
+"stats_usage_history" = "Usage history";
+"stats_empty_title" = "No usage history yet";
+"stats_empty_subtitle" = "Usage is recorded over time as CodexBar refreshes your providers. Check back once some history has accumulated.";
+"Stats" = "Stats";
+"resets" = "resets";
+"inactive" = "inactive";
+"last seen" = "last seen";
+"No history yet" = "No history yet";
+"Past reset" = "Past reset";
+"Show in Stats" = "Show in Stats";
+"Hide from Stats" = "Hide from Stats";
+"stats_sort_default" = "Default";
+"stats_sort_session" = "Session";
+"stats_sort_weekly" = "Weekly";
+"stats_sort_tooltip" = "Sort providers";
+"Opus" = "Opus";
+"now" = "now";
+
+/* Reset timeline bar */
+"Time until reset" = "Time until reset";
 
 /* Hooks Pane */
 "hooks_enable_title" = "Enable hooks";

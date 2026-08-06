@@ -35,7 +35,7 @@ struct UsageStorePlanUtilizationResetCoalescingTests {
     }
 
     @Test
-    func `same hour entry backfills missing reset metadata`() throws {
+    func `a later reading within the hour is kept as its own entry`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -56,14 +56,12 @@ struct UsageStorePlanUtilizationResetCoalescingTests {
                 existingEntries: [existing],
                 entry: incoming))
 
-        #expect(updated.count == 1)
-        #expect(updated[0].capturedAt == incoming.capturedAt)
-        #expect(updated[0].usedPercent == 30)
-        #expect(updated[0].resetsAt == incoming.resetsAt)
+        #expect(updated.count == 2)
+        #expect(updated == [existing, incoming])
     }
 
     @Test
-    func `same hour later higher usage without reset metadata keeps promoted reset boundary`() throws {
+    func `every changed reading across the hour is retained`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -95,14 +93,12 @@ struct UsageStorePlanUtilizationResetCoalescingTests {
                 existingEntries: promoted,
                 entry: third))
 
-        #expect(updated.count == 1)
-        #expect(updated[0].capturedAt == third.capturedAt)
-        #expect(updated[0].usedPercent == third.usedPercent)
-        #expect(updated[0].resetsAt == second.resetsAt)
+        #expect(updated.count == 3)
+        #expect(updated.map(\.usedPercent) == [40, 8, 22])
     }
 
     @Test
-    func `same hour zero usage with drifting reset coalesces to latest entry`() throws {
+    func `flat usage with a drifting reset is kept as its own entry`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -119,17 +115,19 @@ struct UsageStorePlanUtilizationResetCoalescingTests {
             usedPercent: 0,
             resetsAt: hourStart.addingTimeInterval(5 * 60 * 60 + 14 * 60 + 3))
 
+        // A later refresh is its own record even when the value is flat and the reset
+        // boundary only drifts a second: only an exact duplicate is dropped.
         let updated = try #require(
             UsageStore._updatedPlanUtilizationEntriesForTesting(
                 existingEntries: [existing],
                 entry: incoming))
 
-        #expect(updated.count == 1)
-        #expect(updated[0] == incoming)
+        #expect(updated.count == 2)
+        #expect(updated == [existing, incoming])
     }
 
     @Test
-    func `same hour reset times within two minutes still keep single hourly peak`() throws {
+    func `flat usage with a near-identical reset is kept`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -151,14 +149,12 @@ struct UsageStorePlanUtilizationResetCoalescingTests {
                 existingEntries: [existing],
                 entry: incoming))
 
-        #expect(updated.count == 1)
-        #expect(updated[0].capturedAt == incoming.capturedAt)
-        #expect(updated[0].usedPercent == 10)
-        #expect(updated[0].resetsAt == incoming.resetsAt)
+        #expect(updated.count == 2)
+        #expect(updated == [existing, incoming])
     }
 
     @Test
-    func `same hour usage drop without meaningful reset still keeps single hourly peak`() throws {
+    func `a usage drop is kept as its own entry`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -180,14 +176,12 @@ struct UsageStorePlanUtilizationResetCoalescingTests {
                 existingEntries: [existing],
                 entry: incoming))
 
-        #expect(updated.count == 1)
-        #expect(updated[0].capturedAt == existing.capturedAt)
-        #expect(updated[0].usedPercent == existing.usedPercent)
-        #expect(updated[0].resetsAt == incoming.resetsAt)
+        #expect(updated.count == 2)
+        #expect(updated == [existing, incoming])
     }
 
     @Test
-    func `same hour reset keeps peak before reset and latest peak after reset`() throws {
+    func `all readings around a reset are kept`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -215,14 +209,13 @@ struct UsageStorePlanUtilizationResetCoalescingTests {
                 existingEntries: initial,
                 entry: incoming))
 
-        #expect(updated.count == 2)
-        #expect(updated[0].usedPercent == 40)
-        #expect(updated[1].usedPercent == 18)
-        #expect(updated[1].resetsAt == incoming.resetsAt)
+        #expect(updated.count == 3)
+        #expect(updated.map(\.usedPercent) == [40, 12, 18])
+        #expect(updated[2].resetsAt == incoming.resetsAt)
     }
 
     @Test
-    func `newer reset within hour replaces earlier post reset record`() throws {
+    func `a newer reset reading is appended`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -250,9 +243,9 @@ struct UsageStorePlanUtilizationResetCoalescingTests {
                 existingEntries: initial,
                 entry: incoming))
 
-        #expect(updated.count == 2)
-        #expect(updated[0].usedPercent == 40)
-        #expect(updated[1] == incoming)
+        #expect(updated.count == 3)
+        #expect(updated.map(\.usedPercent) == [40, 12, 3])
+        #expect(updated[2] == incoming)
     }
 
     @Test

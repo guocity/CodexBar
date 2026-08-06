@@ -140,6 +140,8 @@ struct MenuContent: View {
             }
         case .settings:
             self.actions.openSettings()
+        case .stats:
+            self.actions.openStats()
         case .about:
             self.actions.openAbout()
         case .quit:
@@ -163,6 +165,7 @@ struct MenuActions {
     let switchAccount: (UsageProvider) -> Void
     let openTerminal: (String) -> Void
     let openSettings: () -> Void
+    let openStats: () -> Void
     let openAbout: () -> Void
     let quit: () -> Void
     let copyError: (String) -> Void
