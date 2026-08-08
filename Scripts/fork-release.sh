@@ -62,14 +62,16 @@ echo "==> Toolchain: DEVELOPER_DIR=${DEVELOPER_DIR:-$(xcode-select -p)}"
 VERSION="$MARKETING_VERSION"
 TAG="v$VERSION"
 
+export CODEXBAR_SKIP_WIDGET="${CODEXBAR_SKIP_WIDGET:-1}"
+
 # When reusing the on-disk app, name the artifact after the architectures it actually contains
-# (e.g. `make start` produces a host-arch-only build); otherwise use the requested/universal set.
+# (e.g. `make start` produces a host-arch-only build); otherwise use the requested/arm64 set.
 if [[ "$SKIP_BUILD" == "1" ]]; then
   [[ -d CodexBar.app ]] || { echo "--skip-build: no CodexBar.app on disk — build first (e.g. \`make start\`)" >&2; exit 1; }
   DETECTED_ARCHES=$(lipo -archs "CodexBar.app/Contents/MacOS/CodexBar" 2>/dev/null || true)
-  ARCHES_VALUE="${DETECTED_ARCHES:-${ARCHES:-arm64 x86_64}}"
+  ARCHES_VALUE="${DETECTED_ARCHES:-${ARCHES:-arm64}}"
 else
-  ARCHES_VALUE="${ARCHES:-arm64 x86_64}"
+  ARCHES_VALUE="${ARCHES:-arm64}"
 fi
 ZIP_NAME=$(codexbar_app_zip_name "$VERSION" "$ARCHES_VALUE")
 DSYM_ZIP=$(codexbar_dsym_zip_name "$VERSION" "$ARCHES_VALUE")
@@ -158,20 +160,32 @@ fi
 # 2. Sparkle signature for the zip (Keychain or CODEXBAR_SPARKLE_PRIVATE_KEY_FILE).
 [[ -n "$SIGN_TOOL" ]] || SIGN_TOOL=$(find "$ROOT/.build" -name sign_update -type f -path '*sparkle*' 2>/dev/null | head -1 || true)
 [[ -n "$SIGN_TOOL" ]] || { echo "Could not find Sparkle sign_update tool under .build" >&2; exit 1; }
-echo "==> Signing update with your Sparkle key"
 SIGN_ARGS=()
 while IFS= read -r sign_arg; do
-  SIGN_ARGS+=("$sign_arg")
-done < <(codexbar_sparkle_sign_args)
-if ! SIG_LINE=$("$SIGN_TOOL" ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} "$ZIP_NAME" 2>&1); then
-  echo "$SIG_LINE" >&2
-  echo "ERROR: sign_update failed — private key does not match CODEXBAR_SU_PUBLIC_ED_KEY?" >&2
-  exit 1
+  [[ -n "$sign_arg" ]] && SIGN_ARGS+=("$sign_arg")
+done < <(codexbar_sparkle_sign_args || true)
+
+if [ ${#SIGN_ARGS[@]} -gt 0 ]; then
+  SIG_LINE=$("$SIGN_TOOL" "${SIGN_ARGS[@]}" "$ZIP_NAME" 2>&1) || {
+    echo "$SIG_LINE" >&2
+    echo "ERROR: sign_update failed — private key does not match CODEXBAR_SU_PUBLIC_ED_KEY?" >&2
+    exit 1
+  }
+else
+  SIG_LINE=$("$SIGN_TOOL" "$ZIP_NAME" 2>&1) || {
+    echo "$SIG_LINE" >&2
+    echo "ERROR: sign_update failed — private key does not match CODEXBAR_SU_PUBLIC_ED_KEY?" >&2
+    exit 1
+  }
 fi
 ED_SIG=$(printf '%s' "$SIG_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
 LENGTH=$(printf '%s' "$SIG_LINE" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
-[[ -n "$ED_SIG" && -n "$LENGTH" ]] || { echo "Failed to parse sign_update output: $SIG_LINE" >&2; exit 1; }
-if ! "$SIGN_TOOL" ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} --verify "$ZIP_NAME" "$ED_SIG" >/dev/null; then
+if [ ${#SIGN_ARGS[@]} -gt 0 ]; then
+  VERIFY_CMD=("$SIGN_TOOL" "${SIGN_ARGS[@]}" --verify "$ZIP_NAME" "$ED_SIG")
+else
+  VERIFY_CMD=("$SIGN_TOOL" --verify "$ZIP_NAME" "$ED_SIG")
+fi
+if ! "${VERIFY_CMD[@]}" >/dev/null; then
   echo "ERROR: signed zip failed local Sparkle verification" >&2
   exit 1
 fi
@@ -205,11 +219,9 @@ if [[ "$APPCAST_ONLY" != "1" ]]; then
     gh release upload "$TAG" "${ASSETS[@]}" --repo "$CODEXBAR_FORK_REPO" --clobber
   else
     DRAFT_FLAG=()
-    [[ "$DRAFT" == "1" ]] && DRAFT_FLAG=(--draft)
-    # macOS ships bash 3.2, where "${arr[@]}" on an empty array trips `set -u`
-    # ("unbound variable"). The ${arr[@]+...} guard expands to nothing when empty.
+    if [[ "$DRAFT" == "1" ]]; then DRAFT_FLAG=(--draft); fi
     printf '%s\n' "$NOTES_MD" | gh release create "$TAG" "${ASSETS[@]}" \
-      --repo "$CODEXBAR_FORK_REPO" --title "CodexBar $VERSION" --notes-file - "${DRAFT_FLAG[@]+"${DRAFT_FLAG[@]}"}"
+      --repo "$CODEXBAR_FORK_REPO" --title "CodexBar $VERSION" --notes-file - ${DRAFT_FLAG+"${DRAFT_FLAG[@]}"}
   fi
 fi
 
@@ -246,15 +258,20 @@ XML
 echo "==> Publishing appcast.xml to main on $CODEXBAR_FORK_REPO"
 APPCAST_B64=$(base64 < appcast.xml | tr -d '\n')
 APPCAST_SHA=$(gh api "repos/$CODEXBAR_FORK_REPO/contents/appcast.xml?ref=main" --jq .sha 2>/dev/null || true)
-SHA_ARGS=()
-[[ -n "$APPCAST_SHA" ]] && SHA_ARGS=(-f "sha=$APPCAST_SHA")
-# Same bash 3.2 empty-array guard as above (SHA_ARGS is empty on first publish).
-gh api --method PUT "repos/$CODEXBAR_FORK_REPO/contents/appcast.xml" \
-  -f "message=release: CodexBar $VERSION fork appcast" \
-  -f "branch=main" \
-  "${SHA_ARGS[@]+"${SHA_ARGS[@]}"}" \
-  -f "content=$APPCAST_B64" \
-  --jq '"    committed " + .commit.sha[0:7] + " to main"'
+if [[ -n "$APPCAST_SHA" ]]; then
+  gh api --method PUT "repos/$CODEXBAR_FORK_REPO/contents/appcast.xml" \
+    -f "message=release: CodexBar $VERSION fork appcast" \
+    -f "branch=main" \
+    -f "sha=$APPCAST_SHA" \
+    -f "content=$APPCAST_B64" \
+    --jq '"    committed " + .commit.sha[0:7] + " to main"'
+else
+  gh api --method PUT "repos/$CODEXBAR_FORK_REPO/contents/appcast.xml" \
+    -f "message=release: CodexBar $VERSION fork appcast" \
+    -f "branch=main" \
+    -f "content=$APPCAST_B64" \
+    --jq '"    committed " + .commit.sha[0:7] + " to main"'
+fi
 
 echo "==> Verifying published feed"
 if ! "$ROOT/Scripts/check-fork-sparkle-feed.sh"; then
