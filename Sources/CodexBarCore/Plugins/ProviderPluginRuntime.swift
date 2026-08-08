@@ -29,7 +29,7 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
         transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
         timeout: TimeInterval = ProviderPluginRuntime.defaultTimeout) throws
     {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "js") else {
+        guard let url = CodexBarCoreResources.bundle.url(forResource: name, withExtension: "js") else {
             throw ProviderPluginError.load("bundled plugin '\(name).js' was not found")
         }
         let source = try String(contentsOf: url, encoding: .utf8)
@@ -46,7 +46,7 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
     {
         guard timeout > 0 else { throw ProviderPluginError.load("timeout must be positive") }
         guard responseSizeLimit > 0 else { throw ProviderPluginError.load("response size limit must be positive") }
-        guard let preludeURL = Bundle.module.url(
+        guard let preludeURL = CodexBarCoreResources.bundle.url(
             forResource: "provider-plugin-prelude",
             withExtension: "js")
         else {
