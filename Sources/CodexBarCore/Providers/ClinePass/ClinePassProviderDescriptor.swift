@@ -42,16 +42,29 @@ public enum ClinePassProviderDescriptor {
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "ClinePass cost history is not available via the usage-limits API." }),
-            fetchPlan: .apiToken(
-                strategyID: "clinepass.api",
-                resolveToken: { ProviderTokenResolver.token(for: .clinepass, environment: $0) },
-                missingCredentialsError: { ClinePassUsageError.missingCredentials },
-                loadUsage: { apiKey, _ in
-                    try await ClinePassUsageFetcher.fetchUsage(apiKey: apiKey).toUsageSnapshot()
-                }),
+            presentation: ProviderUsagePresentation(
+                primaryBindingQuotaLanes: [.secondary, .tertiary]),
+            fetchPlan: self.fetchPlan(),
             cli: ProviderCLIConfig(
                 name: "clinepass",
                 aliases: [],
                 versionDetector: nil))
+    }
+
+    private static func fetchPlan() -> ProviderFetchPlan {
+        ProviderFetchPlan(
+            sourceModes: [.auto, .api],
+            pipeline: ProviderFetchPipeline(resolveStrategies: { _ in
+                [ScriptFetchStrategy(
+                    id: "clinepass.js",
+                    provider: .clinepass,
+                    bundledPlugin: "clinepass",
+                    secretKey: ClinePassSettingsReader.apiKeyEnvironmentKey,
+                    sourceLabel: "api",
+                    resolveSecret: { environment in
+                        self.credentials.resolveToken(environment: environment)?.token
+                    },
+                    isEnabled: { _ in true })]
+            }))
     }
 }

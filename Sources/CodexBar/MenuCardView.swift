@@ -554,7 +554,9 @@ private struct MetricRow: View {
                         Text(self.isHoveringReset ? (hoverText ?? resetText) : resetText)
                             .font(.footnote)
                             .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
                             .onHover { hovering in
                                 guard hoverText != nil else { return }
                                 self.isHoveringReset = hovering
@@ -581,8 +583,9 @@ private struct MetricRow: View {
                     Text(metaText)
                         .font(.footnote)
                         .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
-                        .lineLimit(1)
+                        .lineLimit(2)
                         .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let detail = self.metric.detailText {
                     Text(detail)
@@ -1029,6 +1032,9 @@ extension UsageMenuCardView.Model {
                 }
             }
         }
+        if input.provider == .sub2api {
+            details = Self.sub2APILocalizedDetails(details)
+        }
         guard input.hidePersonalInfo else { return details }
         return details.compactMap { section in
             let rows = section.rows.compactMap { row in
@@ -1257,6 +1263,10 @@ extension UsageMenuCardView.Model {
             metrics.append(Self.primaryMetric(
                 input: input,
                 primary: primary,
+                bindingProjection: Self.bindingQuotaProjection(
+                    input: input,
+                    primary: primary,
+                    snapshot: snapshot),
                 percentStyle: percentStyle,
                 title: labels.primary))
         }
@@ -1350,6 +1360,7 @@ extension UsageMenuCardView.Model {
     private static func primaryMetric(
         input: Input,
         primary: RateWindow,
+        bindingProjection: RateWindowBindingQuotaProjection? = nil,
         percentStyle: PercentStyle,
         title: String? = nil) -> Metric
     {
@@ -1363,16 +1374,29 @@ extension UsageMenuCardView.Model {
             primary: primary)
         Self.applyPrimaryBalancePresentation(&presentation, input: input, primary: primary)
         Self.applyPrimaryResetPresentation(&presentation, input: input, primary: primary)
-        Self.applyPrimaryPacePresentation(&presentation, input: input, primary: primary)
+        if bindingProjection == nil {
+            Self.applyPrimaryPacePresentation(&presentation, input: input, primary: primary)
+        }
         Self.applyPrimaryFinalOverrides(&presentation, input: input, primary: primary)
+        if let bindingProjection {
+            let resetWindow = RateWindow(
+                usedPercent: bindingProjection.usedPercent,
+                windowMinutes: primary.windowMinutes,
+                resetsAt: bindingProjection.resetsAt,
+                resetDescription: bindingProjection.resetDescription)
+            presentation.resetText = Self.resetText(
+                for: resetWindow,
+                style: input.resetTimeDisplayStyle,
+                now: input.now)
+        }
+        let displayedUsedPercent = bindingProjection?.usedPercent ?? primary.usedPercent
         let resetHelpText = presentation.resetText == defaultResetText
             ? Self.resetHelpText(for: primary, style: input.resetTimeDisplayStyle, now: input.now)
             : nil
         return Metric(
             id: "primary",
             title: title ?? L(input.metadata.sessionLabel),
-            percent: Self.clamped(
-                input.usageBarsShowUsed ? primary.usedPercent : primary.remainingPercent),
+            percent: Self.clamped(input.usageBarsShowUsed ? displayedUsedPercent : 100 - displayedUsedPercent),
             percentStyle: percentStyle,
             statusText: presentation.statusText,
             resetText: presentation.resetText,
