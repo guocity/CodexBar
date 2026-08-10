@@ -65,14 +65,22 @@ TAG="v$VERSION"
 export CODEXBAR_SKIP_WIDGET="${CODEXBAR_SKIP_WIDGET:-1}"
 
 # When reusing the on-disk app, name the artifact after the architectures it actually contains
-# (e.g. `make start` produces a host-arch-only build); otherwise use the requested/arm64 set.
-if [[ "$SKIP_BUILD" == "1" ]]; then
-  [[ -d CodexBar.app ]] || { echo "--skip-build: no CodexBar.app on disk — build first (e.g. \`make start\`)" >&2; exit 1; }
+# (e.g. `make start` produces a host-arch-only build); otherwise match sign-and-notarize.sh's
+# default (universal arm64+x86_64). Always export ARCHES so packaging and ZIP_NAME stay aligned.
+if [[ "$SKIP_BUILD" == "1" && "$APPCAST_ONLY" != "1" ]]; then
+  [[ -d CodexBar.app ]] || {
+    echo "--skip-build: no CodexBar.app on disk — build first (e.g. \`make start\`)" >&2
+    exit 1
+  }
   DETECTED_ARCHES=$(lipo -archs "CodexBar.app/Contents/MacOS/CodexBar" 2>/dev/null || true)
-  ARCHES_VALUE="${DETECTED_ARCHES:-${ARCHES:-arm64}}"
+  ARCHES_VALUE="${DETECTED_ARCHES:-${ARCHES:-arm64 x86_64}}"
+elif [[ -d CodexBar.app ]]; then
+  DETECTED_ARCHES=$(lipo -archs "CodexBar.app/Contents/MacOS/CodexBar" 2>/dev/null || true)
+  ARCHES_VALUE="${DETECTED_ARCHES:-${ARCHES:-arm64 x86_64}}"
 else
-  ARCHES_VALUE="${ARCHES:-arm64}"
+  ARCHES_VALUE="${ARCHES:-arm64 x86_64}"
 fi
+export ARCHES="$ARCHES_VALUE"
 ZIP_NAME=$(codexbar_app_zip_name "$VERSION" "$ARCHES_VALUE")
 DSYM_ZIP=$(codexbar_dsym_zip_name "$VERSION" "$ARCHES_VALUE")
 
@@ -151,10 +159,26 @@ else
   export APP_TEAM_ID
   export CODEXBAR_SU_PUBLIC_ED_KEY
   export CODEXBAR_FEED_URL
-  echo "==> Building + signing + notarizing (profile: ${CODEXBAR_NOTARY_KEYCHAIN_PROFILE}, team: ${APP_TEAM_ID})"
+  export ARCHES
+  echo "==> Building + signing + notarizing (profile: ${CODEXBAR_NOTARY_KEYCHAIN_PROFILE}, team: ${APP_TEAM_ID}, arches: ${ARCHES})"
   ./Scripts/sign-and-notarize.sh
 fi
 
+if [[ ! -f "$ZIP_NAME" ]]; then
+  # sign-and-notarize may have written a different arch label if ARCHES drifted; accept the
+  # already-notarized universal/arm64 zip that matches version.env when present.
+  for candidate in \
+    "CodexBar-macos-universal-${VERSION}.zip" \
+    "CodexBar-macos-arm64-${VERSION}.zip" \
+    "CodexBar-macos-x86_64-${VERSION}.zip"
+  do
+    if [[ -f "$candidate" ]]; then
+      echo "    note: expected $ZIP_NAME missing; using $candidate"
+      ZIP_NAME="$candidate"
+      break
+    fi
+  done
+fi
 [[ -f "$ZIP_NAME" ]] || { echo "Expected build artifact missing: $ZIP_NAME" >&2; exit 1; }
 
 # 2. Sparkle signature for the zip (Keychain or CODEXBAR_SPARKLE_PRIVATE_KEY_FILE).
