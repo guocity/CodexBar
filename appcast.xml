@@ -6,27 +6,24 @@
     <description>CodexBar fork updates</description>
     <language>en</language>
     <item>
-      <title>CodexBar 0.48.1</title>
-      <pubDate>Sat, 08 Aug 2026 03:19:15 +0000</pubDate>
-      <sparkle:version>113</sparkle:version>
-      <sparkle:shortVersionString>0.48.1</sparkle:shortVersionString>
+      <title>CodexBar 0.49.2</title>
+      <pubDate>Mon, 10 Aug 2026 21:54:44 +0000</pubDate>
+      <sparkle:version>116</sparkle:version>
+      <sparkle:shortVersionString>0.49.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
 <h3>Fixed</h3>
 <ul>
-<li>Claude: the menu-bar indicator now renders the active claude-swap account&#x27;s usage when the adapter owns account presentation (2+ accounts), instead of drawing empty bars from an ambient snapshot without usable windows (#2731). Thanks @Meldiron for the report!</li>
-<li>z.ai/GLM: parse `CREDIT_LIMIT` quota entries from credit-based Coding Plans (lite/standard/pro) so usage no longer sticks at 100% remaining / 0% used and the 5-hour credit window drives the primary percentage and reset time (#2724, #2712). Thanks @stuible!</li>
-</ul>
-<h3>Changed</h3>
-<ul>
-<li>CLI: dashboard snapshot identity now defaults to full; use `--identity redacted` to restore redacted emails.</li>
-</ul>
-<h3>Fixed</h3>
-<ul>
-<li>CLI: claude-swap accounts with expired or missing credentials now keep their email on the serve dashboard instead of showing a bare slot number.</li>
+<li>Menu cards: show session quota as exhausted until the final reset of every binding weekly/monthly plan lane, while preserving session-specific details and independent purchased credits (#2840). Thanks @Yuxin-Qiao!</li>
+<li>Plugins: honor the “Usage bars fill” remaining/used setting in user-installed provider cards, keeping percentage labels and bar direction aligned (#2749). Thanks @RyloRiz!</li>
+<li>Sub2API: localize and group menu-card quota labels and request, token, and cost totals into a compact usage summary (#2835). Thanks @weirdo-adam!</li>
+<li>Codex: avoid repeatedly converting historical token snapshots during cost-cache refreshes, preventing sustained CPU usage on large session histories.</li>
+<li>Codex: make automatic cost-history catch-up near-idle and limit local-history scans to provider refreshes with a 15-minute energy floor.</li>
+<li>Agent Sessions: stop inactive local and remote refresh schedulers from waking while monitoring is disabled.</li>
+<li>Cost usage: refresh token-cost data when “Refresh all providers on menu open” is enabled, with a one-minute scan floor to avoid repeated work (#2388). Thanks @betive37!</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.48.1/CodexBar-macos-arm64-0.48.1.zip" sparkle:edSignature="AuDikCkM+zRxuT3Ga+NYn8IQz+4vWHFZdvYOkbt8jErydJ7rYEVoQb0x87ef4on0ooHx4/6WU8LMCSYbYEcGAg==" length="25532569" type="application/octet-stream" />
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.49.2/CodexBar-macos-universal-0.49.2.zip" sparkle:edSignature="w26ULWV3i2TnaPcacYWg8J4PqEh6/p2mKJBcCEz2LjB3zEGcDiDhDnj6v/IHINDlHwdp4TZnSSgZe5t/8lzxBQ==" length="49169176" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
