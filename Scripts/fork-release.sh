@@ -13,6 +13,7 @@ source version.env
 : "${CODEXBAR_FORK_REPO:?set CODEXBAR_FORK_REPO in .fork-release.env}"
 : "${CODEXBAR_APP_IDENTITY:?set CODEXBAR_APP_IDENTITY in .fork-release.env}"
 : "${CODEXBAR_FEED_URL:?set CODEXBAR_FEED_URL in .fork-release.env}"
+: "${CODEXBAR_SU_PUBLIC_ED_KEY:?set CODEXBAR_SU_PUBLIC_ED_KEY in .fork-release.env}"
 : "${CODEXBAR_NOTARY_KEYCHAIN_PROFILE:?set CODEXBAR_NOTARY_KEYCHAIN_PROFILE in .fork-release.env}"
 : "${APP_TEAM_ID:?set APP_TEAM_ID in .fork-release.env}"
 
@@ -21,9 +22,11 @@ export ARCHES=arm64
 export CODEXBAR_APP_IDENTITY
 export CODEXBAR_DMG_ONLY=1
 export CODEXBAR_EMBED_PROVISIONING_PROFILE=0
+export CODEXBAR_FEED_URL
 export CODEXBAR_SKIP_LAUNCH_SMOKE=1
 export CODEXBAR_NOTARY_KEYCHAIN_PROFILE
 export CODEXBAR_SKIP_WIDGET=1
+export CODEXBAR_SU_PUBLIC_ED_KEY
 export APP_TEAM_ID
 
 # shellcheck disable=SC1091
@@ -36,6 +39,19 @@ DMG_NAME="CodexBar-macos-arm64-$MARKETING_VERSION.dmg"
 echo "==> ARM64 DMG release $TAG → $CODEXBAR_FORK_REPO"
 ./Scripts/sign-and-notarize.sh
 [[ -f "$DMG_NAME" ]] || { echo "Missing release artifact: $DMG_NAME" >&2; exit 1; }
+
+APP_PLIST="$ROOT/CodexBar.app/Contents/Info.plist"
+[[ -f "$APP_PLIST" ]] || { echo "Missing packaged app Info.plist: $APP_PLIST" >&2; exit 1; }
+PACKAGED_FEED_URL=$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP_PLIST")
+PACKAGED_PUBLIC_KEY=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP_PLIST")
+[[ "$PACKAGED_FEED_URL" == "$CODEXBAR_FEED_URL" ]] || {
+  echo "Packaged app feed URL does not match CODEXBAR_FEED_URL" >&2
+  exit 1
+}
+[[ "$PACKAGED_PUBLIC_KEY" == "$CODEXBAR_SU_PUBLIC_ED_KEY" ]] || {
+  echo "Packaged app Sparkle public key does not match CODEXBAR_SU_PUBLIC_ED_KEY" >&2
+  exit 1
+}
 
 if ! gh release view "$TAG" --repo "$CODEXBAR_FORK_REPO" >/dev/null 2>&1; then
   NOTES=$(awk '/^## /{section++} section==1{print} section==2{exit}' CHANGELOG.md | sed '1d')
