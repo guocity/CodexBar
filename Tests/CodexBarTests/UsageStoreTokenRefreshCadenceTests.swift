@@ -6,13 +6,13 @@ import Testing
 @MainActor
 struct UsageStoreTokenRefreshCadenceTests {
     @Test(arguments: [
-        (RefreshFrequency.oneMinute, 900.0),
-        (.twoMinutes, 900.0),
-        (.fiveMinutes, 900.0),
-        (.fifteenMinutes, 900.0),
-        (.thirtyMinutes, 1800.0),
+        (RefreshFrequency.oneMinute, 21600.0),
+        (.twoMinutes, 21600.0),
+        (.fiveMinutes, 21600.0),
+        (.fifteenMinutes, 21600.0),
+        (.thirtyMinutes, 21600.0),
     ])
-    func `fixed refresh frequencies derive a widget-safe token TTL`(
+    func `fixed refresh frequencies honor the six hour token floor`(
         frequency: RefreshFrequency,
         expectedSeconds: TimeInterval)
     {
@@ -20,8 +20,8 @@ struct UsageStoreTokenRefreshCadenceTests {
     }
 
     @Test(arguments: [RefreshFrequency.adaptive, .adaptiveAgentAware])
-    func `adaptive refresh frequencies honor the fifteen minute token floor`(frequency: RefreshFrequency) {
-        #expect(UsageStore.tokenFetchTTL(for: frequency) == TimeInterval(15 * 60))
+    func `adaptive refresh frequencies honor the six hour token floor`(frequency: RefreshFrequency) {
+        #expect(UsageStore.tokenFetchTTL(for: frequency) == TimeInterval(6 * 60 * 60))
     }
 
     @Test
@@ -30,12 +30,12 @@ struct UsageStoreTokenRefreshCadenceTests {
     }
 
     @Test(arguments: [
-        (RefreshFrequency.oneMinute, 1800.0),
-        (.fiveMinutes, 1800.0),
-        (.fifteenMinutes, 1800.0),
-        (.thirtyMinutes, 1800.0),
+        (RefreshFrequency.oneMinute, 21600.0),
+        (.fiveMinutes, 21600.0),
+        (.fifteenMinutes, 21600.0),
+        (.thirtyMinutes, 21600.0),
     ])
-    func `global low power mode clamps automatic token scans to thirty minutes`(
+    func `global low power mode preserves the six hour token floor`(
         frequency: RefreshFrequency,
         expectedSeconds: TimeInterval)
     {
@@ -52,7 +52,7 @@ struct UsageStoreTokenRefreshCadenceTests {
     }
 
     @Test(arguments: [RefreshFrequency.oneMinute, .twoMinutes, .fiveMinutes])
-    func `fast provider refreshes cannot rescan local cost within fifteen minutes`(
+    func `fast provider refreshes cannot rescan local cost within six hours`(
         frequency: RefreshFrequency) async throws
     {
         let settings = testSettingsStore(suiteName: "UsageStoreTokenRefreshCadenceTests-\(frequency.rawValue)")
@@ -73,11 +73,11 @@ struct UsageStoreTokenRefreshCadenceTests {
         var scanCount = 0
         store._test_tokenUsageRefreshOverride = { _, _ in scanCount += 1 }
 
-        store.lastTokenFetchAt[.codex] = now.addingTimeInterval(-14 * 60)
+        store.lastTokenFetchAt[.codex] = now.addingTimeInterval(-(6 * 60 * 60 - 60))
         await store.refreshTokenUsage(.codex, force: false)
         #expect(scanCount == 0)
 
-        store.lastTokenFetchAt[.codex] = now.addingTimeInterval(-15 * 60 - 1)
+        store.lastTokenFetchAt[.codex] = now.addingTimeInterval(-(6 * 60 * 60 + 1))
         await store.refreshTokenUsage(.codex, force: false)
         #expect(scanCount == 1)
     }

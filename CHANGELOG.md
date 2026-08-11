@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.49.4 — 2026-08-11
+
+### Fixed
+- Codex: reduce idle disk activity by limiting automatic local cost-history scans to four per day; manual refresh remains immediate.
+
 ## 0.49.3 — 2026-08-11
 
 ### Fixed

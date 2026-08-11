@@ -425,9 +425,11 @@ final class UsageStore {
     @ObservationIgnored private var hasCompletedInitialRefresh: Bool = false
     @ObservationIgnored private let providerAvailabilityCacheTTL: TimeInterval = 1
     @ObservationIgnored let accountInfoCacheTTL: TimeInterval = 30
-    /// Energy/WidgetKit floor for expensive local-history scans and their additional snapshot publications.
-    /// Faster provider refreshes still update quota/status normally, but reuse token-cost history within this TTL.
-    static let minimumTokenFetchTTL: TimeInterval = 15 * 60
+    /// Idle floor for expensive local-history scans and their additional snapshot publications.
+    /// Faster provider refreshes still update quota/status normally, while manual refreshes bypass this cache.
+    /// Keep automatic scans sparse: loading the local cost ledger and checking session history can otherwise
+    /// amplify into gigabytes of disk reads per day even when no sessions are active.
+    static let minimumTokenFetchTTL: TimeInterval = 6 * 60 * 60
 
     var tokenFetchTTL: TimeInterval? {
         Self.tokenFetchTTL(
