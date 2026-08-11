@@ -135,6 +135,20 @@ struct CostUsageStoreCutoverTests {
         #expect(stableRecorder.snapshot().usageRowsRepriced == 0)
         #expect(stable.data == appended.data)
         #expect(stable.summary == appended.summary)
+
+        let stableLoad = CostUsageStoreAccess.load(cacheRoot: env.cacheRoot, calendar: options.calendar)
+        let sinceKey = try #require(stableLoad.cache.scanSinceKey)
+        let untilKey = try #require(stableLoad.cache.scanUntilKey)
+        let concurrentStore = CostUsageStore(cacheRoot: env.cacheRoot)
+        #expect(await concurrentStore.upsertFile(Self.staleStoreFile()))
+        _ = CostUsageStoreAccess.save(
+            store: stableLoad.store,
+            cache: stableLoad.cache,
+            calendar: options.calendar,
+            requestedScanWindow: (sinceKey: sinceKey, untilKey: untilKey))
+        #expect(await stableLoad.store.lastSavePersistedFileCount == 0)
+        let finalSnapshot = await CostUsageStore(cacheRoot: env.cacheRoot).readSnapshot()
+        #expect(!finalSnapshot.files.contains { $0.path == "/stale.jsonl" })
     }
 
     private static func staleStoreFile() -> CostUsageStoreFile {

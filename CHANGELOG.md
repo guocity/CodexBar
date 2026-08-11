@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.49.3 — 2026-08-11
+
+### Fixed
+- Codex: reduce disk activity during cost-history refreshes by reusing unchanged cache data while detecting concurrent app and CLI updates.
+
 ## 0.49.2 — 2026-08-10
 
 ### Fixed

@@ -1,3 +1,8 @@
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 enum CostUsagePersistenceAction: Equatable {
@@ -42,17 +47,45 @@ enum CostUsagePersistencePlanner {
     }
 }
 
+struct CostUsageCodexSaveBaseline: Sendable {
+    var dataVersion: Int64
+    var timeZoneIdentifier: String?
+    var filesByPath: [String: CostUsageStoreFile]
+    var snapshotCountsByPath: [String: Int]
+    var rowCountsByPath: [String: Int]
+    var dayAggregates: [CostUsageStoreDayAggregate]
+    var discoveryState: CostUsageStoreDiscoveryState?
+    var lookbackState: CostUsageStoreLookbackState?
+    var fileFingerprints: [String: Data]
+}
+
 extension CostUsageStore {
     static let defaultRowBudget = 25000
     static let defaultFileBudgetBytes: Int64 = 256 * 1024 * 1024
 
     func loadCodexCache(calendar: Calendar) -> CostUsageCache {
         _ = self.removeLegacyCodexArtifactIfPresent()
+        let dataVersionBefore = self.dataVersion()
         let snapshot = self.readSnapshot()
-        guard snapshot.metadata.timeZoneIdentifier == nil
+        let dataVersionAfter = self.dataVersion()
+        let cache: CostUsageCache = if snapshot.metadata.timeZoneIdentifier == nil
             || snapshot.metadata.timeZoneIdentifier == calendar.timeZone.identifier
-        else { return CostUsageCache() }
-        return Self.cache(from: snapshot)
+        {
+            Self.cache(from: snapshot)
+        } else {
+            CostUsageCache()
+        }
+        if let dataVersionAfter, dataVersionBefore == dataVersionAfter {
+            self.loadedCodexBaselineForSave = Self.saveBaseline(
+                snapshot: snapshot,
+                cache: cache,
+                dataVersion: dataVersionAfter)
+        } else {
+            // A concurrent connection committed around the snapshot read. Preserve the cache
+            // result, but force the save to read a fresh persistence baseline.
+            self.loadedCodexBaselineForSave = nil
+        }
+        return cache
     }
 
     @discardableResult
@@ -64,36 +97,63 @@ extension CostUsageStore {
         rowBudget: Int = CostUsageStore.defaultRowBudget,
         fileBudgetBytes: Int64 = CostUsageStore.defaultFileBudgetBytes) -> CostUsageStoreBudgetResult
     {
-        let previous = self.readSnapshot()
-        let canReuseStoredRows = previous.metadata.timeZoneIdentifier == calendar.timeZone.identifier
-        let previousFilesByPath = Dictionary(uniqueKeysWithValues: previous.files.map { ($0.path, $0) })
-        let snapshotCountsByPath = previous.tokenSnapshots
-            .reduce(into: [String: Int]()) { $0[$1.path, default: 0] += 1 }
-        let rowCountsByPath = previous.usageRows.reduce(into: [String: Int]()) { $0[$1.path, default: 0] += 1 }
+        let baseline: CostUsageCodexSaveBaseline
+        if let loaded = self.loadedCodexBaselineForSave,
+           self.dataVersion() == loaded.dataVersion
+        {
+            baseline = loaded
+        } else {
+            let snapshot = self.readSnapshot()
+            baseline = CostUsageStore.saveBaseline(
+                snapshot: snapshot,
+                cache: Self.cache(from: snapshot),
+                dataVersion: self.dataVersion() ?? -1)
+        }
+        self.loadedCodexBaselineForSave = nil
+        let canReuseStoredRows = baseline.timeZoneIdentifier == calendar.timeZone.identifier
         // One transaction spans every table the save cycle touches, so a crash or failure
         // midway can never leave e.g. files upserted while day_aggregates stay stale.
         // Budget enforcement below runs outside: it checkpoints the WAL and vacuums, which
         // SQLite forbids inside an open transaction.
         self.beginSaveTransaction()
-        self.deleteRemovedFiles(previous: previous, cache: cache)
+        for path in baseline.filesByPath.keys where cache.files[path] == nil {
+            _ = self.deleteFile(path: path)
+        }
         var persistedFiles = 0
         for (path, usage) in cache.files.sorted(by: { $0.key < $1.key }) {
+            if canReuseStoredRows,
+               let fingerprint = Self.filePersistenceFingerprint(usage),
+               baseline.fileFingerprints[path] == fingerprint
+            {
+                continue
+            }
             self.persistFile(
                 path: path,
                 usage: usage,
                 baseline: PersistedFileBaseline(
-                    file: previousFilesByPath[path],
-                    snapshotCount: snapshotCountsByPath[path] ?? 0,
-                    rowCount: rowCountsByPath[path] ?? 0,
+                    file: baseline.filesByPath[path],
+                    snapshotCount: baseline.snapshotCountsByPath[path] ?? 0,
+                    rowCount: baseline.rowCountsByPath[path] ?? 0,
                     canReuseRows: canReuseStoredRows),
                 calendar: calendar)
             persistedFiles += 1
+            self.lastSavePersistedFileCount = persistedFiles
             Self.saveCycleCheckpointForTesting?(persistedFiles)
         }
-        _ = self.replaceDayAggregates(Self.globalAggregates(cache: cache))
+        self.lastSavePersistedFileCount = persistedFiles
+        let dayAggregates = Self.globalAggregates(cache: cache)
+        if baseline.dayAggregates != dayAggregates {
+            _ = self.replaceDayAggregates(dayAggregates)
+        }
         _ = self.setMetadata(Self.metadata(cache: cache, calendar: calendar))
-        _ = self.setDiscoveryState(Self.discoveryState(cache.codexSessionDiscovery))
-        _ = self.setLookbackState(Self.lookbackState(cache.codexActiveLookbackState))
+        let discoveryState = Self.discoveryState(cache.codexSessionDiscovery)
+        if baseline.discoveryState != discoveryState {
+            _ = self.setDiscoveryState(discoveryState)
+        }
+        let lookbackState = Self.lookbackState(cache.codexActiveLookbackState)
+        if baseline.lookbackState != lookbackState {
+            _ = self.setLookbackState(lookbackState)
+        }
         self.endSaveTransaction()
         let result = self.enforceBudgets(
             maxRows: rowBudget,
@@ -109,6 +169,38 @@ extension CostUsageStore {
             _ = self.setMetadata(metadata)
         }
         return result
+    }
+}
+
+// MARK: - Change detection
+
+extension CostUsageStore {
+    private static func saveBaseline(
+        snapshot: CostUsageStoreSnapshot,
+        cache: CostUsageCache,
+        dataVersion: Int64) -> CostUsageCodexSaveBaseline
+    {
+        CostUsageCodexSaveBaseline(
+            dataVersion: dataVersion,
+            timeZoneIdentifier: snapshot.metadata.timeZoneIdentifier,
+            filesByPath: Dictionary(uniqueKeysWithValues: snapshot.files.map { ($0.path, $0) }),
+            snapshotCountsByPath: snapshot.tokenSnapshots.reduce(into: [:]) {
+                $0[$1.path, default: 0] += 1
+            },
+            rowCountsByPath: snapshot.usageRows.reduce(into: [:]) {
+                $0[$1.path, default: 0] += 1
+            },
+            dayAggregates: snapshot.dayAggregates,
+            discoveryState: snapshot.discoveryState,
+            lookbackState: snapshot.lookbackState,
+            fileFingerprints: cache.files.compactMapValues(self.filePersistenceFingerprint))
+    }
+
+    private static func filePersistenceFingerprint(_ usage: CostUsageFileUsage) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(usage) else { return nil }
+        return Data(SHA256.hash(data: data))
     }
 }
 
@@ -689,15 +781,6 @@ extension CostUsageStore {
             try? JSONDecoder().decode(CostUsageScanner.CodexBufferedFastLine.self, from: $0.payload)
         }
         return lines.isEmpty ? nil : lines
-    }
-
-    private func deleteRemovedFiles(
-        previous: CostUsageStoreSnapshot,
-        cache: CostUsageCache)
-    {
-        for path in previous.files.map(\.path) where cache.files[path] == nil {
-            _ = self.deleteFile(path: path)
-        }
     }
 
     private static func inode(from identity: String?) -> Int64? {

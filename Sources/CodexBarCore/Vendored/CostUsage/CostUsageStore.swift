@@ -91,6 +91,10 @@ actor CostUsageStore {
     private let expectedParserHash: String
     private var connection: SQLiteConnection?
     private(set) var rebuildCount = 0
+    /// Compact state from the load that starts a scan. It is reused only while SQLite's
+    /// connection-local data version proves that no other connection committed meanwhile.
+    var loadedCodexBaselineForSave: CostUsageCodexSaveBaseline?
+    var lastSavePersistedFileCount = 0
     /// While a save cycle's enclosing transaction is open, nested `withDatabase` calls join
     /// it instead of opening their own connection scope, and the first failure aborts the
     /// remainder of the cycle so the outer transaction rolls back as a unit.
@@ -119,6 +123,12 @@ actor CostUsageStore {
         }
         let combined = (UInt32(truncatingIfNeeded: base) & 0x7F) << 24 | (hash & 0x00FF_FFFF)
         return Int32(combined)
+    }
+
+    func dataVersion() -> Int64? {
+        self.withDatabase(default: nil) { database in
+            try Self.scalarInt(database, "PRAGMA data_version")
+        }
     }
 }
 
