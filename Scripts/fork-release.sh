@@ -62,11 +62,11 @@ echo "==> Toolchain: DEVELOPER_DIR=${DEVELOPER_DIR:-$(xcode-select -p)}"
 VERSION="$MARKETING_VERSION"
 TAG="v$VERSION"
 
-export CODEXBAR_SKIP_WIDGET="${CODEXBAR_SKIP_WIDGET:-1}"
+export CODEXBAR_SKIP_WIDGET=1
 
-# When reusing the on-disk app, name the artifact after the architectures it actually contains
-# (e.g. `make start` produces a host-arch-only build); otherwise match sign-and-notarize.sh's
-# default (universal arm64+x86_64). Always export ARCHES so packaging and ZIP_NAME stay aligned.
+# When reusing the on-disk app, name the artifact after the architectures it actually contains.
+# Fresh fork releases default to arm64 and never inherit architectures from a stale app bundle.
+# Always export ARCHES so packaging and ZIP_NAME stay aligned.
 if [[ "$SKIP_BUILD" == "1" && "$APPCAST_ONLY" != "1" ]]; then
   [[ -d CodexBar.app ]] || {
     echo "--skip-build: no CodexBar.app on disk — build first (e.g. \`make start\`)" >&2
@@ -74,11 +74,8 @@ if [[ "$SKIP_BUILD" == "1" && "$APPCAST_ONLY" != "1" ]]; then
   }
   DETECTED_ARCHES=$(lipo -archs "CodexBar.app/Contents/MacOS/CodexBar" 2>/dev/null || true)
   ARCHES_VALUE="${DETECTED_ARCHES:-${ARCHES:-arm64 x86_64}}"
-elif [[ -d CodexBar.app ]]; then
-  DETECTED_ARCHES=$(lipo -archs "CodexBar.app/Contents/MacOS/CodexBar" 2>/dev/null || true)
-  ARCHES_VALUE="${DETECTED_ARCHES:-${ARCHES:-arm64 x86_64}}"
 else
-  ARCHES_VALUE="${ARCHES:-arm64 x86_64}"
+  ARCHES_VALUE="${ARCHES:-arm64}"
 fi
 export ARCHES="$ARCHES_VALUE"
 ZIP_NAME=$(codexbar_app_zip_name "$VERSION" "$ARCHES_VALUE")
