@@ -29,6 +29,7 @@ extension UsageStore {
             }
             let loaded = await historyStore.loadAsync()
             guard !Task.isCancelled, let self, !self.planUtilizationHistoryLoaded else { return }
+            await self.planUtilizationPersistenceCoordinator.prime(loaded)
             self.planUtilizationHistory = loaded
             self.planUtilizationHistoryLoaded = true
             self.planUtilizationHistoryRevision &+= 1

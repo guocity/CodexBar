@@ -104,10 +104,12 @@ struct CodexCostCatchUpPolicy: Sendable {
             return Decision(action: .runAfter(0), targetDutyCycle: 1)
         }
 
+        // Large Codex session trees can consume hundreds of MB per bounded pass. Keep automatic
+        // catch-up sparse; users can still opt into accelerated mode when they want old history now.
         let dutyCycle = switch input.powerSource {
-        case .ac: 0.001
-        case .battery: 0.0002
-        case .unknown: 0.0005
+        case .ac: 0.0001
+        case .battery: 0.00002
+        case .unknown: 0.00005
         }
         let activeDuration = max(0, input.previousActiveDuration ?? Self.automaticBurstDuration)
         let delay = activeDuration * (1 - dutyCycle) / dutyCycle

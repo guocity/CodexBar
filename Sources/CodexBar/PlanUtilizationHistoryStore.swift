@@ -245,6 +245,14 @@ struct PlanUtilizationHistoryStore: Sendable {
     }
 
     func save(_ providers: [ProviderInstanceID: PlanUtilizationHistoryBuckets]) {
+        let knownInstanceIDs = Set(UsageProvider.allCases.map(\.instanceID)).union(providers.keys)
+        self.save(providers, providerIDs: knownInstanceIDs)
+    }
+
+    func save(
+        _ providers: [ProviderInstanceID: PlanUtilizationHistoryBuckets],
+        providerIDs: Set<ProviderInstanceID>)
+    {
         guard let directoryURL = self.directoryURL else { return }
         do {
             try FileManager.default.createDirectory(
@@ -254,8 +262,7 @@ struct PlanUtilizationHistoryStore: Sendable {
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.sortedKeys]
 
-            let knownInstanceIDs = Set(UsageProvider.allCases.map(\.instanceID)).union(providers.keys)
-            for instanceID in knownInstanceIDs.sorted(by: { $0.rawValue < $1.rawValue }) {
+            for instanceID in providerIDs.sorted(by: { $0.rawValue < $1.rawValue }) {
                 let fileURL = self.providerFileURL(for: instanceID)
                 let buckets = providers[instanceID] ?? PlanUtilizationHistoryBuckets()
                 let unscoped = Self.sortedHistories(buckets.unscoped)

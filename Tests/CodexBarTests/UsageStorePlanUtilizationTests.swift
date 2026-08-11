@@ -6,7 +6,7 @@ import Testing
 // swiftlint:disable:next type_body_length
 struct UsageStorePlanUtilizationTests {
     @Test
-    func `keeps each changed usage reading within an hour`() throws {
+    func `coalesces changed usage within hour into single entry`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -26,33 +26,8 @@ struct UsageStorePlanUtilizationTests {
                 existingEntries: initial,
                 entry: second))
 
-        #expect(updated.count == 2)
-        #expect(updated[0] == first)
-        #expect(updated[1] == second)
-    }
-
-    @Test
-    func `keeps a refresh even when the value is unchanged`() throws {
-        let first = planEntry(at: Date(timeIntervalSince1970: 1_700_000_000), usedPercent: 35)
-        let second = planEntry(at: first.capturedAt.addingTimeInterval(15 * 60), usedPercent: 35)
-
-        let updated = try #require(
-            UsageStore._updatedPlanUtilizationEntriesForTesting(
-                existingEntries: [first],
-                entry: second))
-
-        #expect(updated == [first, second])
-    }
-
-    @Test
-    func `drops only an exact duplicate sample`() {
-        let entry = planEntry(at: Date(timeIntervalSince1970: 1_700_000_000), usedPercent: 35)
-
-        let updated = UsageStore._updatedPlanUtilizationEntriesForTesting(
-            existingEntries: [entry],
-            entry: entry)
-
-        #expect(updated == nil)
+        #expect(updated.count == 1)
+        #expect(updated.last == second)
     }
 
     @Test
@@ -88,7 +63,7 @@ struct UsageStorePlanUtilizationTests {
     }
 
     @Test
-    func `keeps provisional and known reset readings as distinct entries`() throws {
+    func `first known reset boundary within hour replaces earlier provisional peak even when usage drops`() throws {
         let calendar = Calendar(identifier: .gregorian)
         let hourStart = try #require(calendar.date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
@@ -114,9 +89,8 @@ struct UsageStorePlanUtilizationTests {
                 existingEntries: initial,
                 entry: second))
 
-        #expect(updated.count == 2)
-        #expect(updated[0] == first)
-        #expect(updated[1] == second)
+        #expect(updated.count == 1)
+        #expect(updated[0] == second)
     }
 
     @Test
@@ -1183,7 +1157,7 @@ struct UsageStorePlanUtilizationTests {
 
     @MainActor
     @Test
-    func `concurrent plan history writes each persist as a separate record`() async throws {
+    func `concurrent plan history writes coalesce within single hour bucket per series`() async throws {
         let store = Self.makeStore()
         let snapshot = Self.makeSnapshot(provider: .codex, email: "alice@example.com")
         store._setSnapshotForTesting(snapshot, provider: .codex)
@@ -1212,8 +1186,8 @@ struct UsageStorePlanUtilizationTests {
         }
 
         let histories = try #require(store.planUtilizationHistory[.codex]?.accounts.values.first)
-        #expect(findSeries(histories, name: .session, windowMinutes: 300)?.entries.count == 3)
-        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 3)
+        #expect(findSeries(histories, name: .session, windowMinutes: 300)?.entries.count == 1)
+        #expect(findSeries(histories, name: .weekly, windowMinutes: 10080)?.entries.count == 1)
     }
 
     @Test
@@ -1331,6 +1305,42 @@ struct UsageStorePlanUtilizationTests {
         let loaded = store.load()
 
         #expect(loaded == [.codex: buckets])
+    }
+
+    @Test
+    func `incremental save leaves unchanged provider files untouched`() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = PlanUtilizationHistoryStore(directoryURL: directoryURL)
+        let capturedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let codexFileURL = directoryURL.appendingPathComponent("codex.json")
+        let claudeFileURL = directoryURL.appendingPathComponent("claude.json")
+
+        let originalCodex = PlanUtilizationHistoryBuckets(unscoped: [
+            planSeries(name: .session, windowMinutes: 300, entries: [
+                planEntry(at: capturedAt, usedPercent: 10),
+            ]),
+        ])
+        let claude = PlanUtilizationHistoryBuckets(unscoped: [
+            planSeries(name: .weekly, windowMinutes: 10080, entries: [
+                planEntry(at: capturedAt, usedPercent: 20),
+            ]),
+        ])
+        store.save([.codex: originalCodex, .claude: claude])
+        let codexDataBefore = try Data(contentsOf: codexFileURL)
+        let claudeDataBefore = try Data(contentsOf: claudeFileURL)
+
+        let updatedCodex = PlanUtilizationHistoryBuckets(unscoped: [
+            planSeries(name: .session, windowMinutes: 300, entries: [
+                planEntry(at: capturedAt.addingTimeInterval(3600), usedPercent: 30),
+            ]),
+        ])
+        store.save(
+            [.codex: updatedCodex, .claude: claude],
+            providerIDs: [.codex])
+
+        #expect(try Data(contentsOf: codexFileURL) != codexDataBefore)
+        #expect(try Data(contentsOf: claudeFileURL) == claudeDataBefore)
     }
 
     @Test

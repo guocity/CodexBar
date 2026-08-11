@@ -4,7 +4,7 @@ import Testing
 
 struct CodexCostCatchUpPolicyTests {
     @Test
-    func `automatic mode targets one tenth percent duty cycle on AC power`() {
+    func `automatic mode targets one hundredth percent duty cycle on AC power`() {
         let decision = CodexCostCatchUpPolicy().decision(for: .init(
             mode: .automatic,
             previousActiveDuration: 2,
@@ -12,11 +12,11 @@ struct CodexCostCatchUpPolicyTests {
             lowPowerModeEnabled: false,
             thermalState: .nominal))
 
-        #expect(decision == .init(action: .runAfter(1998), targetDutyCycle: 0.001))
+        #expect(decision == .init(action: .runAfter(19998), targetDutyCycle: 0.0001))
     }
 
     @Test
-    func `automatic mode targets one twentieth percent duty cycle for unknown power`() {
+    func `automatic mode targets one two-hundredth percent duty cycle for unknown power`() {
         let decision = CodexCostCatchUpPolicy().decision(for: .init(
             mode: .automatic,
             previousActiveDuration: 2,
@@ -24,11 +24,11 @@ struct CodexCostCatchUpPolicyTests {
             lowPowerModeEnabled: false,
             thermalState: .nominal))
 
-        #expect(decision == .init(action: .runAfter(3998), targetDutyCycle: 0.0005))
+        #expect(decision == .init(action: .runAfter(39998), targetDutyCycle: 0.00005))
     }
 
     @Test
-    func `automatic mode targets one fiftieth percent duty cycle on battery`() {
+    func `automatic mode targets one five-hundredth percent duty cycle on battery`() {
         let decision = CodexCostCatchUpPolicy().decision(for: .init(
             mode: .automatic,
             previousActiveDuration: 2,
@@ -36,7 +36,12 @@ struct CodexCostCatchUpPolicyTests {
             lowPowerModeEnabled: false,
             thermalState: .nominal))
 
-        #expect(decision == .init(action: .runAfter(9998), targetDutyCycle: 0.0002))
+        guard case let .runAfter(delay) = decision.action else {
+            Issue.record("Expected automatic catch-up to run after a delay")
+            return
+        }
+        #expect(abs(delay - 99998) < 0.001)
+        #expect(decision.targetDutyCycle == 0.00002)
     }
 
     @Test

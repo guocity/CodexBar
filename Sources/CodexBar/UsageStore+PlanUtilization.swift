@@ -453,10 +453,20 @@ extension UsageStore {
         existingEntries: [PlanUtilizationHistoryEntry],
         entry: PlanUtilizationHistoryEntry) -> [PlanUtilizationHistoryEntry]?
     {
-        guard !existingEntries.contains(entry) else { return nil }
         var entries = existingEntries
         let insertionIndex = entries.firstIndex(where: { $0.capturedAt > entry.capturedAt }) ?? entries.endIndex
-        entries.insert(entry, at: insertionIndex)
+        let sampleHourBucket = self.planUtilizationHourBucket(for: entry.capturedAt)
+        let sameHourRange = self.planUtilizationHourRange(
+            entries: entries,
+            insertionIndex: insertionIndex,
+            hourBucket: sampleHourBucket)
+        let existingHourEntries = Array(entries[sameHourRange])
+        let canonicalHourEntries = self.canonicalPlanUtilizationHourEntries(
+            existingHourEntries: existingHourEntries,
+            incomingEntry: entry)
+
+        guard canonicalHourEntries != existingHourEntries else { return nil }
+        entries.replaceSubrange(sameHourRange, with: canonicalHourEntries)
 
         if entries.count > self.planUtilizationMaxSamples {
             entries.removeFirst(entries.count - self.planUtilizationMaxSamples)
@@ -777,6 +787,7 @@ extension UsageStore {
         self.haveMeaningfullyDifferentResetBoundaries(
             activeSegmentPeak.resetsAt,
             observation.resetsAt)
+            || (activeSegmentPeak.usedPercent > 0 && observation.usedPercent == 0)
     }
 
     private nonisolated static func segmentPeakEntry(
@@ -1720,11 +1731,17 @@ extension UsageStore {
 
 actor PlanUtilizationHistoryPersistenceCoordinator {
     private let store: PlanUtilizationHistoryStore
+    private var persistedSnapshot: [ProviderInstanceID: PlanUtilizationHistoryBuckets]?
     private var pendingSnapshot: [ProviderInstanceID: PlanUtilizationHistoryBuckets]?
     private var isPersisting: Bool = false
 
     init(store: PlanUtilizationHistoryStore) {
         self.store = store
+    }
+
+    func prime(_ snapshot: [ProviderInstanceID: PlanUtilizationHistoryBuckets]) {
+        guard self.persistedSnapshot == nil, self.pendingSnapshot == nil, !self.isPersisting else { return }
+        self.persistedSnapshot = snapshot
     }
 
     func enqueue(_ snapshot: [ProviderInstanceID: PlanUtilizationHistoryBuckets]) {
@@ -1740,16 +1757,32 @@ actor PlanUtilizationHistoryPersistenceCoordinator {
     private func persistLoop() async {
         while let nextSnapshot = self.pendingSnapshot {
             self.pendingSnapshot = nil
-            await self.saveAsync(nextSnapshot)
+            let changedProviderIDs = Self.changedProviderIDs(
+                from: self.persistedSnapshot ?? [:],
+                to: nextSnapshot)
+            if !changedProviderIDs.isEmpty {
+                await self.saveAsync(nextSnapshot, providerIDs: changedProviderIDs)
+            }
+            self.persistedSnapshot = nextSnapshot
         }
 
         self.isPersisting = false
     }
 
-    private func saveAsync(_ snapshot: [ProviderInstanceID: PlanUtilizationHistoryBuckets]) async {
+    private nonisolated static func changedProviderIDs(
+        from persisted: [ProviderInstanceID: PlanUtilizationHistoryBuckets],
+        to pending: [ProviderInstanceID: PlanUtilizationHistoryBuckets]) -> Set<ProviderInstanceID>
+    {
+        Set(persisted.keys).union(pending.keys).filter { persisted[$0] != pending[$0] }
+    }
+
+    private func saveAsync(
+        _ snapshot: [ProviderInstanceID: PlanUtilizationHistoryBuckets],
+        providerIDs: Set<ProviderInstanceID>) async
+    {
         let store = self.store
         await Task.detached(priority: .utility) {
-            store.save(snapshot)
+            store.save(snapshot, providerIDs: providerIDs)
         }.value
     }
 }
