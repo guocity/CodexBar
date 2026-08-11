@@ -14,7 +14,6 @@ source version.env
 : "${CODEXBAR_APP_IDENTITY:?set CODEXBAR_APP_IDENTITY in .fork-release.env}"
 : "${CODEXBAR_FEED_URL:?set CODEXBAR_FEED_URL in .fork-release.env}"
 : "${CODEXBAR_NOTARY_KEYCHAIN_PROFILE:?set CODEXBAR_NOTARY_KEYCHAIN_PROFILE in .fork-release.env}"
-: "${CODEXBAR_SPARKLE_PRIVATE_KEY_FILE:?set CODEXBAR_SPARKLE_PRIVATE_KEY_FILE in .fork-release.env}"
 : "${APP_TEAM_ID:?set APP_TEAM_ID in .fork-release.env}"
 
 export APP_IDENTITY="$CODEXBAR_APP_IDENTITY"
@@ -49,7 +48,11 @@ gh release upload "$TAG" "$DMG_NAME" --repo "$CODEXBAR_FORK_REPO" --clobber
 
 SIGN_TOOL=$(find .build -path '*sparkle*' -type f -name sign_update | head -1)
 [[ -n "$SIGN_TOOL" ]] || { echo "Missing Sparkle sign_update tool" >&2; exit 1; }
-SIG_LINE=$("$SIGN_TOOL" --ed-key-file "$CODEXBAR_SPARKLE_PRIVATE_KEY_FILE" "$DMG_NAME")
+if [[ -n "${CODEXBAR_SPARKLE_PRIVATE_KEY_FILE:-}" ]]; then
+  SIG_LINE=$("$SIGN_TOOL" --ed-key-file "$CODEXBAR_SPARKLE_PRIVATE_KEY_FILE" "$DMG_NAME")
+else
+  SIG_LINE=$("$SIGN_TOOL" "$DMG_NAME")
+fi
 ED_SIGNATURE=$(printf '%s' "$SIG_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
 LENGTH=$(printf '%s' "$SIG_LINE" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
 [[ -n "$ED_SIGNATURE" && -n "$LENGTH" ]] || { echo "Failed to sign DMG for Sparkle" >&2; exit 1; }
