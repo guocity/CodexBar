@@ -145,8 +145,20 @@ PY
 }
 
 KEYBOARD_SHORTCUTS_UTIL="$ROOT/.build/checkouts/KeyboardShortcuts/Sources/KeyboardShortcuts/Utilities.swift"
+
+build_swift_products() {
+  local arch=$1
+  if [[ "${CODEXBAR_SKIP_WIDGET:-0}" == "1" || "${SKIP_WIDGET:-0}" == "1" ]]; then
+    swift build -c "$CONF" --arch "$arch" --product CodexBar
+    swift build -c "$CONF" --arch "$arch" --product CodexBarCLI
+    swift build -c "$CONF" --arch "$arch" --product CodexBarClaudeWatchdog
+  else
+    swift build -c "$CONF" --arch "$arch"
+  fi
+}
+
 if [[ ! -f "$KEYBOARD_SHORTCUTS_UTIL" ]]; then
-  swift build -c "$CONF" --arch "${ARCH_LIST[0]}"
+  build_swift_products "${ARCH_LIST[0]}"
 fi
 patch_keyboard_shortcuts
 
@@ -201,7 +213,7 @@ stage_build_products() {
 }
 
 for ARCH in "${ARCH_LIST[@]}"; do
-  swift build -c "$CONF" --arch "$ARCH"
+  build_swift_products "$ARCH"
   stage_build_products "$ARCH"
 done
 
