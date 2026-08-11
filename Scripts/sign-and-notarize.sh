@@ -93,12 +93,13 @@ echo "Submitting for notarization"
 # failure would otherwise throw away the whole multi-minute build, so retry it a
 # few times. Genuine submission rejections ("Invalid") are not retried.
 notarytool_submit() {
+  local artifact=$1
   if [[ -n "$NOTARY_PROFILE" ]]; then
-    xcrun notarytool submit "$NOTARIZATION_ZIP" \
+    xcrun notarytool submit "$artifact" \
       --keychain-profile "$NOTARY_PROFILE" \
       --wait
   else
-    xcrun notarytool submit "$NOTARIZATION_ZIP" \
+    xcrun notarytool submit "$artifact" \
       --key "$API_KEY_PATH" \
       --key-id "$APP_STORE_CONNECT_KEY_ID" \
       --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
@@ -110,7 +111,7 @@ NOTARIZE_ATTEMPTS="${CODEXBAR_NOTARIZE_ATTEMPTS:-3}"
 attempt=1
 while :; do
   # `if` condition suspends set -e so we can capture the exit status ourselves.
-  if notarize_out=$(notarytool_submit 2>&1); then
+  if notarize_out=$(notarytool_submit "$NOTARIZATION_ZIP" 2>&1); then
     notarize_status=0
   else
     notarize_status=$?
@@ -148,10 +149,31 @@ fi
 xattr -cr "$APP_BUNDLE"
 find "$APP_BUNDLE" -name '._*' -delete
 
-"$DITTO_BIN" --norsrc -c -k --keepParent "$APP_BUNDLE" "$ZIP_NAME"
-
 verify_distribution_policy "$APP_BUNDLE"
 stapler validate "$APP_BUNDLE"
+
+if [[ "${CODEXBAR_DMG_ONLY:-0}" == "1" ]]; then
+  DMG_NAME="CodexBar-macos-arm64-${MARKETING_VERSION}.dmg"
+  DMG_STAGE="$NOTARIZATION_TEMP_DIR/dmg"
+  mkdir -p "$DMG_STAGE"
+  "$DITTO_BIN" "$APP_BUNDLE" "$DMG_STAGE/$APP_BUNDLE"
+  ln -s /Applications "$DMG_STAGE/Applications"
+  hdiutil create \
+    -volname "$APP_NAME" \
+    -srcfolder "$DMG_STAGE" \
+    -format UDZO \
+    -ov \
+    "$DMG_NAME"
+  codesign --force --timestamp --sign "$APP_IDENTITY" "$DMG_NAME"
+  notarytool_submit "$DMG_NAME"
+  xcrun stapler staple "$DMG_NAME"
+  xcrun stapler validate "$DMG_NAME"
+  hdiutil verify "$DMG_NAME"
+  echo "Done: $DMG_NAME"
+  exit 0
+fi
+
+"$DITTO_BIN" --norsrc -c -k --keepParent "$APP_BUNDLE" "$ZIP_NAME"
 
 echo "Packaging dSYM"
 DSYM_STAGE_ROOT="$ROOT/.build/package-products/release"
