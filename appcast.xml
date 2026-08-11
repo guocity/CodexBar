@@ -7,12 +7,12 @@
     <language>en</language>
     <item>
       <title>CodexBar 0.49.4</title>
-      <pubDate>Tue, 11 Aug 2026 16:08:26 +0000</pubDate>
+      <pubDate>Tue, 11 Aug 2026 16:28:50 +0000</pubDate>
       <sparkle:version>118</sparkle:version>
       <sparkle:shortVersionString>0.49.4</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<h3>Fixed</h3><ul><li>Reduced disk activity during Codex cost-history refreshes.</li></ul>]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.49.4/CodexBar-macos-arm64-0.49.4.dmg" sparkle:edSignature="55Pm1Jaubs9XKEDxt/JT5LdSY33+suWnb9SjyNB13kSQBz9R1Buu5fm+PXjpDh2IJgQDg+PrDObGKg6WsE3DDA==" length="30763859" type="application/octet-stream" />
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.49.4/CodexBar-macos-arm64-0.49.4.dmg" sparkle:edSignature="gXgYK2fOgFv3VyElZaxHy0V/XgTxC+XLRxz8c5uA/K/JRL7EYW5uTyQ62CVAru85MT1GIQX7X/AQf4CItrBaDA==" length="30760423" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
