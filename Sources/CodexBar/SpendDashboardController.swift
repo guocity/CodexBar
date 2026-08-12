@@ -445,7 +445,8 @@ enum SpendDashboardSource {
             codexHomePath: context.account.homePath,
             historyDays: context.historyDays,
             refreshPricingInBackground: context.refreshPricingInBackground,
-            includePiSessions: context.includePiSessions)
+            includePiSessions: context.includePiSessions,
+            bypassScannerDebounce: true)
     }
 
     private static func loadCodexActivity(

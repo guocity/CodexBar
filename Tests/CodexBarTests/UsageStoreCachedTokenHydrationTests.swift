@@ -140,7 +140,7 @@ struct UsageStoreCachedTokenHydrationTests {
     }
 
     @Test
-    func `stale cached hydration still allows the startup token refresh`() async throws {
+    func `stale cached hydration still allows a later regular token refresh`() async throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }
 
@@ -161,7 +161,8 @@ struct UsageStoreCachedTokenHydrationTests {
             historyDays: 1,
             scannerOptions: options)
         var cache = CostUsageStoreAccess.read(cacheRoot: env.cacheRoot)
-        cache.lastScanUnixMs = Int64(now.addingTimeInterval(-2 * 60 * 60).timeIntervalSince1970 * 1000)
+        cache.lastScanUnixMs = Int64(
+            now.addingTimeInterval(-(UsageStore.minimumTokenFetchTTL + 60)).timeIntervalSince1970 * 1000)
         CostUsageStoreAccess.replace(cacheRoot: env.cacheRoot, cache: cache)
 
         let settings = Self.makeCodexOnlySettings(historyDays: 1)

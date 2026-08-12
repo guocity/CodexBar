@@ -1403,10 +1403,7 @@ extension UsageStore {
     }
 
     func refreshTokenUsage(_ provider: UsageProvider, force: Bool) async {
-        guard ProviderDescriptorRegistry.descriptor(for: provider).tokenCost.supportsTokenCost else {
-            self.resetTokenUsageState(for: provider)
-            return
-        }
+        guard self.shouldBeginTokenUsageRefresh(provider, force: force) else { return }
 
         if Self.tokenCostRequiresProviderSnapshot(provider) {
             if self.tokenSnapshotPublicationForCurrentProviderConfig(for: provider) != nil {
@@ -1569,6 +1566,30 @@ extension UsageStore {
                 self.tokenErrors[provider.instanceID] = nil
             }
         }
+    }
+
+    nonisolated static func shouldSkipCodexTokenScanAtStartup(
+        provider: UsageProvider,
+        force: Bool,
+        refreshPhase: ProviderRefreshPhase) -> Bool
+    {
+        provider == .codex && !force && refreshPhase == .startup
+    }
+
+    private func shouldBeginTokenUsageRefresh(_ provider: UsageProvider, force: Bool) -> Bool {
+        guard ProviderDescriptorRegistry.descriptor(for: provider).tokenCost.supportsTokenCost else {
+            self.resetTokenUsageState(for: provider)
+            return false
+        }
+
+        // Startup already hydrates Codex cost data from SQLite. Do not immediately follow that
+        // cheap read with a live JSONL scan: cache migrations can otherwise read the entire local
+        // rollout corpus while the app is opening. The next regular refresh remains eligible, and
+        // explicit user refreshes still bypass this launch-only gate.
+        return !Self.shouldSkipCodexTokenScanAtStartup(
+            provider: provider,
+            force: force,
+            refreshPhase: ProviderRefreshContext.current)
     }
 
     private func resetTokenUsageState(for provider: UsageProvider) {

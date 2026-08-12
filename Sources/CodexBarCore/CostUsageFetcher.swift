@@ -29,6 +29,7 @@ public enum CostUsageError: LocalizedError, Sendable {
 // swiftlint:disable:next type_body_length
 public struct CostUsageFetcher: Sendable {
     private static let codexAutomaticScanDurationPerRefresh: TimeInterval = 2
+    private static let codexAutomaticScanBytesPerRefresh: Int64 = 8 * 1024 * 1024
 
     package struct CachedCodexTokenSnapshotResult: Sendable {
         package let snapshot: CostUsageTokenSnapshot
@@ -280,6 +281,10 @@ public struct CostUsageFetcher: Sendable {
         options.forceRescan = false
         options.refreshMinIntervalSeconds = 0
         options.maxCodexScanDurationPerRefresh = Self.codexAutomaticScanDurationPerRefresh
+        options.maxCodexScanBytesPerRefresh = Self.resolvedCodexScanBytesPerRefresh(
+            provider: .codex,
+            bypassScannerDebounce: true,
+            configuredBytes: options.maxCodexScanBytesPerRefresh)
         let clampedHistoryDays = max(1, min(365, historyDays))
         let since = options.calendar.date(
             byAdding: .day,
@@ -1104,6 +1109,21 @@ public struct CostUsageFetcher: Sendable {
         return self.codexAutomaticScanDurationPerRefresh
     }
 
+    package static func resolvedCodexScanBytesPerRefresh(
+        provider: UsageProvider,
+        bypassScannerDebounce: Bool,
+        configuredBytes: Int64) -> Int64
+    {
+        // A duration bound alone is not an I/O bound: fast local storage can stream most of a
+        // large rollout tree during the two-second app refresh slice. Keep explicit test/CLI
+        // limits (including zero for unlimited) intact, while capping app-owned Codex passes.
+        guard provider == .codex,
+              bypassScannerDebounce,
+              configuredBytes > 0
+        else { return configuredBytes }
+        return min(configuredBytes, self.codexAutomaticScanBytesPerRefresh)
+    }
+
     private static func configureScannerRefresh(
         _ options: inout CostUsageScanner.Options,
         provider: UsageProvider,
@@ -1123,6 +1143,10 @@ public struct CostUsageFetcher: Sendable {
             provider: provider,
             bypassScannerDebounce: bypassScannerDebounce,
             configuredDuration: options.maxCodexScanDurationPerRefresh)
+        options.maxCodexScanBytesPerRefresh = self.resolvedCodexScanBytesPerRefresh(
+            provider: provider,
+            bypassScannerDebounce: bypassScannerDebounce,
+            configuredBytes: options.maxCodexScanBytesPerRefresh)
     }
 
     private static func unknownProjectBreakdown(from daily: CostUsageDailyReport) -> CostUsageProjectBreakdown? {

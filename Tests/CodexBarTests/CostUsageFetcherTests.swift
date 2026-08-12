@@ -919,6 +919,27 @@ extension CostUsageFetcherTests {
             provider: .codex,
             bypassScannerDebounce: true,
             configuredDuration: 7) == 7)
+
+        #expect(CostUsageFetcher.resolvedCodexScanBytesPerRefresh(
+            provider: .codex,
+            bypassScannerDebounce: true,
+            configuredBytes: 512 * 1024 * 1024) == 8 * 1024 * 1024)
+        #expect(CostUsageFetcher.resolvedCodexScanBytesPerRefresh(
+            provider: .codex,
+            bypassScannerDebounce: false,
+            configuredBytes: 512 * 1024 * 1024) == 512 * 1024 * 1024)
+        #expect(CostUsageFetcher.resolvedCodexScanBytesPerRefresh(
+            provider: .claude,
+            bypassScannerDebounce: true,
+            configuredBytes: 512 * 1024 * 1024) == 512 * 1024 * 1024)
+        #expect(CostUsageFetcher.resolvedCodexScanBytesPerRefresh(
+            provider: .codex,
+            bypassScannerDebounce: true,
+            configuredBytes: 1024) == 1024)
+        #expect(CostUsageFetcher.resolvedCodexScanBytesPerRefresh(
+            provider: .codex,
+            bypassScannerDebounce: true,
+            configuredBytes: 0) == 0)
     }
 
     private static func writeCodexSessionFile(
