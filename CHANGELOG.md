@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.49.3 — 2026-08-12
 
 ### Fixed
+- CLI: load bundled provider-plugin resources when `codexbar` is installed as a symlink to the packaged helper or standalone executable (#2889). Thanks @djbclark for the report!
+- Menu bar layout: restore dragging placed chips to reorder or remove them while preserving click and keyboard selection (#2582). Thanks @ikkira!
 - Plan history: avoid atomically replacing byte-identical provider history files, reducing unnecessary disk writes (#2495). Thanks @guocity for the report!
 - OpenRouter: restore remaining credit balance in saved custom menu-bar layouts and preserve the legacy Automatic display during migration (#2870). Thanks @yuansaysay!
 - Claude: distinguish claude-swap account switching from ambient Claude Code sign-in in the menu without changing either action (#2874). Thanks @ynaamane!
@@ -11,15 +13,7 @@
 - Codex: preserve request-level pricing tiers while reconciling forked usage, preventing day aggregates from triggering long-context rates (#2858). Thanks @thomaschow19!
 - CLI: stop standalone version lookup from walking past the filesystem root and hanging with unbounded memory on affected macOS versions (#2856). Thanks @Manwholikespie!
 - Cost store: prevent launch-time executor-assumption crashes on macOS 15 by keeping synchronous SQLite cache bridges on their validated serial queue (#2857). Thanks @Manwholikespie!
-
-## 0.49.4 — 2026-08-11
-
-### Fixed
 - Codex: reduce idle disk activity by limiting automatic local cost-history scans to four per day; manual refresh remains immediate.
-
-## 0.49.3 — 2026-08-11
-
-### Fixed
 - Codex: reduce disk activity during cost-history refreshes by reusing unchanged cache data while detecting concurrent app and CLI updates.
 
 ## 0.49.2 — 2026-08-10

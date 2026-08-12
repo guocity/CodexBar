@@ -1,29 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
     <title>CodexBar (guocity/CodexBar fork)</title>
     <link>https://raw.githubusercontent.com/guocity/CodexBar/main/appcast.xml</link>
     <description>CodexBar fork updates</description>
     <language>en</language>
     <item>
-      <title>CodexBar 0.49.2</title>
-      <pubDate>Mon, 10 Aug 2026 21:54:44 +0000</pubDate>
-      <sparkle:version>116</sparkle:version>
-      <sparkle:shortVersionString>0.49.2</sparkle:shortVersionString>
+      <title>CodexBar 0.49.3</title>
+      <pubDate>Wed, 12 Aug 2026 18:12:32 +0000</pubDate>
+      <sparkle:version>117</sparkle:version>
+      <sparkle:shortVersionString>0.49.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
 <h3>Fixed</h3>
 <ul>
-<li>Menu cards: show session quota as exhausted until the final reset of every binding weekly/monthly plan lane, while preserving session-specific details and independent purchased credits (#2840). Thanks @Yuxin-Qiao!</li>
-<li>Plugins: honor the “Usage bars fill” remaining/used setting in user-installed provider cards, keeping percentage labels and bar direction aligned (#2749). Thanks @RyloRiz!</li>
-<li>Sub2API: localize and group menu-card quota labels and request, token, and cost totals into a compact usage summary (#2835). Thanks @weirdo-adam!</li>
-<li>Codex: avoid repeatedly converting historical token snapshots during cost-cache refreshes, preventing sustained CPU usage on large session histories.</li>
-<li>Codex: make automatic cost-history catch-up near-idle and limit local-history scans to provider refreshes with a 15-minute energy floor.</li>
-<li>Agent Sessions: stop inactive local and remote refresh schedulers from waking while monitoring is disabled.</li>
-<li>Cost usage: refresh token-cost data when “Refresh all providers on menu open” is enabled, with a one-minute scan floor to avoid repeated work (#2388). Thanks @betive37!</li>
+<li>CLI: load bundled provider-plugin resources when <code>codexbar</code> is installed as a symlink to the packaged helper or standalone executable (#2889). Thanks @djbclark for the report!</li>
+<li>Menu bar layout: restore dragging placed chips to reorder or remove them while preserving click and keyboard selection (#2582). Thanks @ikkira!</li>
+<li>Plan history: avoid atomically replacing byte-identical provider history files, reducing unnecessary disk writes (#2495). Thanks @guocity for the report!</li>
+<li>OpenRouter: restore remaining credit balance in saved custom menu-bar layouts and preserve the legacy Automatic display during migration (#2870). Thanks @yuansaysay!</li>
+<li>Claude: distinguish claude-swap account switching from ambient Claude Code sign-in in the menu without changing either action (#2874). Thanks @ynaamane!</li>
+<li>Codex: avoid full SQLite cost-cache rewrites for unchanged scans while preserving retention, freshness, and concurrent saves (#2852). Thanks @Yuxin-Qiao!</li>
+<li>Azure OpenAI: allow enough v1 completion budget for reasoning-capable deployment validation while keeping the probe bounded (#2867). Thanks @yilinxia!</li>
+<li>Codex: preserve request-level pricing tiers while reconciling forked usage, preventing day aggregates from triggering long-context rates (#2858). Thanks @thomaschow19!</li>
+<li>CLI: stop standalone version lookup from walking past the filesystem root and hanging with unbounded memory on affected macOS versions (#2856). Thanks @Manwholikespie!</li>
+<li>Cost store: prevent launch-time executor-assumption crashes on macOS 15 by keeping synchronous SQLite cache bridges on their validated serial queue (#2857). Thanks @Manwholikespie!</li>
+<li>Codex: reduce idle disk activity by limiting automatic local cost-history scans to four per day; manual refresh remains immediate.</li>
+<li>Codex: reduce disk activity during cost-history refreshes by reusing unchanged cache data while detecting concurrent app and CLI updates.</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.49.2/CodexBar-macos-universal-0.49.2.zip" sparkle:edSignature="w26ULWV3i2TnaPcacYWg8J4PqEh6/p2mKJBcCEz2LjB3zEGcDiDhDnj6v/IHINDlHwdp4TZnSSgZe5t/8lzxBQ==" length="49169176" type="application/octet-stream" />
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.49.3/CodexBar-macos-arm64-0.49.3.dmg" sparkle:edSignature="R3Ui1enmAJIdY1HQ5XztrpEH2skntFEX0IQW6ZVfMTTgHRLufl3ZYDhI3oINJViBpz3EOzH2lLF6ldeR4/FwAw==" length="30761228" type="application/octet-stream" />
     </item>
   </channel>
 </rss>

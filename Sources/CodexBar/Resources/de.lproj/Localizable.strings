@@ -1432,3 +1432,24 @@
 "5-hour usage" = "5-Stunden-Nutzung";
 "7-day usage" = "7-Tage-Nutzung";
 "Total usage" = "Gesamtnutzung";
+
+"tab_stats" = "Stats";
+"stats_title" = "Stats";
+"stats_usage_history" = "Usage history";
+"stats_empty_title" = "No usage history yet";
+"stats_empty_subtitle" = "Usage is recorded over time as CodexBar refreshes your providers. Check back once some history has accumulated.";
+"Stats" = "Stats";
+"resets" = "resets";
+"inactive" = "inactive";
+"last seen" = "last seen";
+"No history yet" = "No history yet";
+"Past reset" = "Past reset";
+"Show in Stats" = "Show in Stats";
+"Hide from Stats" = "Hide from Stats";
+"stats_sort_default" = "Default";
+"stats_sort_session" = "Session";
+"stats_sort_weekly" = "Weekly";
+"stats_sort_tooltip" = "Sort providers";
+"Opus" = "Opus";
+"now" = "now";
+"Time until reset" = "Time until reset";
