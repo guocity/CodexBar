@@ -1385,7 +1385,7 @@ extension UsageMenuCardView.Model {
                 detailRightText: nil,
                 pacePercent: nil,
                 paceOnTop: true,
-                resetTimeline: codeReviewWindow.flatMap(Self.resetTimeline)))
+                resetTimeline: codeReviewWindow.flatMap { Self.resetTimeline(for: $0) }))
         }
         return metrics
     }
@@ -1423,12 +1423,13 @@ extension UsageMenuCardView.Model {
                 now: input.now)
         }
         let displayedUsedPercent = bindingProjection?.usedPercent ?? primary.usedPercent
+        let metricTitle = title ?? L(input.metadata.sessionLabel)
         let resetHelpText = presentation.resetText == defaultResetText
             ? Self.resetHelpText(for: primary, style: input.resetTimeDisplayStyle, now: input.now)
             : nil
         return Metric(
             id: "primary",
-            title: title ?? L(input.metadata.sessionLabel),
+            title: metricTitle,
             percent: Self.clamped(input.usageBarsShowUsed ? displayedUsedPercent : 100 - displayedUsedPercent),
             percentStyle: percentStyle,
             statusText: presentation.statusText,
@@ -1442,7 +1443,10 @@ extension UsageMenuCardView.Model {
             warningMarkerPercents: Self.warningMarkerPercents(
                 thresholds: input.quotaWarningThresholds[.session],
                 showUsed: input.usageBarsShowUsed),
-            resetTimeline: Self.resetTimeline(for: primary),
+            resetTimeline: Self.resetTimeline(
+                for: primary,
+                displayLabel: metricTitle,
+                now: input.now),
             sessionEquivalentDetail: Self.sessionEquivalentDetail(
                 input: input,
                 weeklyWindow: primary,

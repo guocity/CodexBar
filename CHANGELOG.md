@@ -3,6 +3,7 @@
 ## 0.49.3 — 2026-08-12
 
 ### Fixed
+- Grok: persist web weekly usage samples in plan-utilization history when billing omits the window duration.
 - CLI: load bundled provider-plugin resources when `codexbar` is installed as a symlink to the packaged helper or standalone executable (#2889). Thanks @djbclark for the report!
 - Menu bar layout: restore dragging placed chips to reorder or remove them while preserving click and keyboard selection (#2582). Thanks @ikkira!
 - Plan history: avoid atomically replacing byte-identical provider history files, reducing unnecessary disk writes (#2495). Thanks @guocity for the report!

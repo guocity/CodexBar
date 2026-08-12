@@ -653,6 +653,21 @@ extension UsageStore {
             appendWindow(snapshot.primary, name: .session)
             appendWindow(snapshot.secondary, name: .weekly)
             appendWindow(snapshot.tertiary, name: .monthly)
+        case .grok:
+            switch GrokProviderDescriptor.primaryLabel(window: snapshot.primary, now: capturedAt) {
+            case "Weekly":
+                // The grok.com billing payload reports usage and reset time, but not its window
+                // duration. Preserve Peter's provider mapping and supply the cadence only at the
+                // history boundary so the otherwise-valid sample reaches grok.json.
+                appendWindow(
+                    snapshot.primary,
+                    name: .weekly,
+                    windowMinutesOverride: Self.weeklyWindowMinutes)
+            case "Monthly":
+                appendWindow(snapshot.primary, name: .monthly)
+            default:
+                appendGenericSessionEquivalentWindows()
+            }
         case .mimo, .stepfun:
             if snapshot.primary?.windowMinutes == ProviderPaceCapability.monthlyWindowSentinelMinutes {
                 appendWindow(snapshot.primary, name: .monthly)

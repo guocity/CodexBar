@@ -575,14 +575,30 @@ extension UsageMenuCardView.Model {
         return UsageFormatter.resetLine(for: window, style: .absolute, now: now)
     }
 
-    /// Builds the countdown-timeline data for a window. Returns nil unless both an absolute
-    /// reset time and a known window length are available (needed to draw a proportional bar).
-    static func resetTimeline(for window: RateWindow) -> ResetTimeline? {
-        guard let resetsAt = window.resetsAt,
-              let windowMinutes = window.windowMinutes,
-              windowMinutes > 0
-        else { return nil }
+    /// Builds the countdown-timeline data for a window. A presented "Weekly" label can supply
+    /// the seven-day GUI cadence when an upstream source reports only the absolute reset time.
+    static func resetTimeline(
+        for window: RateWindow,
+        displayLabel: String? = nil,
+        now: Date = .now) -> ResetTimeline?
+    {
+        guard let resetsAt = window.resetsAt else { return nil }
+        let windowMinutes = window.windowMinutes ?? Self.presentedWindowMinutes(for: displayLabel)
+        guard let windowMinutes, windowMinutes > 0 else { return nil }
+
+        if window.windowMinutes == nil {
+            let remaining = resetsAt.timeIntervalSince(now)
+            guard remaining > 0, remaining <= Double(windowMinutes) * 60 else { return nil }
+        }
         return ResetTimeline(resetsAt: resetsAt, windowSeconds: Double(windowMinutes) * 60)
+    }
+
+    private static func presentedWindowMinutes(for label: String?) -> Int? {
+        guard let label = label?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return nil
+        }
+        let weeklyLabels = ["weekly", L("Weekly").lowercased()]
+        return weeklyLabels.contains(label) ? 7 * 24 * 60 : nil
     }
 
     static func placeholder(input: Input) -> String? {

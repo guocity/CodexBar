@@ -1,6 +1,9 @@
 SHELL := /bin/bash
 
-.PHONY: build check docs-list format lint release restart start start-debug start-release stop test test-live test-tty
+.PHONY: build check docs-list format lint release restart run start start-debug start-release stop test test-live test-tty
+
+run:
+	./Scripts/run.sh
 
 start:
 	./Scripts/compile_and_run.sh
