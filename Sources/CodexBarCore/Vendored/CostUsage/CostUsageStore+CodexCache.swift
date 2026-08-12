@@ -49,6 +49,7 @@ enum CostUsagePersistencePlanner {
 
 struct CostUsageCodexSaveBaseline: Sendable {
     var dataVersion: Int64
+    var snapshot: CostUsageStoreSnapshot
     var timeZoneIdentifier: String?
     var filesByPath: [String: CostUsageStoreFile]
     var snapshotCountsByPath: [String: Int]
@@ -95,7 +96,8 @@ extension CostUsageStore {
         requestedScanWindow: (sinceKey: String, untilKey: String),
         reportWindow: (sinceKey: String, untilKey: String)? = nil,
         rowBudget: Int = CostUsageStore.defaultRowBudget,
-        fileBudgetBytes: Int64 = CostUsageStore.defaultFileBudgetBytes) -> CostUsageStoreBudgetResult
+        fileBudgetBytes: Int64 = CostUsageStore.defaultFileBudgetBytes,
+        skipIdenticalContent: Bool = false) -> CostUsageStoreBudgetResult
     {
         let baseline: CostUsageCodexSaveBaseline
         if let loaded = self.loadedCodexBaselineForSave,
@@ -110,12 +112,65 @@ extension CostUsageStore {
                 dataVersion: self.dataVersion() ?? -1)
         }
         self.loadedCodexBaselineForSave = nil
+        let previous = baseline.snapshot
+        if skipIdenticalContent,
+           Self.persistedContentMatches(
+               previous: previous,
+               cache: cache,
+               calendar: calendar)
+        {
+            // Retention owns the safety boundary: even a semantically unchanged scanner result
+            // must honor newly tightened row/file budgets before it can return.
+            let result = self.enforceBudgets(
+                maxRows: rowBudget,
+                maxFileBytes: fileBudgetBytes,
+                requestedSinceDay: requestedScanWindow.sinceKey,
+                requestedUntilDay: requestedScanWindow.untilKey,
+                calendar: calendar)
+            guard !result.catchUpRequired else { return result }
+            Self.identicalContentPreLockCheckpointForTesting?()
+            guard self.beginSaveTransaction() else {
+                var retry = result
+                retry.catchUpRequired = true
+                return retry
+            }
+
+            // Another process may have committed a full save after the optimistic comparison.
+            // Recheck the complete semantic snapshot under this writer lock. A mismatch means
+            // this scanner's cache is stale, so preserve the newer store and request a rescan.
+            let lockedPrevious = self.readSnapshotInCurrentTransaction()
+            guard Self.persistedContentMatches(
+                previous: lockedPrevious,
+                cache: cache,
+                calendar: calendar)
+            else {
+                _ = self.rollbackSaveTransaction()
+                var retry = result
+                retry.catchUpRequired = true
+                return retry
+            }
+
+            let advanced = self.advanceLastScanUnixMsInCurrentTransaction(cache.lastScanUnixMs)
+            let committed = self.endSaveTransaction()
+            guard advanced, committed else {
+                var retry = result
+                retry.catchUpRequired = true
+                return retry
+            }
+            return result
+        }
         let canReuseStoredRows = baseline.timeZoneIdentifier == calendar.timeZone.identifier
         // One transaction spans every table the save cycle touches, so a crash or failure
         // midway can never leave e.g. files upserted while day_aggregates stay stale.
         // Budget enforcement below runs outside: it checkpoints the WAL and vacuums, which
         // SQLite forbids inside an open transaction.
-        self.beginSaveTransaction()
+        guard self.beginSaveTransaction() else {
+            return CostUsageStoreBudgetResult(
+                deletedRows: 0,
+                rowCount: previous.files.count,
+                fileBytes: 0,
+                catchUpRequired: true)
+        }
         for path in baseline.filesByPath.keys where cache.files[path] == nil {
             _ = self.deleteFile(path: path)
         }
@@ -154,7 +209,13 @@ extension CostUsageStore {
         if baseline.lookbackState != lookbackState {
             _ = self.setLookbackState(lookbackState)
         }
-        self.endSaveTransaction()
+        guard self.endSaveTransaction() else {
+            return CostUsageStoreBudgetResult(
+                deletedRows: 0,
+                rowCount: previous.files.count,
+                fileBytes: 0,
+                catchUpRequired: true)
+        }
         let result = self.enforceBudgets(
             maxRows: rowBudget,
             maxFileBytes: fileBudgetBytes,
@@ -170,6 +231,42 @@ extension CostUsageStore {
         }
         return result
     }
+
+    /// True when persisting `cache` would leave every content table semantically unchanged.
+    /// This is O(persisted cache rows): it reconstructs typed values already read from SQLite
+    /// and compares them in memory; it never parses timestamps or opens session JSONL files. The
+    /// persisted spellings of a few optional fields differ from their in-memory forms
+    /// (`catchUpPending` and `codexScanComplete` store nil as false/true, `timeZoneIdentifier`
+    /// is fixed by the caller's calendar, and `lastScanUnixMs` is a wall-clock stamp), so
+    /// those are normalized before the comparison.
+    private static func persistedContentMatches(
+        previous: CostUsageStoreSnapshot,
+        cache: CostUsageCache,
+        calendar: Calendar) -> Bool
+    {
+        var restored = Self.cache(from: previous)
+        guard restored.timeZoneIdentifier == nil
+            || restored.timeZoneIdentifier == calendar.timeZone.identifier
+        else { return false }
+        guard (cache.codexScanCatchUpPending ?? false) == restored.codexScanCatchUpPending
+        else { return false }
+        // Freshness is the sole ignored semantic field. The time zone is a persistence-derived
+        // spelling: metadata(cache:calendar:) always writes the caller's calendar identifier.
+        restored.lastScanUnixMs = cache.lastScanUnixMs
+        restored.timeZoneIdentifier = calendar.timeZone.identifier
+        restored.codexScanCatchUpPending = cache.codexScanCatchUpPending
+        restored.files = restored.files.mapValues(Self.normalizingScanComplete)
+        var incoming = cache
+        incoming.timeZoneIdentifier = calendar.timeZone.identifier
+        incoming.files = incoming.files.mapValues(Self.normalizingScanComplete)
+        return restored == incoming
+    }
+
+    private static func normalizingScanComplete(_ usage: CostUsageFileUsage) -> CostUsageFileUsage {
+        var usage = usage
+        usage.codexScanComplete = usage.codexScanComplete ?? true
+        return usage
+    }
 }
 
 // MARK: - Change detection
@@ -182,6 +279,7 @@ extension CostUsageStore {
     {
         CostUsageCodexSaveBaseline(
             dataVersion: dataVersion,
+            snapshot: snapshot,
             timeZoneIdentifier: snapshot.metadata.timeZoneIdentifier,
             filesByPath: Dictionary(uniqueKeysWithValues: snapshot.files.map { ($0.path, $0) }),
             snapshotCountsByPath: snapshot.tokenSnapshots.reduce(into: [:]) {
@@ -858,12 +956,14 @@ enum CostUsageStoreAccess {
         cache: CostUsageCache,
         calendar: Calendar,
         requestedScanWindow: (sinceKey: String, untilKey: String),
-        reportWindow: (sinceKey: String, untilKey: String)? = nil) -> CostUsageStoreBudgetResult
+        reportWindow: (sinceKey: String, untilKey: String)? = nil,
+        skipIdenticalContent: Bool = false) -> CostUsageStoreBudgetResult
     {
         store.syncSaveCodexCache(
             cache,
             calendar: calendar,
             requestedScanWindow: requestedScanWindow,
-            reportWindow: reportWindow)
+            reportWindow: reportWindow,
+            skipIdenticalContent: skipIdenticalContent)
     }
 }

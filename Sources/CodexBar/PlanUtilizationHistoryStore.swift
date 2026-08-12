@@ -282,6 +282,11 @@ struct PlanUtilizationHistoryStore: Sendable {
                     accountLabels: accountLabels,
                     sessionEquivalentWindowPairIdentities: buckets.sessionEquivalentWindowPairIdentities)
                 let data = try encoder.encode(payload)
+                if let existingData = try? Data(contentsOf: fileURL),
+                   existingData == data
+                {
+                    continue
+                }
                 try data.write(to: fileURL, options: Data.WritingOptions.atomic)
             }
         } catch {

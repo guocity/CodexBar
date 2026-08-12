@@ -260,7 +260,7 @@ struct MenuBarLayoutEditor: View {
             MenuBarLayoutPaletteGroup(
                 id: "money",
                 title: L("menu_bar_layout_group_money"),
-                tokens: [.costToday, .cost30d],
+                tokens: [.balance, .costToday, .cost30d],
                 includesLineBreak: false),
             MenuBarLayoutPaletteGroup(
                 id: "structure",
@@ -700,6 +700,7 @@ struct MenuBarLayoutPreview: View {
             weeklyPace: self.store.menuBarLayoutPaceText(provider: provider, window: weekly, now: now),
             automaticPace: self.store.menuBarLayoutPaceText(provider: provider, window: automatic, now: now),
             runsOut: runsOut,
+            balance: MenuBarLayoutBalanceResolver.balance(provider: provider, snapshot: snapshot),
             costToday: costToday.map {
                 UsageFormatter.currencyString($0, currencyCode: cost?.currencyCode ?? "USD")
             },
@@ -744,6 +745,8 @@ struct MenuBarLayoutPreview: View {
             weeklyPace: samplePace(weekly),
             automaticPace: samplePace(session),
             runsOut: L("menu_bar_layout_sample_runs_out"),
+            // Provider-specific by design: only OpenRouter previews the Balance palette token.
+            balance: provider == .openrouter ? "$12.34" : nil,
             costToday: "$1.25",
             cost30d: "$20.00")
     }
@@ -836,6 +839,7 @@ extension MenuBarLayoutToken {
         case .resetCountdown: L("menu_bar_layout_token_resets_in")
         case .resetAbsolute: L("menu_bar_layout_token_reset_at")
         case .runsOut: L("menu_bar_layout_token_runs_out")
+        case .balance: L("Balance")
         case .costToday: L("menu_bar_layout_token_cost_today")
         case .cost30d: L("menu_bar_layout_token_cost_30d")
         case .separatorDot: "·"
@@ -861,6 +865,7 @@ extension MenuBarLayoutToken {
         case .resetCountdown: "timer"
         case .resetAbsolute: "clock"
         case .runsOut: "hourglass.bottomhalf.filled"
+        case .balance: "creditcard"
         case .costToday: "dollarsign.circle"
         case .cost30d: "calendar.badge.clock"
         case .separatorDot: "smallcircle.filled.circle"

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Plan history: avoid atomically replacing byte-identical provider history files, reducing unnecessary disk writes (#2495). Thanks @guocity for the report!
+- OpenRouter: restore remaining credit balance in saved custom menu-bar layouts and preserve the legacy Automatic display during migration (#2870). Thanks @yuansaysay!
+- Claude: distinguish claude-swap account switching from ambient Claude Code sign-in in the menu without changing either action (#2874). Thanks @ynaamane!
+- Codex: avoid full SQLite cost-cache rewrites for unchanged scans while preserving retention, freshness, and concurrent saves (#2852). Thanks @Yuxin-Qiao!
+- Azure OpenAI: allow enough v1 completion budget for reasoning-capable deployment validation while keeping the probe bounded (#2867). Thanks @yilinxia!
+- Codex: preserve request-level pricing tiers while reconciling forked usage, preventing day aggregates from triggering long-context rates (#2858). Thanks @thomaschow19!
+- CLI: stop standalone version lookup from walking past the filesystem root and hanging with unbounded memory on affected macOS versions (#2856). Thanks @Manwholikespie!
+- Cost store: prevent launch-time executor-assumption crashes on macOS 15 by keeping synchronous SQLite cache bridges on their validated serial queue (#2857). Thanks @Manwholikespie!
+
 ## 0.49.4 — 2026-08-11
 
 ### Fixed
@@ -13,7 +25,9 @@
 ## 0.49.2 — 2026-08-10
 
 ### Fixed
+- Sync: collapse duplicate usage rows for the same provider account across Macs, with the current Mac's configured result taking precedence over synced copies.
 - Menu cards: show session quota as exhausted until the final reset of every binding weekly/monthly plan lane, while preserving session-specific details and independent purchased credits (#2840). Thanks @Yuxin-Qiao!
+- Menu cards: keep primary usage values and long localized reset timestamps readable by stacking the row only when both cannot fit (#2846). Thanks @Yuxin-Qiao!
 - Plugins: honor the “Usage bars fill” remaining/used setting in user-installed provider cards, keeping percentage labels and bar direction aligned (#2749). Thanks @RyloRiz!
 - Sub2API: localize and group menu-card quota labels and request, token, and cost totals into a compact usage summary (#2835). Thanks @weirdo-adam!
 - Codex: avoid repeatedly converting historical token snapshots during cost-cache refreshes, preventing sustained CPU usage on large session histories.

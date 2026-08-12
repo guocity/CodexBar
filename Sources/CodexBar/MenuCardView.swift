@@ -528,7 +528,6 @@ private struct MetricRow: View {
     let title: String
     let progressColor: Color
     @Environment(\.menuItemHighlighted) private var isHighlighted
-    @State private var isHoveringReset = false
 
     var body: some View {
         let presentation = self.metric.linePresentation(title: self.title)
@@ -542,27 +541,11 @@ private struct MetricRow: View {
                     .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                     .lineLimit(1)
             } else {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(presentation.titleText)
-                        .font(.body)
-                        .fontWeight(.medium)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                    Spacer(minLength: 8)
-                    if let resetText = presentation.resetText {
-                        let hoverText = self.metric.resetHelpText
-                        Text(self.isHoveringReset ? (hoverText ?? resetText) : resetText)
-                            .font(.footnote)
-                            .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.trailing)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .onHover { hovering in
-                                guard hoverText != nil else { return }
-                                self.isHoveringReset = hovering
-                            }
-                    }
-                }
+                MetricRowHeader(
+                    title: presentation.titleText,
+                    resetText: presentation.resetText,
+                    resetHelpText: self.metric.resetHelpText,
+                    isHighlighted: self.isHighlighted)
                 VStack(alignment: .leading, spacing: 3) {
                     UsageProgressBar(
                         percent: self.metric.percent,
@@ -599,6 +582,56 @@ private struct MetricRow: View {
         .padding(self.metric.cardStyle ? 10 : 0)
         .background(self.metric.cardStyle ? Color.secondary.opacity(self.isHighlighted ? 0.2 : 0.08) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: self.metric.cardStyle ? 10 : 0))
+    }
+}
+
+private struct MetricRowHeader: View {
+    let title: String
+    let resetText: String?
+    let resetHelpText: String?
+    let isHighlighted: Bool
+    @State private var isHoveringReset = false
+
+    var body: some View {
+        if let resetText {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    self.titleLabel
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    self.resetLabel(resetText)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .trailing, spacing: 2) {
+                    self.titleLabel
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    self.resetLabel(resetText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+        } else {
+            self.titleLabel
+        }
+    }
+
+    private var titleLabel: some View {
+        Text(self.title)
+            .font(.body)
+            .fontWeight(.medium)
+            .lineLimit(1)
+    }
+
+    private func resetLabel(_ resetText: String) -> some View {
+        Text(self.isHoveringReset ? (self.resetHelpText ?? resetText) : resetText)
+            .font(.footnote)
+            .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
+            .lineLimit(2)
+            .multilineTextAlignment(.trailing)
+            .onHover { hovering in
+                guard self.resetHelpText != nil else { return }
+                self.isHoveringReset = hovering
+            }
     }
 }
 

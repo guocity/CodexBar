@@ -27,6 +27,7 @@ struct MenuBarLayoutRendererTests {
             (.usageBar, "▮▮▯"),
             (.resetCountdown, "in 2h"),
             (.runsOut, "Runs out tomorrow"),
+            (.balance, "$12.34"),
             (.costToday, "$1.25"),
             (.cost30d, "$20.00"),
             (.separatorDot, "·"),
@@ -125,6 +126,7 @@ struct MenuBarLayoutRendererTests {
             weeklyPace: nil,
             automaticPace: nil,
             runsOut: nil,
+            balance: nil,
             costToday: nil,
             cost30d: nil)
         let layout = MenuBarLayout(lines: [[
@@ -142,13 +144,14 @@ struct MenuBarLayoutRendererTests {
             .resetCountdown,
             .resetAbsolute,
             .runsOut,
+            .balance,
             .costToday,
             .cost30d,
         ]])
 
         let output = renderer.render(layout: layout, data: missingData, icon: nil, options: self.options())
 
-        #expect(output.attributedTitle.string.count(where: { $0 == "–" }) == 16)
+        #expect(output.attributedTitle.string.count(where: { $0 == "–" }) == 17)
         #expect(output.accessibilityLabel.contains("unavailable"))
     }
 
@@ -192,6 +195,7 @@ struct MenuBarLayoutRendererTests {
             weeklyPace: nil,
             automaticPace: nil,
             runsOut: nil,
+            balance: nil,
             costToday: nil,
             cost30d: nil)
 
@@ -379,6 +383,7 @@ struct MenuBarLayoutRendererTests {
             weeklyPace: nil,
             automaticPace: nil,
             runsOut: nil,
+            balance: nil,
             costToday: nil,
             cost30d: nil)
 
@@ -451,6 +456,7 @@ struct MenuBarLayoutRendererTests {
             weeklyPace: "+11%",
             automaticPace: "0%",
             runsOut: "Runs out tomorrow",
+            balance: "$12.34",
             costToday: "$1.25",
             cost30d: "$20.00")
     }

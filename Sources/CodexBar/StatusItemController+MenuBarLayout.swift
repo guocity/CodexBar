@@ -81,6 +81,7 @@ extension StatusItemController {
                 window: windows.automatic,
                 now: now),
             runsOut: runsOut,
+            balance: MenuBarLayoutBalanceResolver.balance(provider: provider, snapshot: snapshot),
             costToday: costStrings.today,
             cost30d: costStrings.last30Days)
     }
