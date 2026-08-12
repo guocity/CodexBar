@@ -22,6 +22,7 @@ struct MenuBarLayoutRenderWindow: Hashable {
 }
 
 struct MenuBarLayoutRenderData: Hashable {
+    let provider: UsageProvider
     let iconKey: String
     let providerName: String?
     let accountLabel: String?
@@ -39,6 +40,7 @@ struct MenuBarLayoutRenderData: Hashable {
     let weeklyPace: String?
     let automaticPace: String?
     let runsOut: String?
+    let balance: String?
     let costToday: String?
     let cost30d: String?
 }
@@ -49,14 +51,35 @@ struct MenuBarLayoutRenderOptions: Hashable {
     let showUsed: Bool
     let appearanceName: String
     let isDebugApp: Bool
-    /// Minute-granularity clock. Countdown tokens refresh without invalidating cached titles every tick.
+    /// Exact display clock. The cache keys on the resulting reset strings, so animation ticks that keep
+    /// the same visible countdown still reuse the cached title.
     let now: Date
 }
 
 struct MenuBarLayoutRenderKey: Hashable {
     let layout: MenuBarLayout
     let data: MenuBarLayoutRenderData
-    let options: MenuBarLayoutRenderOptions
+    let size: MenuBarLayoutSize
+    let highContrast: Bool
+    let showUsed: Bool
+    let appearanceName: String
+    let isDebugApp: Bool
+    let resetText: MenuBarLayoutResetText
+}
+
+struct MenuBarLayoutResetText: Hashable {
+    let countdown: String?
+    let absolute: String?
+
+    init(window: MenuBarLayoutRenderWindow?, now: Date) {
+        if let resetsAt = window?.resetsAt {
+            self.countdown = UsageFormatter.resetCountdownDescription(from: resetsAt, now: now)
+            self.absolute = UsageFormatter.resetDescription(from: resetsAt, now: now)
+        } else {
+            self.countdown = window?.resetDescription
+            self.absolute = window?.resetDescription
+        }
+    }
 }
 
 struct MenuBarLayoutRenderedTitle {
@@ -123,7 +146,16 @@ final class MenuBarLayoutRenderer {
         options: MenuBarLayoutRenderOptions)
         -> MenuBarLayoutRenderedTitle
     {
-        let key = MenuBarLayoutRenderKey(layout: layout, data: data, options: options)
+        let resetText = MenuBarLayoutResetText(window: data.automatic, now: options.now)
+        let key = MenuBarLayoutRenderKey(
+            layout: layout,
+            data: data,
+            size: options.size,
+            highContrast: options.highContrast,
+            showUsed: options.showUsed,
+            appearanceName: options.appearanceName,
+            isDebugApp: options.isDebugApp,
+            resetText: resetText)
         return self.cache.value(for: key) {
             Self.renderUncached(layout: layout, data: data, icon: icon, options: options)
         }
@@ -248,8 +280,9 @@ final class MenuBarLayoutRenderer {
                 prefix = Self.sessionPrefix(rateWindow)
                 accessibilityPrefix = L("Session")
             case .weekly:
-                prefix = "W"
-                accessibilityPrefix = L("Weekly")
+                let secondaryLabel = Self.secondaryLabel(data: data)
+                prefix = secondaryLabel.flatMap(\.first).map { String($0).uppercased() } ?? "W"
+                accessibilityPrefix = secondaryLabel ?? L("Weekly")
             case .scopedWeekly:
                 prefix = data.scopedWeeklyTitle.map { String($0.prefix(1)).uppercased() } ?? "F"
                 accessibilityPrefix = data.scopedWeeklyTitle ?? L("Scoped weekly")
@@ -263,10 +296,11 @@ final class MenuBarLayoutRenderer {
                 : L("%@ %@", accessibilityPrefix, value)
             return self.textToken(display, accessibilityText: accessibility, attributes: style.attributes)
         case let .pace(window):
+            let accessibilityPrefix = Self.paceAccessibilityPrefix(window, data: data)
             return self.optionalTextToken(
                 Self.pace(window, data: data),
-                unavailableLabel: L("%@ unavailable", Self.paceAccessibilityPrefix(window)),
-                accessibilityPrefix: Self.paceAccessibilityPrefix(window),
+                unavailableLabel: L("%@ unavailable", accessibilityPrefix),
+                accessibilityPrefix: accessibilityPrefix,
                 attributes: style.attributes)
         case .usageBar:
             guard let window = data.automatic else {
@@ -298,6 +332,11 @@ final class MenuBarLayoutRenderer {
             return self.optionalTextToken(
                 data.runsOut,
                 unavailableLabel: L("Run-out estimate unavailable"),
+                attributes: style.attributes)
+        case .balance:
+            return self.optionalTextToken(
+                data.balance,
+                unavailableLabel: L("%@ unavailable", L("Balance")),
                 attributes: style.attributes)
         case .costToday:
             return self.optionalTextToken(
@@ -394,13 +433,26 @@ final class MenuBarLayoutRenderer {
         }
     }
 
-    private static func paceAccessibilityPrefix(_ percentWindow: PercentWindow) -> String {
+    private static func paceAccessibilityPrefix(
+        _ percentWindow: PercentWindow,
+        data: MenuBarLayoutRenderData)
+        -> String
+    {
         switch percentWindow {
         case .session: L("menu_bar_layout_token_session_pace")
-        case .weekly: L("menu_bar_layout_token_weekly_pace")
+        case .weekly:
+            if let secondaryLabel = secondaryLabel(data: data) {
+                L("%@ %@", secondaryLabel, L("display_mode_pace").lowercased())
+            } else {
+                L("menu_bar_layout_token_weekly_pace")
+            }
         case .scopedWeekly: L("menu_bar_layout_token_weekly_pace")
         case .automatic: L("menu_bar_layout_token_auto_pace")
         }
+    }
+
+    private static func secondaryLabel(data: MenuBarLayoutRenderData) -> String? {
+        ProviderDescriptorRegistry.descriptor(for: data.provider).presentation.menuBarLayoutSecondaryLabel.map(L)
     }
 
     private static func sessionPrefix(_ window: MenuBarLayoutRenderWindow?) -> String {

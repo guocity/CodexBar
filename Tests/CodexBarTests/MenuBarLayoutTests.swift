@@ -27,6 +27,7 @@ struct MenuBarLayoutTests {
                 .resetCountdown,
                 .resetAbsolute,
                 .runsOut,
+                .balance,
                 .costToday,
                 .cost30d,
                 .separatorDot,
@@ -70,6 +71,22 @@ struct MenuBarLayoutTests {
 
         #expect(windows.session == secondary)
         #expect(windows.weekly == primary)
+    }
+
+    @Test
+    func `semantic windows map Notion rolling and monthly lanes`() {
+        let rolling = RateWindow(usedPercent: 25, windowMinutes: 360, resetsAt: nil, resetDescription: nil)
+        let monthly = RateWindow(
+            usedPercent: 50,
+            windowMinutes: ProviderPaceCapability.monthlyWindowSentinelMinutes,
+            resetsAt: nil,
+            resetDescription: nil)
+        let windows = MenuBarLayoutSemanticWindowResolver.windows(
+            provider: .notion,
+            snapshot: UsageSnapshot(primary: rolling, secondary: monthly, updatedAt: Date()))
+
+        #expect(windows.session == rolling)
+        #expect(windows.weekly == monthly)
     }
 
     @Test
@@ -228,6 +245,47 @@ struct MenuBarLayoutTests {
             metricPreference: .secondary,
             resetTimeDisplayStyle: .countdown,
             provider: .kimi) == MenuBarLayout(lines: [[.icon, .percent(window: .session)]]))
+    }
+
+    @Test
+    func `migration preserves OpenRouter automatic balance for every display mode`() {
+        let expected = MenuBarLayout(lines: [[.icon, .balance]])
+
+        for displayMode in MenuBarDisplayMode.allCases {
+            #expect(MenuBarLayout.migrated(
+                iconStyle: .iconAndPercent,
+                displayMode: displayMode,
+                metricPreference: .automatic,
+                resetTimeDisplayStyle: .countdown,
+                provider: .openrouter) == expected)
+        }
+
+        #expect(MenuBarLayout.migrated(
+            iconStyle: .iconAndPercent,
+            displayMode: .percent,
+            metricPreference: .primary,
+            resetTimeDisplayStyle: .countdown,
+            provider: .openrouter) == MenuBarLayout(lines: [[.icon, .percent(window: .session)]]))
+    }
+
+    @Test
+    @MainActor
+    func `editing OpenRouter legacy automatic layout persists its balance`() {
+        let settings = testSettingsStore(suiteName: "MenuBarLayoutTests-openrouter-editor-migration")
+        settings.setMenuBarMetricPreference(.automatic, for: .openrouter)
+        let migrated = settings.menuBarLayout(for: .openrouter)
+
+        #expect(!settings.hasStoredMenuBarLayout)
+        #expect(migrated == MenuBarLayout(lines: [[.icon, .balance]]))
+
+        MenuBarLayoutEditorPersistence.setGap(
+            .tight,
+            activating: migrated,
+            for: .openrouter,
+            settings: settings)
+
+        #expect(settings.menuBarLayoutOverrides[.openrouter] == migrated)
+        #expect(settings.menuBarLayout(for: .openrouter) == migrated)
     }
 
     @Test

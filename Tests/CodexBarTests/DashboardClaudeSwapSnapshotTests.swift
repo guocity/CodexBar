@@ -21,7 +21,9 @@ struct DashboardClaudeSwapSnapshotTests {
         #expect(rows.compactMap { $0["id"] as? String } == [
             "claude-swap:2", "claude-swap:1", "claude-swap:3",
         ])
-        #expect(rows.compactMap { $0["label"] as? String } == ["Account 2", "Account 1", "Account 3"])
+        #expect(rows.compactMap { $0["label"] as? String } == [
+            "redacted@personal.example", "redacted@example.com", "redacted@example.net",
+        ])
         #expect(rows.compactMap { $0["active"] as? Bool } == [true, false, false])
 
         let active = try #require(rows.first)
@@ -55,7 +57,7 @@ struct DashboardClaudeSwapSnapshotTests {
 
     @Test
     func `dashboard identity flag decodes redacted full and rejects others`() {
-        #expect(CodexBarCLI.decodeDashboardIdentityMode(from: self.parsedValues(identity: nil)) == .redacted)
+        #expect(CodexBarCLI.decodeDashboardIdentityMode(from: self.parsedValues(identity: nil)) == .full)
         #expect(CodexBarCLI.decodeDashboardIdentityMode(from: self.parsedValues(identity: "redacted")) == .redacted)
         #expect(CodexBarCLI.decodeDashboardIdentityMode(from: self.parsedValues(identity: "full")) == .full)
         #expect(CodexBarCLI.decodeDashboardIdentityMode(from: self.parsedValues(identity: "FULL")) == .full)
@@ -67,6 +69,23 @@ struct DashboardClaudeSwapSnapshotTests {
         ParsedValues(
             positional: [],
             options: identity.map { ["identity": [$0]] } ?? [:],
+            flags: [])
+    }
+
+    @Test
+    func `dashboard output flag decodes stdout default file paths and rejects empty`() {
+        #expect(CodexBarCLI.decodeDashboardOutputDestination(from: self.parsedValues(output: nil)) == .stdout)
+        #expect(CodexBarCLI.decodeDashboardOutputDestination(from: self.parsedValues(output: "/tmp/snapshot.json"))
+            == .file("/tmp/snapshot.json"))
+        #expect(CodexBarCLI.decodeDashboardOutputDestination(from: self.parsedValues(output: "relative.json"))
+            == .file("relative.json"))
+        #expect(CodexBarCLI.decodeDashboardOutputDestination(from: self.parsedValues(output: "")) == nil)
+    }
+
+    private func parsedValues(output: String?) -> ParsedValues {
+        ParsedValues(
+            positional: [],
+            options: output.map { ["output": [$0]] } ?? [:],
             flags: [])
     }
 
@@ -98,7 +117,8 @@ struct DashboardClaudeSwapSnapshotTests {
         #expect(failed["error"] as? String ==
             "Token expired. Switch to this account in claude-swap to refresh it.")
         #expect((failed["windows"] as? [Any])?.isEmpty == true)
-        #expect(failed["identity"] is NSNull)
+        #expect(failed["label"] as? String == "redacted@example.com")
+        #expect((failed["identity"] as? [String: Any])?["accountEmail"] as? String == "redacted@example.com")
         #expect(failed["pace"] is NSNull)
         #expect(failed["updatedAt"] is NSNull)
         #expect(claude["error"] is NSNull)
