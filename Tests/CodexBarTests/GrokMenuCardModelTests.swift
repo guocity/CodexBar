@@ -90,7 +90,7 @@ struct GrokMenuCardModelTests {
                 resetDescription: nil))
 
         let metric = try #require(model.metrics.first { $0.id == "primary" })
-        #expect(metric.title == "Credits")
+        #expect(metric.title == "Weekly")
         #expect(metric.detailLeftText == nil)
         #expect(metric.detailRightText == nil)
         #expect(metric.pacePercent == nil)

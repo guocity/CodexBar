@@ -654,18 +654,26 @@ extension UsageStore {
             appendWindow(snapshot.secondary, name: .weekly)
             appendWindow(snapshot.tertiary, name: .monthly)
         case .grok:
-            switch GrokProviderDescriptor.primaryLabel(window: snapshot.primary, now: capturedAt) {
-            case "Weekly":
-                // The grok.com billing payload reports usage and reset time, but not its window
-                // duration. Preserve Peter's provider mapping and supply the cadence only at the
-                // history boundary so the otherwise-valid sample reaches grok.json.
+            let primaryLabel = GrokProviderDescriptor.primaryLabel(window: snapshot.primary, now: capturedAt)
+            if primaryLabel == "Weekly" || snapshot.primary?.windowMinutes == Self.weeklyWindowMinutes {
                 appendWindow(
                     snapshot.primary,
                     name: .weekly,
-                    windowMinutesOverride: Self.weeklyWindowMinutes)
-            case "Monthly":
-                appendWindow(snapshot.primary, name: .monthly)
-            default:
+                    windowMinutesOverride: snapshot.primary?.windowMinutes ?? Self.weeklyWindowMinutes)
+            } else if primaryLabel == "Monthly" || snapshot.primary?.windowMinutes == 30 * 24 * 60 {
+                appendWindow(
+                    snapshot.primary,
+                    name: .monthly,
+                    windowMinutesOverride: snapshot.primary?.windowMinutes ?? (30 * 24 * 60))
+            } else if snapshot.primary != nil {
+                // Default fallback: when Grok web billing or CLI returns usage with a reset boundary,
+                // ensure the primary window sample is always recorded into history even if label
+                // classification is indeterminate.
+                appendWindow(
+                    snapshot.primary,
+                    name: .weekly,
+                    windowMinutesOverride: snapshot.primary?.windowMinutes ?? Self.weeklyWindowMinutes)
+            } else {
                 appendGenericSessionEquivalentWindows()
             }
         case .mimo, .stepfun:

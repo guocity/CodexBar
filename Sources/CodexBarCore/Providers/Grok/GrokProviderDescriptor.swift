@@ -19,8 +19,8 @@ public enum GrokProviderDescriptor {
             metadata: ProviderMetadata(
                 id: .grok,
                 displayName: "Grok",
-                sessionLabel: "Credits",
-                weeklyLabel: "On-demand",
+                sessionLabel: "Weekly",
+                weeklyLabel: "Weekly",
                 opusLabel: nil,
                 supportsOpus: false,
                 supportsCredits: false,

@@ -300,6 +300,8 @@ if [[ -n "${RELEASE_ARCHES}" ]]; then
 fi
 PACKAGE_ENV=(
   ARCHES="${ARCHES_VALUE}"
+  CODEXBAR_SKIP_WIDGET=1
+  CODEXBAR_ONLY_APP=1
 )
 if [[ "${DEBUG_LLDB}" == "1" ]]; then
   run_step "package app" env CODEXBAR_ALLOW_LLDB=1 "${PACKAGE_ENV[@]}" "${ROOT_DIR}/Scripts/package_app.sh" debug

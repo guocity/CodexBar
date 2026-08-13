@@ -148,7 +148,9 @@ KEYBOARD_SHORTCUTS_UTIL="$ROOT/.build/checkouts/KeyboardShortcuts/Sources/Keyboa
 
 build_swift_products() {
   local arch=$1
-  if [[ "${CODEXBAR_SKIP_WIDGET:-0}" == "1" || "${SKIP_WIDGET:-0}" == "1" ]]; then
+  if [[ "${CODEXBAR_ONLY_APP:-0}" == "1" ]]; then
+    swift build -c "$CONF" --arch "$arch" --product CodexBar
+  elif [[ "${CODEXBAR_SKIP_WIDGET:-0}" == "1" || "${SKIP_WIDGET:-0}" == "1" ]]; then
     swift build -c "$CONF" --arch "$arch" --product CodexBar
     swift build -c "$CONF" --arch "$arch" --product CodexBarCLI
     swift build -c "$CONF" --arch "$arch" --product CodexBarClaudeWatchdog
@@ -197,7 +199,11 @@ stage_build_products() {
 
   stage_dir="$PRODUCT_STAGE_ROOT/$arch"
   mkdir -p "$stage_dir"
-  for name in CodexBar CodexBarCLI CodexBarClaudeWatchdog; do
+  local products=(CodexBar)
+  if [[ "${CODEXBAR_ONLY_APP:-0}" != "1" ]]; then
+    products+=(CodexBarCLI CodexBarClaudeWatchdog)
+  fi
+  for name in "${products[@]}"; do
     if ! product=$(codexbar_require_product_file "$bin_dir" "$name" "$arch"); then
       return 1
     fi
@@ -267,9 +273,11 @@ ICLOUD_ENTITLEMENT_KEYS=""
 # Fork builds sign with a different team, so upstream's profile cannot authorize them:
 # set CODEXBAR_EMBED_PROVISIONING_PROFILE=0 to build without the profile and without the
 # iCloud entitlements it covers (iCloud sync is then unavailable, as in fork 0.46.0).
-if [[ "${CODEXBAR_EMBED_PROVISIONING_PROFILE:-1}" == "1" &&
-      "$SIGNING_MODE" == "identity" && "$LOWER_CONF" == "release" &&
-      "$BUNDLE_ID" == "com.steipete.codexbar" ]]; then
+if [[ "${CODEXBAR_EMBED_PROVISIONING_PROFILE:-0}" == "1" ||
+      ( "${CODEXBAR_EMBED_PROVISIONING_PROFILE:-1}" == "1" &&
+        "$SIGNING_MODE" == "identity" && "$LOWER_CONF" == "release" &&
+        "$BUNDLE_ID" == "com.steipete.codexbar" && -f "$PROVISIONING_PROFILE_SOURCE" &&
+        "$APP_TEAM_ID" == "$(security cms -D -i "$PROVISIONING_PROFILE_SOURCE" 2>/dev/null | grep -A1 TeamIdentifier | grep string | sed -E 's/.*<string>(.*)<\/string>.*/\1/')" ) ]]; then
   if [[ ! -f "$PROVISIONING_PROFILE_SOURCE" ]]; then
     echo "ERROR: Missing $PROVISIONING_PROFILE_SOURCE (required for iCloud entitlements in release builds)" >&2
     exit 1
