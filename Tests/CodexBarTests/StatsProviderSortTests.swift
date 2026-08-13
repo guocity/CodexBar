@@ -1,4 +1,5 @@
 import AppKit
+import CodexBarCore
 import Foundation
 import Testing
 @testable import CodexBar
@@ -363,5 +364,40 @@ struct StatsProviderSortTests {
         #expect(entries.count == 2)
         #expect(entries.last?.usedPercent == 2)
         #expect(entries.last?.resetsAt == upcomingReset)
+    }
+
+    @Test
+    func `grok web billing snapshot matches recorded weekly history with multiple entries`() throws {
+        let now = self.now
+        let resetDate = now.addingTimeInterval(5 * 86400)
+        let entries = [
+            PlanUtilizationHistoryEntry(
+                capturedAt: now.addingTimeInterval(-7200),
+                usedPercent: 12,
+                resetsAt: resetDate),
+            PlanUtilizationHistoryEntry(
+                capturedAt: now.addingTimeInterval(-3600),
+                usedPercent: 12,
+                resetsAt: resetDate),
+        ]
+        let history = PlanUtilizationSeriesHistory(name: .weekly, windowMinutes: 10080, entries: entries)
+
+        // Web billing returns snapshot.primary with windowMinutes == nil
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 12, windowMinutes: nil, resetsAt: resetDate, resetDescription: nil),
+            secondary: nil,
+            updatedAt: now)
+        let metadata = try #require(ProviderDescriptorRegistry.metadata[.grok])
+
+        let windows = StatsUsage._test_windows(
+            snapshot: snapshot,
+            histories: [history],
+            provider: .grok,
+            metadata: metadata)
+
+        #expect(windows.count == 1)
+        #expect(windows.first?.entries.count == 3)
+        #expect(windows.first?.windowMinutes == 10080)
+        #expect(windows.first?.displayName == "Weekly")
     }
 }

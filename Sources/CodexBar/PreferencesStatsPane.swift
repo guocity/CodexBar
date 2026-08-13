@@ -363,12 +363,25 @@ struct StatsUsage {
 
         var result: [SnapshotWindow] = []
         if let primary = snapshot.primary, !primary.isSyntheticPlaceholder {
+            let primaryWindowMinutes = if let mins = primary.windowMinutes, mins > 0 {
+                mins
+            } else if provider == .grok {
+                GrokProviderDescriptor.primaryLabel(window: primary) == "Monthly"
+                    ? 30 * 24 * 60
+                    : UsageStore.weeklyWindowMinutes
+            } else {
+                defaultWindowMinutes
+            }
+            let primaryTitle = provider == .grok
+                ? (GrokProviderDescriptor.primaryLabel(window: primary) ?? L(metadata.sessionLabel))
+                : L(metadata.sessionLabel)
+
             result.append(Self.snapshotWindow(
                 from: primary,
                 id: "primary",
-                title: L(metadata.sessionLabel),
-                historyName: Self.historyName(.session, windowMinutes: primary.windowMinutes, provider: provider),
-                defaultWindowMinutes: defaultWindowMinutes))
+                title: primaryTitle,
+                historyName: Self.historyName(.session, windowMinutes: primaryWindowMinutes, provider: provider),
+                defaultWindowMinutes: primaryWindowMinutes))
         }
         if let secondary = snapshot.secondary {
             result.append(Self.snapshotWindow(
@@ -474,6 +487,7 @@ struct StatsUsage {
         switch windowMinutes {
         case 295...305: PlanUtilizationSeriesName.session.rawValue
         case 10070...10090: PlanUtilizationSeriesName.weekly.rawValue
+        case 40000...45000: PlanUtilizationSeriesName.monthly.rawValue
         default: "window-\(windowMinutes)m"
         }
     }
@@ -490,6 +504,15 @@ struct StatsUsage {
 }
 
 extension StatsUsage {
+    static func _test_windows(
+        snapshot: UsageSnapshot?,
+        histories: [PlanUtilizationSeriesHistory],
+        provider: UsageProvider,
+        metadata: ProviderMetadata) -> [StatsWindow]
+    {
+        self.windows(snapshot: snapshot, histories: histories, provider: provider, metadata: metadata)
+    }
+
     /// Test seam: Antigravity quota pools must map onto the same series slugs the recorder uses.
     static func antigravityHistoryNameForTests(title: String, id: String) -> String {
         self.antigravityHistoryName(for: NamedRateWindow(
