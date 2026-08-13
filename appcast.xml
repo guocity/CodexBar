@@ -7,28 +7,12 @@
     <language>en</language>
     <item>
       <title>CodexBar 0.49.3</title>
-      <pubDate>Wed, 12 Aug 2026 18:12:32 +0000</pubDate>
+      <pubDate>Thu, 13 Aug 2026 02:37:05 +0000</pubDate>
       <sparkle:version>117</sparkle:version>
       <sparkle:shortVersionString>0.49.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[
-<h3>Fixed</h3>
-<ul>
-<li>CLI: load bundled provider-plugin resources when <code>codexbar</code> is installed as a symlink to the packaged helper or standalone executable (#2889). Thanks @djbclark for the report!</li>
-<li>Menu bar layout: restore dragging placed chips to reorder or remove them while preserving click and keyboard selection (#2582). Thanks @ikkira!</li>
-<li>Plan history: avoid atomically replacing byte-identical provider history files, reducing unnecessary disk writes (#2495). Thanks @guocity for the report!</li>
-<li>OpenRouter: restore remaining credit balance in saved custom menu-bar layouts and preserve the legacy Automatic display during migration (#2870). Thanks @yuansaysay!</li>
-<li>Claude: distinguish claude-swap account switching from ambient Claude Code sign-in in the menu without changing either action (#2874). Thanks @ynaamane!</li>
-<li>Codex: avoid full SQLite cost-cache rewrites for unchanged scans while preserving retention, freshness, and concurrent saves (#2852). Thanks @Yuxin-Qiao!</li>
-<li>Azure OpenAI: allow enough v1 completion budget for reasoning-capable deployment validation while keeping the probe bounded (#2867). Thanks @yilinxia!</li>
-<li>Codex: preserve request-level pricing tiers while reconciling forked usage, preventing day aggregates from triggering long-context rates (#2858). Thanks @thomaschow19!</li>
-<li>CLI: stop standalone version lookup from walking past the filesystem root and hanging with unbounded memory on affected macOS versions (#2856). Thanks @Manwholikespie!</li>
-<li>Cost store: prevent launch-time executor-assumption crashes on macOS 15 by keeping synchronous SQLite cache bridges on their validated serial queue (#2857). Thanks @Manwholikespie!</li>
-<li>Codex: reduce idle disk activity by limiting automatic local cost-history scans to four per day; manual refresh remains immediate.</li>
-<li>Codex: reduce disk activity during cost-history refreshes by reusing unchanged cache data while detecting concurrent app and CLI updates.</li>
-</ul>
-      ]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.49.3/CodexBar-macos-arm64-0.49.3.dmg" sparkle:edSignature="R3Ui1enmAJIdY1HQ5XztrpEH2skntFEX0IQW6ZVfMTTgHRLufl3ZYDhI3oINJViBpz3EOzH2lLF6ldeR4/FwAw==" length="30761228" type="application/octet-stream" />
+      <description><![CDATA[<h3>Fixed</h3><ul><li>Reduced disk activity during Codex cost-history refreshes.</li></ul>]]></description>
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.49.3/CodexBar-macos-arm64-0.49.3.dmg" sparkle:edSignature="DSa+WG6DQm5U0OFQ2hFiOZhz3lsFcJL4KJEDS1GC9CSQgAdGjPhlmLzPrBP14AZFqkiVDEvrsdnNblVGASm8DQ==" length="30901323" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
