@@ -24,9 +24,13 @@ struct ProviderStorageFootprintTests {
     }
 
     @Test
-    func `global low power mode clamps automatic storage scans to thirty minutes`() {
-        #expect(UsageStore.automaticStorageRefreshInterval(lowPowerModeEnabled: false) == 5 * 60)
-        #expect(UsageStore.automaticStorageRefreshInterval(lowPowerModeEnabled: true) == 30 * 60)
+    func `automatic storage scans stay on the sparse idle floor in both power modes`() {
+        // The recursive walk stats every file under each provider's data tree, so automatic passes
+        // stay rare. The low-power clamp is well below that floor and must not shorten it.
+        #expect(UsageStore.automaticStorageRefreshInterval(lowPowerModeEnabled: false) == 6 * 60 * 60)
+        #expect(UsageStore.automaticStorageRefreshInterval(lowPowerModeEnabled: true) == 6 * 60 * 60)
+        #expect(UsageStore.minimumAutomaticStorageRefreshInterval > BackgroundWorkPowerPolicy
+            .lowPowerMinimumInterval)
     }
 
     @Test
@@ -392,7 +396,7 @@ struct ProviderStorageFootprintTests {
         #expect(store.storageFootprint(for: .codex)?.totalBytes == 32)
 
         // A second scan over identical on-disk data must not re-assign the observable property.
-        // Storage scans run on every menu open and every ~5 min; an unconditional re-publish wakes
+        // Storage scans run on menu opens and refresh ticks; an unconditional re-publish wakes
         // the controller's `menuObservationToken` -> `invalidateMenus` path for no value change.
         let didRepublish = ObservationFlag()
         withObservationTracking {
@@ -538,6 +542,59 @@ struct ProviderStorageFootprintTests {
         }
 
         #expect(store.storageFootprint(for: .codex)?.totalBytes == 32)
+    }
+
+    @Test
+    @MainActor
+    func `automatic storage refresh reuses the last walk until the idle floor elapses`() async throws {
+        let home = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let codexHome = home.appendingPathComponent(".codex", isDirectory: true)
+        let sessions = codexHome.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 32).write(to: sessions.appendingPathComponent("session.jsonl"))
+
+        let suite = "ProviderStorageFootprintTests-idle-floor-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        if let codexMetadata = ProviderDefaults.metadata[.codex] {
+            settings.setProviderEnabled(provider: .codex, metadata: codexMetadata, enabled: true)
+        }
+        let store = UsageStore(
+            fetcher: UsageFetcher(),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            environmentBase: ["CODEX_HOME": codexHome.path])
+        settings.providerStorageFootprintsEnabled = true
+        store.managedCodexAccountsForStorageOverride = []
+
+        await Self.awaitScheduledStorageRefresh(store, force: false)
+        #expect(store.storageFootprint(for: .codex)?.totalBytes == 32)
+
+        // Growing the tree must not pull an automatic pass forward: the refresh tick and every menu
+        // open route here, and each pass stats the provider's whole data tree.
+        try Data(repeating: 2, count: 64).write(to: sessions.appendingPathComponent("second.jsonl"))
+        await Self.awaitScheduledStorageRefresh(store, force: false)
+        #expect(store.storageFootprint(for: .codex)?.totalBytes == 32)
+
+        // An explicit user refresh still rescans immediately.
+        await Self.awaitScheduledStorageRefresh(store, force: true)
+        #expect(store.storageFootprint(for: .codex)?.totalBytes == 96)
+    }
+
+    @MainActor
+    private static func awaitScheduledStorageRefresh(_ store: UsageStore, force: Bool) async {
+        store.scheduleStorageFootprintRefresh(for: [.codex], force: force)
+        for _ in 0..<200 {
+            guard store.isStorageRefreshInFlight else { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     private static func managedCodexAccount(homePath: String) -> ManagedCodexAccount {

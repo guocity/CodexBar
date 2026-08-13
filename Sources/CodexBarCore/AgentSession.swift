@@ -676,6 +676,59 @@ private enum AgentSessionNameFormatter {
     }
 }
 
+/// Process-wide memo for parsed rollout `session_meta` headers, keyed by the file's identity rather
+/// than its path so a replaced file at a reused path re-parses. Entries never need invalidating on
+/// append: the memoized first line is fixed for the life of that file.
+final class CodexRolloutMetadataMemo: @unchecked Sendable {
+    struct Identity: Hashable {
+        let deviceID: UInt64
+        let inode: UInt64
+    }
+
+    static let shared = CodexRolloutMetadataMemo()
+
+    /// Bounds memory on machines with very large session histories. The scan reads the newest
+    /// rollouts first and is itself capped by `maxCodexRolloutCount`, so evicting the oldest
+    /// entries costs at most a re-parse of a file that has aged out of the scan window anyway.
+    private let capacity = 1024
+
+    private let lock = NSLock()
+    private var generation: UInt64 = 0
+    private var entries: [Identity: (metadata: CodexRolloutMetadata, generation: UInt64)] = [:]
+
+    static func identity(of url: URL) -> Identity? {
+        var info = stat()
+        guard url.path.withCString({ fstatat(AT_FDCWD, $0, &info, 0) }) == 0 else { return nil }
+        guard info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else { return nil }
+        return Identity(deviceID: UInt64(bitPattern: Int64(info.st_dev)), inode: UInt64(info.st_ino))
+    }
+
+    func metadata(forIdentity identity: Identity) -> CodexRolloutMetadata? {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.entries[identity]?.metadata
+    }
+
+    func store(_ metadata: CodexRolloutMetadata, forIdentity identity: Identity) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.generation &+= 1
+        self.entries[identity] = (metadata, self.generation)
+        if self.entries.count > self.capacity,
+           let oldest = self.entries.min(by: { $0.value.generation < $1.value.generation })?.key
+        {
+            self.entries.removeValue(forKey: oldest)
+        }
+    }
+
+    func removeAllForTesting() {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.entries.removeAll()
+        self.generation = 0
+    }
+}
+
 public enum CodexRolloutFirstLineParser {
     public static func parse(_ line: String) -> CodexRolloutMetadata? {
         guard let data = line.data(using: .utf8),
@@ -697,19 +750,36 @@ public enum CodexRolloutFirstLineParser {
     }
 
     public static func read(from url: URL) -> CodexRolloutMetadata? {
+        // A rollout's `session_meta` first line is written once at session start and never rewritten;
+        // later turns only append. It is also large — tens of kilobytes, mostly `base_instructions`
+        // and `dynamic_tools` this parser discards. The session scan re-reads every recent rollout
+        // every 30s, so parsing it once per file keeps that loop off the disk entirely.
+        let identity = CodexRolloutMetadataMemo.identity(of: url)
+        if let identity, let cached = CodexRolloutMetadataMemo.shared.metadata(forIdentity: identity) {
+            return cached
+        }
+
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         var data = Data()
+        var foundNewline = false
         while data.count < 256 * 1024 {
             guard let chunk = try? handle.read(upToCount: 4096), !chunk.isEmpty else { break }
             if let newline = chunk.firstIndex(of: 0x0A) {
                 data.append(chunk.prefix(upTo: newline))
+                foundNewline = true
                 break
             }
             data.append(chunk)
         }
         guard let line = String(data: data, encoding: .utf8) else { return nil }
-        return self.parse(line)
+        guard let metadata = self.parse(line) else { return nil }
+        // A line with no terminator is still being written, so its parse can change. Only a complete
+        // first line is immutable enough to memoize.
+        if foundNewline, let identity {
+            CodexRolloutMetadataMemo.shared.store(metadata, forIdentity: identity)
+        }
+        return metadata
     }
 
     public static func makeSession(

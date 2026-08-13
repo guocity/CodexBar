@@ -9,10 +9,19 @@ extension UsageStore {
         let signature: String
     }
 
+    /// Idle floor for the recursive provider-storage walk. Every automatic pass enumerates each
+    /// enabled provider's whole data tree (`~/.codex` sessions and archived sessions, `~/.claude`
+    /// projects, `~/.gemini`, Cursor caches) and stats every entry. On active machines those trees
+    /// hold tens of thousands of files, so a five-minute cadence re-walked them ~288 times a day and
+    /// amplified into gigabytes of pure metadata reads — with no writes to show for it. The reported
+    /// number is a slow-moving byte total, so keep automatic passes sparse; explicit user refreshes
+    /// pass `force` and still rescan immediately.
+    nonisolated static let minimumAutomaticStorageRefreshInterval: TimeInterval = 6 * 60 * 60
+
     nonisolated static func automaticStorageRefreshInterval(lowPowerModeEnabled: Bool) -> TimeInterval {
         BackgroundWorkPowerPolicy.automaticInterval(
-            5 * 60,
-            lowPowerModeEnabled: lowPowerModeEnabled) ?? 5 * 60
+            self.minimumAutomaticStorageRefreshInterval,
+            lowPowerModeEnabled: lowPowerModeEnabled) ?? self.minimumAutomaticStorageRefreshInterval
     }
 
     var isStorageRefreshInFlight: Bool {

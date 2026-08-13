@@ -7,6 +7,8 @@
 - Currency: Czech koruna (CZK) in the preferred-currency picker (#2886). Thanks @vAhyThe!
 
 ### Fixed
+- Storage footprints: stop re-walking every provider's whole data tree on each refresh tick and menu open. The recursive scan stats tens of thousands of files under `~/.codex`, `~/.claude`, and `~/.gemini`, and its five-minute floor matched the default refresh cadence, so it repeated ~288 times a day for a slow-moving byte total. Automatic passes now sit on a six-hour floor; explicit refreshes still rescan immediately.
+- Agent sessions: parse each Codex rollout's `session_meta` header once per file instead of on every 30-second session scan. The header is written once and never rewritten, but is tens of kilobytes of `base_instructions` and `dynamic_tools` the scanner discards, so re-reading every recent rollout was pure repeated disk read.
 - Codex: confirm a legitimate server-side early weekly reset when the account has zero available reset credits, instead of preserving a stale weekly percentage forever (#2790, #2897). Thanks @kcharlan for the report and @luantu for the fix!
 - Ollama: keep recovering via browser cookies when a cached session cookie expires during a background refresh, instead of spuriously demanding re-sign-in (#2072, #2814). Thanks @fishcharlie for the report and @axisrow for the fix!
 - Claude: gate the background CLI usage fetch on confirmed-absent OAuth credentials so transient credential states no longer trigger unwanted CLI launches (#2813). Thanks @axisrow!

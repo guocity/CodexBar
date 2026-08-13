@@ -62,6 +62,82 @@ struct CodexSessionRolloutTests {
     }
 
     @Test
+    func `rollout header is parsed once per file and re-parsed when the file is replaced`() throws {
+        CodexRolloutMetadataMemo.shared.removeAllForTesting()
+        defer { CodexRolloutMetadataMemo.shared.removeAllForTesting() }
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("codexbar-rollout-memo-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let url = root.appendingPathComponent("rollout-2026-01-01T00-00-00-first.jsonl")
+        func header(sessionID: String, cwd: String) -> String {
+            """
+            {"type":"session_meta","payload":{"session_id":"\(sessionID)","cwd":"\(cwd)"}}
+            """
+        }
+        try (header(sessionID: "session-a", cwd: "/repo/alpha") + "\n").write(
+            to: url,
+            atomically: true,
+            encoding: .utf8)
+
+        let first = try #require(CodexRolloutFirstLineParser.read(from: url))
+        #expect(first.sessionID == "session-a")
+
+        // Appending a turn is the 30s-scan steady state, and re-reading the header on every pass is
+        // what put tens of kilobytes per rollout back on the disk. Rewriting the header bytes in
+        // place — which Codex never does — is how the test observes that no second read happened:
+        // a cache miss here would surface "session-x". The replacement header is byte-for-byte the
+        // same length so the rewrite leaves a well-formed first line either way.
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(#"{"type":"assistant"}"#.utf8) + Data("\n".utf8))
+        try handle.seek(toOffset: 0)
+        try handle.write(contentsOf: Data(header(sessionID: "session-x", cwd: "/repo/alpha").utf8))
+        try handle.close()
+        #expect(CodexRolloutFirstLineParser.read(from: url)?.sessionID == "session-a")
+
+        // A different file at the same path is a different identity, so its header is read afresh.
+        try fileManager.removeItem(at: url)
+        try (header(sessionID: "session-b", cwd: "/repo/beta") + "\n").write(
+            to: url,
+            atomically: true,
+            encoding: .utf8)
+        let replaced = try #require(CodexRolloutFirstLineParser.read(from: url))
+        #expect(replaced.sessionID == "session-b")
+        #expect(replaced.cwd == "/repo/beta")
+    }
+
+    @Test
+    func `partial rollout header is not memoized before its line terminator arrives`() throws {
+        CodexRolloutMetadataMemo.shared.removeAllForTesting()
+        defer { CodexRolloutMetadataMemo.shared.removeAllForTesting() }
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("codexbar-rollout-partial-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let url = root.appendingPathComponent("rollout-2026-01-01T00-00-00-partial.jsonl")
+        // A complete JSON object that has not yet been terminated: Codex is still writing the line,
+        // so a later flush can still extend it. Memoizing here would freeze a half-written header.
+        try self.header(cwd: "/repo/partial").write(to: url, atomically: true, encoding: .utf8)
+        #expect(CodexRolloutFirstLineParser.read(from: url)?.cwd == "/repo/partial")
+
+        try (self.header(cwd: "/repo/complete") + "\n").write(to: url, atomically: false, encoding: .utf8)
+        #expect(CodexRolloutFirstLineParser.read(from: url)?.cwd == "/repo/complete")
+    }
+
+    private func header(cwd: String) -> String {
+        """
+        {"type":"session_meta","payload":{"session_id":"session-partial","cwd":"\(cwd)"}}
+        """
+    }
+
+    @Test
     func `codex cwd matching rejects missing paths`() {
         #expect(AgentSessionCorrelation.codexWorkingDirectoriesMatch("/repo/alpha", "/repo/./alpha"))
         #expect(!AgentSessionCorrelation.codexWorkingDirectoriesMatch(nil, nil))
