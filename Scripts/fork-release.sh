@@ -75,6 +75,28 @@ ED_SIGNATURE=$(printf '%s' "$SIG_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]
 LENGTH=$(printf '%s' "$SIG_LINE" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
 [[ -n "$ED_SIGNATURE" && -n "$LENGTH" ]] || { echo "Failed to sign DMG for Sparkle" >&2; exit 1; }
 
+# Sparkle release notes: the Highlights bullets of the newest CHANGELOG section,
+# converted to HTML.
+RELEASE_HTML=$(awk '
+  /^## /   { section++; next }
+  section != 1 { next }
+  /^### /  { inhl = ($0 ~ /^### Highlights/); next }
+  inhl && /^- / { sub(/^- /, ""); print }
+' CHANGELOG.md | python3 -c '
+import html, re, sys
+items = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    line = html.escape(line)
+    line = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", line)
+    line = re.sub(r"`(.+?)`", r"<code>\1</code>", line)
+    items.append(f"<li>{line}</li>")
+print("<h3>Highlights</h3><ul>" + "".join(items) + "</ul>" if items else "")
+')
+[[ -n "$RELEASE_HTML" ]] || { echo "Failed to build Sparkle release notes from CHANGELOG.md" >&2; exit 1; }
+
 PUBDATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
 DOWNLOAD_URL="https://github.com/$CODEXBAR_FORK_REPO/releases/download/$TAG/$DMG_NAME"
 APPCAST_TMP=$(mktemp "${TMPDIR:-/tmp}/codexbar-appcast.XXXXXX")
@@ -92,7 +114,7 @@ cat >"$APPCAST_TMP" <<XML
       <sparkle:version>${BUILD_NUMBER}</sparkle:version>
       <sparkle:shortVersionString>${MARKETING_VERSION}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<h3>Fixed</h3><ul><li>Reduced disk activity during Codex cost-history refreshes.</li></ul>]]></description>
+      <description><![CDATA[${RELEASE_HTML}]]></description>
       <enclosure url="${DOWNLOAD_URL}" sparkle:edSignature="${ED_SIGNATURE}" length="${LENGTH}" type="application/octet-stream" />
     </item>
   </channel>
