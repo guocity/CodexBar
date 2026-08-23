@@ -6,13 +6,13 @@
     <description>CodexBar fork updates</description>
     <language>en</language>
     <item>
-      <title>CodexBar 0.49.3</title>
-      <pubDate>Thu, 13 Aug 2026 02:37:05 +0000</pubDate>
-      <sparkle:version>117</sparkle:version>
-      <sparkle:shortVersionString>0.49.3</sparkle:shortVersionString>
+      <title>CodexBar 0.54.1</title>
+      <pubDate>Sun, 23 Aug 2026 15:18:20 +0000</pubDate>
+      <sparkle:version>128</sparkle:version>
+      <sparkle:shortVersionString>0.54.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<h3>Fixed</h3><ul><li>Reduced disk activity during Codex cost-history refreshes.</li></ul>]]></description>
-      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.49.3/CodexBar-macos-arm64-0.49.3.dmg" sparkle:edSignature="DSa+WG6DQm5U0OFQ2hFiOZhz3lsFcJL4KJEDS1GC9CSQgAdGjPhlmLzPrBP14AZFqkiVDEvrsdnNblVGASm8DQ==" length="30901323" type="application/octet-stream" />
+      <description><![CDATA[<h3>Highlights</h3><ul><li><strong>Codex CLI 0.149.0 compatibility</strong>: the usage probe works again after the CLI removed the <code>untrusted</code> approval value (#3115).</li><li><strong>Layout editor drag-and-drop fixed</strong>: chip reordering and the trash drop zone are reachable again, and the trash zone doubles as a click target (#3121).</li><li><strong>Faster relaunches</strong>: the Codex priority-turn scan cursor persists across restarts — no more re-scanning the whole trace database on every launch (#3130).</li><li><strong>Faster spend dashboard</strong>: provider baselines and Codex multi-account scans load in parallel, cutting cold opens to roughly the slowest single provider (#3105).</li><li><strong>Grok Bot on the Cursor card</strong>: weekly included Bot usage appears as a fourth bar next to Total / Cursor / Third Party (#3127).</li></ul>]]></description>
+      <enclosure url="https://github.com/guocity/CodexBar/releases/download/v0.54.1/CodexBar-macos-arm64-0.54.1.dmg" sparkle:edSignature="rakR70X1o5tGc9ShIwnYWXgT4SXyZwaukC2AhAFlcnivpaETZEKW2nSp0l4gwixpYh+Qnu5mdN1lDUYCn6gKDw==" length="33300992" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
