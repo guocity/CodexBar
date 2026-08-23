@@ -70,6 +70,12 @@ public enum OllamaProviderDescriptor {
                 name: "ollama",
                 versionDetector: nil,
                 browserSupportExemption: { sourceMode, environment, settings in
+                    let hasManualCookie = settings?.ollama?.cookieSource == .manual
+                        && !(settings?.ollama?.manualCookieHeader?
+                            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                    if hasManualCookie {
+                        return sourceMode == .auto || sourceMode == .web
+                    }
                     guard sourceMode == .auto else { return false }
                     let hasEnvironmentToken = environment.map {
                         ProviderTokenResolver.token(for: .ollama, environment: $0) != nil

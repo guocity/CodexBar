@@ -113,7 +113,9 @@ public enum ZaiProviderDescriptor {
                         context.snapshot.primary,
                         context.snapshot.secondary))
                 },
-                primaryBindingQuotaLanes: [.secondary]),
+                primaryBindingQuotaLanes: [.secondary],
+                optionalDetails: ProviderOptionalDetailsPresentation(
+                    costSummaryTitles: ["Hourly tokens", "Daily tokens"])),
             fetchPlan: self.fetchPlan(),
             cli: ProviderCLIConfig(
                 name: "zai",
@@ -166,6 +168,12 @@ public enum ZaiProviderDescriptor {
                                 region: region,
                                 environment: context.env).absoluteString,
                         ]
+                        if let balanceURL = ZaiEndpointRouter.resolveBalanceURL(
+                            region: region,
+                            environment: context.env)
+                        {
+                            plainValues["Z_AI_BALANCE_ENDPOINT"] = balanceURL.absoluteString
+                        }
                         if let team = settings?.teamContext ?? ZaiBigModelTeamContext(environment: context.env) {
                             plainValues["Z_AI_ORGANIZATION"] = team.organizationID
                             plainValues["Z_AI_PROJECT"] = team.projectID

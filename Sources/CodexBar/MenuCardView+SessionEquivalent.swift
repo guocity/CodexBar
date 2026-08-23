@@ -19,7 +19,8 @@ extension UsageMenuCardView.Model {
         projection: CodexConsumerProjection,
         percentStyle: PercentStyle) -> [Metric]
     {
-        projection.visibleRateLanes.compactMap { lane in
+        projection.displayedRateLanes(
+            showOptionalCreditsAndExtraUsage: input.showOptionalCreditsAndExtraUsage).compactMap { lane in
             guard let window = projection.rateWindow(for: lane) else { return nil }
 
             let title = CodexConsumerProjection.rateTitle(
@@ -51,6 +52,13 @@ extension UsageMenuCardView.Model {
                 id = "monthly"
                 paceDetail = nil
             }
+            let workdayMarkerPercents: [Double] = if lane == .weekly, input.workdayTickAppearance != .hidden {
+                workDayMarkerPercents(
+                    workDays: input.workDaysPerWeek,
+                    windowMinutes: window.windowMinutes)
+            } else {
+                []
+            }
 
             return Metric(
                 id: id,
@@ -66,16 +74,14 @@ extension UsageMenuCardView.Model {
                 detailLeftText: paceDetail?.leftLabel,
                 detailRightText: paceDetail?.rightLabel,
                 pacePercent: paceDetail?.pacePercent,
+                detailIsPaceDerived: paceDetail?.isPaceDerived ?? false,
                 paceOnTop: paceDetail?.paceOnTop ?? true,
                 warningMarkerPercents: Self.warningMarkerPercents(
                     thresholds: lane.quotaWarningWindow.flatMap { input.quotaWarningThresholds[$0] },
                     showUsed: input.usageBarsShowUsed),
                 resetTimeline: Self.resetTimeline(for: window),
-                workdayMarkerPercents: lane == .weekly
-                    ? workDayMarkerPercents(
-                        workDays: input.workDaysPerWeek,
-                        windowMinutes: window.windowMinutes)
-                    : [],
+                workdayMarkerPercents: workdayMarkerPercents,
+                workdayTickAppearance: input.workdayTickAppearance,
                 sessionEquivalentDetail: lane == .weekly
                     ? Self.sessionEquivalentDetail(input: input, weeklyWindow: window, weeklyWindowID: nil)
                     : nil)

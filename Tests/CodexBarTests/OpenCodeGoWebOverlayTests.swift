@@ -82,7 +82,9 @@ struct OpenCodeGoWebOverlayTests {
 
     private func makeContext(
         includeOptionalUsage: Bool = true,
-        settings: ProviderSettingsSnapshot? = nil) -> ProviderFetchContext
+        settings: ProviderSettingsSnapshot? = nil,
+        env: [String: String] = [:],
+        selectedTokenAccountID: UUID? = nil) -> ProviderFetchContext
     {
         ProviderFetchContext(
             runtime: .app,
@@ -92,11 +94,12 @@ struct OpenCodeGoWebOverlayTests {
             webTimeout: 1,
             webDebugDumpHTML: false,
             verbose: false,
-            env: [:],
+            env: env,
             settings: settings,
-            fetcher: UsageFetcher(environment: [:]),
+            fetcher: UsageFetcher(environment: env),
             claudeFetcher: StubClaudeFetcher(),
-            browserDetection: BrowserDetection(cacheTTL: 0))
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            selectedTokenAccountID: selectedTokenAccountID)
     }
 
     private func makeManualCookieSettings() -> ProviderSettingsSnapshot {
@@ -194,6 +197,91 @@ struct OpenCodeGoWebOverlayTests {
         #expect(result.usage.secondary?.usedPercent == 52)
         #expect(result.usage.opencodegoUsage?.daily.count == 1)
         #expect(result.usage.providerCost?.used == 42.5)
+        #expect(result.usage.dataConfidence != .estimated)
+    }
+
+    @Test
+    func `selected token account credential reaches the authoritative overlay`() async throws {
+        let account = ProviderTokenAccount(
+            id: UUID(),
+            label: "Selected",
+            token: "auth=selected",
+            addedAt: 0,
+            lastUsed: nil)
+        let descriptor = OpenCodeGoProviderDescriptor.makeDescriptor()
+        let contribution = try #require(descriptor.settingsSection.credentialContribution(
+            context: ProviderCredentialSettingsContext(config: nil, account: account)))
+        let settings = ProviderSettingsSnapshot(contributions: [contribution])
+        let observedCookies = Recorder<String>()
+        let strategy = OpenCodeGoLocalUsageFetchStrategy(
+            localSnapshotLoader: { _ in Self.localEstimate() },
+            webUsageOverlayFetcher: { _, cookieHeader in
+                observedCookies.append(cookieHeader)
+                return Self.webUsage()
+            })
+
+        let result = try await strategy.fetch(self.makeContext(
+            settings: settings,
+            selectedTokenAccountID: account.id))
+
+        #expect(settings.opencodego?.cookieSource == .manual)
+        #expect(observedCookies.values == ["auth=selected"])
+        #expect(result.sourceLabel == "local+web")
+        #expect(result.usage.tertiary?.usedPercent == 64)
+        #expect(result.usage.dataConfidence != .estimated)
+    }
+
+    @Test
+    func `manual token authentication failure is surfaced instead of returning local estimate`() async {
+        let strategy = OpenCodeGoLocalUsageFetchStrategy(
+            localSnapshotLoader: { _ in Self.localEstimate() },
+            webUsageOverlayFetcher: { _, _ in throw OpenCodeGoUsageError.invalidCredentials })
+
+        do {
+            _ = try await strategy.fetch(self.makeContext(settings: self.makeManualCookieSettings()))
+            Issue.record("Expected the invalid manual session to fail")
+        } catch OpenCodeGoUsageError.invalidCredentials {
+            // Expected: an explicit account credential must not degrade to account-agnostic local usage.
+        } catch {
+            Issue.record("Expected invalidCredentials, got \(error)")
+        }
+    }
+
+    @Test
+    func `local strategy prefers API windows while preserving local history and web balance`() async throws {
+        let observedKeys = Recorder<String>()
+        let webCalls = Recorder<String>()
+        let strategy = OpenCodeGoLocalUsageFetchStrategy(
+            localSnapshotLoader: { _ in Self.localEstimate() },
+            webUsageOverlayFetcher: { _, cookieHeader in
+                webCalls.append(cookieHeader)
+                return Self.webUsage(zenBalanceUSD: 42.5)
+            },
+            apiUsageOverlayFetcher: { _, apiKey in
+                observedKeys.append(apiKey)
+                return OpenCodeGoUsageSnapshot(
+                    hasMonthlyUsage: true,
+                    rollingUsagePercent: 11,
+                    weeklyUsagePercent: 22,
+                    monthlyUsagePercent: 33,
+                    rollingResetInSec: 18100,
+                    weeklyResetInSec: 266_500,
+                    monthlyResetInSec: 1_539_100,
+                    updatedAt: Self.updatedAt.addingTimeInterval(3))
+            })
+
+        let result = try await strategy.fetch(self.makeContext(
+            settings: self.makeManualCookieSettings(),
+            env: [OpenCodeGoSettingsReader.apiKeyEnvironmentKey: "go_test"]))
+
+        #expect(result.sourceLabel == "local+api")
+        #expect(observedKeys.values == ["go_test"])
+        #expect(webCalls.values == ["auth=test"])
+        #expect(result.usage.primary?.usedPercent == 11)
+        #expect(result.usage.secondary?.usedPercent == 22)
+        #expect(result.usage.tertiary?.usedPercent == 33)
+        #expect(result.usage.opencodegoUsage?.daily.count == 1)
+        #expect(result.usage.providerCost?.used == 42.5)
     }
 
     @Test
@@ -208,6 +296,23 @@ struct OpenCodeGoWebOverlayTests {
 
         #expect(result.sourceLabel == "local")
         #expect(result.usage.tertiary?.usedPercent == 100)
+        #expect(result.usage.dataConfidence == .estimated)
+    }
+
+    @Test
+    func `balance only web response keeps local quota marked estimated`() async throws {
+        let strategy = OpenCodeGoLocalUsageFetchStrategy(
+            localSnapshotLoader: { _ in Self.localEstimate() },
+            webUsageOverlayFetcher: { _, _ in
+                OpenCodeGoUsageSnapshot.zenBalanceOnly(balanceUSD: 42.5, updatedAt: Self.updatedAt)
+            })
+
+        let result = try await strategy.fetch(self.makeContext(settings: self.makeManualCookieSettings()))
+
+        #expect(result.sourceLabel == "local+web")
+        #expect(result.usage.tertiary?.usedPercent == 100)
+        #expect(result.usage.providerCost?.used == 42.5)
+        #expect(result.usage.dataConfidence == .estimated)
     }
 
     @Test
@@ -229,6 +334,7 @@ struct OpenCodeGoWebOverlayTests {
         #expect(webCalls.values.isEmpty)
         #expect(result.sourceLabel == "local")
         #expect(result.usage.tertiary?.usedPercent == 100)
+        #expect(result.usage.dataConfidence == .estimated)
     }
 
     @Test
@@ -254,6 +360,27 @@ struct OpenCodeGoWebOverlayTests {
     }
 
     #if os(macOS)
+    @Test
+    func `empty cookie cache marks local quota windows estimated`() async throws {
+        try await self.withEmptyCookieCache {
+            let webCalls = Recorder<String>()
+            let strategy = OpenCodeGoLocalUsageFetchStrategy(
+                localSnapshotLoader: { _ in Self.localEstimate() },
+                webUsageOverlayFetcher: { _, cookieHeader in
+                    webCalls.append(cookieHeader)
+                    return Self.webUsage()
+                })
+
+            let result = try await strategy.fetch(self.makeContext(includeOptionalUsage: false))
+
+            #expect(webCalls.values.isEmpty)
+            #expect(result.sourceLabel == "local")
+            #expect(result.usage.secondary?.usedPercent == 49.4)
+            #expect(result.usage.tertiary?.usedPercent == 100)
+            #expect(result.usage.dataConfidence == .estimated)
+        }
+    }
+
     @Test
     func `local strategy evicts cached cookie after authentication failure`() async throws {
         try await self.withCachedCookie {
@@ -299,8 +426,20 @@ struct OpenCodeGoWebOverlayTests {
 
             #expect(result.sourceLabel == "local+web")
             #expect(result.usage.tertiary?.usedPercent == 64)
+            #expect(result.usage.dataConfidence != .estimated)
             #expect(observedCookies.values == ["auth=cached-session"])
             #expect(CookieHeaderCache.load(provider: .opencodego)?.cookieHeader == "auth=cached-session")
+        }
+    }
+
+    private func withEmptyCookieCache<T>(_ operation: () async throws -> T) async rethrows -> T {
+        let service = "com.steipete.codexbar.tests.opencodego-overlay-empty.\(UUID().uuidString)"
+        return try await KeychainCacheStore.withServiceOverrideForTesting(service) {
+            try await KeychainCacheStore.withImplicitTestStoreForTesting {
+                CookieHeaderCache.resetDisplayCacheForTesting()
+                defer { CookieHeaderCache.resetDisplayCacheForTesting() }
+                return try await operation()
+            }
         }
     }
 

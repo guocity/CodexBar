@@ -1008,6 +1008,8 @@ extension CostUsageStoreTests {
             "98da5914d2f6a9cd",
             "43609cc56f76a003",
             "b975eb705f905b9a",
+            "47144baa8daccf52",
+            "2d17f4981b78d07f",
         ])
         let predecessorHash = "43609cc56f76a003"
         let predecessorVersion = CostUsageStore.combinedSchemaVersion(
@@ -1051,6 +1053,39 @@ extension CostUsageStoreTests {
         #expect(after == before)
         #expect(await current.rebuildCount == 0)
         #expect(await current.configuration()?.userVersion == Int(CostUsageStore.schemaVersion))
+        let connection = try SQLiteTestConnection(url: fixture.databaseURL, readOnly: true)
+        #expect(try connection.scalarInt(
+            "SELECT COUNT(*) FROM meta WHERE key = 'parser_hash' AND value = '\(CodexParserHash.value)'") == 1)
+    }
+
+    @Test
+    func `compatible predecessor parser hash adopts cursorless priority payload without rebuilding`() async throws {
+        let fixture = try StoreFixture()
+        defer { fixture.remove() }
+        let predecessorHash = "2d17f4981b78d07f"
+        let predecessorVersion = CostUsageStore.combinedSchemaVersion(
+            base: CostUsageStore.baseSchemaVersion,
+            parserHash: predecessorHash)
+        let predecessor = CostUsageStore(
+            cacheRoot: fixture.root,
+            schemaVersion: predecessorVersion,
+            parserHash: predecessorHash)
+        let file = Self.file(path: "/rollouts/compatible.jsonl", day: "2026-08-01")
+        var metadata = CostUsageStoreMetadata.empty
+        metadata.priorityTurnStatePayload = Data(
+            #"{"turnKeys":{"turn-a":"priority"},"turnIDsByDay":{"2026-05-10":["turn-a"]}}"#.utf8)
+        #expect(await predecessor.upsertFile(file))
+        #expect(await predecessor.setMetadata(metadata))
+
+        let current = CostUsageStore(cacheRoot: fixture.root)
+        let loaded = current.syncLoadCodexCache(calendar: .current)
+        #expect(await current.fetchFile(path: file.path) == file)
+        #expect(await current.fetchMetadata() == metadata)
+        #expect(await current.rebuildCount == 0)
+        #expect(await current.configuration()?.userVersion == Int(CostUsageStore.schemaVersion))
+        #expect(loaded.codexPriorityTurnKeys == ["turn-a": "priority"])
+        #expect(loaded.codexPriorityTurnIDsByDay == ["2026-05-10": ["turn-a"]])
+        #expect(loaded.codexPriorityTurnsCursor == nil)
         let connection = try SQLiteTestConnection(url: fixture.databaseURL, readOnly: true)
         #expect(try connection.scalarInt(
             "SELECT COUNT(*) FROM meta WHERE key = 'parser_hash' AND value = '\(CodexParserHash.value)'") == 1)
@@ -1117,6 +1152,31 @@ extension CostUsageStoreTests {
 
         #expect(await store.fetchMetadata() == .empty)
         #expect(await store.rebuildCount == 1)
+    }
+
+    @Test
+    func `v0_49_2 parser hash upgrades without rebuilding completed files`() async throws {
+        let fixture = try StoreFixture()
+        defer { fixture.remove() }
+        let previousParserHash = "b975eb705f905b9a"
+        let previousSchemaVersion = CostUsageStore.combinedSchemaVersion(
+            base: CostUsageStore.baseSchemaVersion,
+            parserHash: previousParserHash)
+        let previousStore = CostUsageStore(
+            cacheRoot: fixture.root,
+            schemaVersion: previousSchemaVersion,
+            parserHash: previousParserHash)
+        let file = Self.file(path: "/rollouts/completed.jsonl", day: "2026-08-01")
+        #expect(await previousStore.upsertFile(file))
+
+        let upgradedStore = CostUsageStore(cacheRoot: fixture.root)
+
+        #expect(await upgradedStore.fetchFile(path: file.path) == file)
+        #expect(await upgradedStore.rebuildCount == 0)
+        #expect(await upgradedStore.configuration()?.userVersion == Int(CostUsageStore.schemaVersion))
+        let connection = try SQLiteTestConnection(url: fixture.databaseURL, readOnly: true)
+        #expect(try connection.scalarInt(
+            "SELECT COUNT(*) FROM meta WHERE key = 'parser_hash' AND value = '\(CodexParserHash.value)'") == 1)
     }
 
     @Test
@@ -1596,6 +1656,74 @@ extension CostUsageStoreTests {
 
 extension CostUsageStoreTests {
     @Test
+    func `narrow dashboard windows preserve wider retained cache under byte pressure`() async throws {
+        let fixture = try StoreFixture()
+        defer { fixture.remove() }
+        let store = CostUsageStore(cacheRoot: fixture.root)
+        let calendar = CostUsageScanner.CostUsageDayRange.localGregorianCalendar()
+        let retainedWindow = (sinceKey: "2025-08-15", untilKey: "2026-08-14")
+        let olderDay = "2026-01-15"
+        let recentDay = "2026-08-14"
+        let model = "gpt-5.5"
+        let olderPath = "/rollouts/older.jsonl"
+        let recentPath = "/rollouts/recent.jsonl"
+
+        func usage(day: String, mtimeUnixMs: Int64) -> CostUsageFileUsage {
+            var value = CostUsageFileUsage(
+                mtimeUnixMs: mtimeUnixMs,
+                size: 500,
+                days: [day: [model: [1, 0, 0]]])
+            value.parsedBytes = 500
+            value.codexScanComplete = true
+            return value
+        }
+
+        let olderUsage = usage(day: olderDay, mtimeUnixMs: 1)
+        let recentUsage = usage(day: recentDay, mtimeUnixMs: 2)
+        var cache = CostUsageCache()
+        cache.scanSinceKey = retainedWindow.sinceKey
+        cache.scanUntilKey = retainedWindow.untilKey
+        cache.timeZoneIdentifier = calendar.timeZone.identifier
+        cache.files = [olderPath: olderUsage, recentPath: recentUsage]
+        cache.days = olderUsage.days.merging(recentUsage.days) { _, recent in recent }
+
+        let seeded = store.syncSaveCodexCache(
+            cache,
+            calendar: calendar,
+            requestedScanWindow: retainedWindow,
+            fileBudgetBytes: 1)
+        #expect(seeded.deletedRows == 0)
+        #expect(seeded.rowCount == 2)
+
+        let dashboardWindows = [
+            (sinceKey: "2026-07-16", skipIdenticalContent: true),
+            (sinceKey: "2026-08-08", skipIdenticalContent: false),
+        ]
+        for dashboardWindow in dashboardWindows {
+            let result = store.syncSaveCodexCache(
+                cache,
+                calendar: calendar,
+                requestedScanWindow: (sinceKey: dashboardWindow.sinceKey, untilKey: recentDay),
+                fileBudgetBytes: 1,
+                skipIdenticalContent: dashboardWindow.skipIdenticalContent)
+            let report = await store.readReport(
+                sinceDay: retainedWindow.sinceKey,
+                untilDay: retainedWindow.untilKey)
+            let metadata = await store.fetchMetadata()
+
+            #expect(result.catchUpRequired == false)
+            #expect(result.deletedRows == 0)
+            #expect(result.rowCount == 2)
+            #expect(result.fileBytes > 1)
+            #expect(await store.fetchFile(path: olderPath) != nil)
+            #expect(await store.fetchFile(path: recentPath) != nil)
+            #expect(report.aggregates.map(\.day) == [olderDay, recentDay])
+            #expect(metadata.scanSinceDay == retainedWindow.sinceKey)
+            #expect(metadata.scanUntilDay == retainedWindow.untilKey)
+        }
+    }
+
+    @Test
     func `row budget deletes oldest rows to cap`() async throws {
         let fixture = try StoreFixture()
         defer { fixture.remove() }
@@ -2018,6 +2146,7 @@ extension CostUsageStoreTests {
             totalBytes: 200,
             completedFiles: 2,
             totalFiles: 4,
+            scanInventoryPaths: ["/root/2026/08/01/session.jsonl"],
             rootMtimes: ["/root": 123],
             previousReportPayload: Data([2, 4, 6]),
             priorityTurnStatePayload: Data([1, 3, 5]),

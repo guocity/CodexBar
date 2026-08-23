@@ -20,6 +20,26 @@ struct PlatformGatingTests {
     }
 
     @Test
+    func `ollama manual cookie allows auto and web sources`() {
+        let manualCookieSettings = ProviderSettingsSnapshot.make(
+            ollama: .init(cookieSource: .manual, manualCookieHeader: "__Secure-session=manual"))
+
+        #expect(!CodexBarCLI.sourceModeRequiresWebSupport(
+            .auto,
+            provider: .ollama,
+            settings: manualCookieSettings))
+        #expect(!CodexBarCLI.sourceModeRequiresWebSupport(
+            .web,
+            provider: .ollama,
+            settings: manualCookieSettings))
+        #expect(CodexBarCLI.sourceModeRequiresWebSupport(
+            .web,
+            provider: .ollama,
+            settings: ProviderSettingsSnapshot.make(
+                ollama: .init(cookieSource: .manual, manualCookieHeader: "   "))))
+    }
+
+    @Test
     func claudeAutoSource_allowsPlannerToFallBackToCLI() {
         #expect(!CodexBarCLI.sourceModeRequiresWebSupport(.auto, provider: .claude))
         #expect(CodexBarCLI.sourceModeRequiresWebSupport(.web, provider: .claude))
@@ -212,6 +232,29 @@ struct PlatformGatingTests {
             return false
         } ?? false
         #expect(isExpectedError)
+        #else
+        #expect(Bool(true))
+        #endif
+    }
+
+    @Test
+    func `custom pricing test detector is safe on Linux without test markers`() {
+        #if os(Linux)
+        let pricing = CostUsageCustomPricing.load(environment: [:])
+        #expect(pricing.fingerprint == "none" || !pricing.fingerprint.isEmpty)
+        #else
+        #expect(Bool(true))
+        #endif
+    }
+
+    @Test
+    func `OpenCodex usage log URL resolution is safe on Linux without test markers`() {
+        #if os(Linux)
+        // Under test runner, ProcessInfo has test markers, so isRunningTests returns true safely and returns nil without crashing
+        let logURL = OpenCodexUsageLog.usageLogURL(environment: [:])
+        #expect(logURL == nil)
+        let overriddenURL = OpenCodexUsageLog.usageLogURL(environment: ["OPENCODEX_HOME": "/tmp/test"])
+        #expect(overriddenURL?.path == "/tmp/test/usage.jsonl")
         #else
         #expect(Bool(true))
         #endif

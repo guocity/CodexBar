@@ -412,6 +412,179 @@ struct SpendDashboardSourceConcurrencyTests {
     }
 
     @Test
+    func `ordinary in flight same owner revision churn does not restart load`() async {
+        let loaderGate = SpendDashboardResultBatchGate()
+        let initial = SpendDashboardConfiguration(
+            costUsageEnabled: true,
+            providerIDs: [UsageProvider.codex.rawValue],
+            codexAccountIdentities: ["same"],
+            sourceRevisions: ["first"])
+        let replacement = SpendDashboardConfiguration(
+            costUsageEnabled: true,
+            providerIDs: [UsageProvider.codex.rawValue],
+            codexAccountIdentities: ["same"],
+            sourceRevisions: ["second"])
+        let controllerBox = SpendDashboardControllerBox()
+        let controller = SpendDashboardController(
+            requestBuilder: { mode in
+                let configuration = controllerBox.controller?.configuration ?? initial
+                return SpendDashboardLoadRequest(
+                    configuration: configuration,
+                    capturedInputs: [],
+                    unavailableSourceIDs: [],
+                    codexRequests: [],
+                    now: Date(timeIntervalSince1970: 1_784_179_200),
+                    force: mode.forcesLoader)
+            },
+            loader: { request in await loaderGate.load(request) })
+        controllerBox.controller = controller
+
+        controller.update(configuration: initial)
+        await Self.waitForResultGate(loaderGate)
+        let inFlightGeneration = controller.generation
+        #expect(controller.isRefreshing)
+
+        controller.update(configuration: replacement)
+        #expect(controller.generation == inFlightGeneration)
+        #expect(controller.configuration == replacement)
+        #expect(controller.publication.configuration == replacement)
+        #expect(controller.publication.isRefreshing)
+
+        await loaderGate.resume(
+            result: SpendDashboardLoadResult(
+                inputs: [Self.input(provider: .codex, cost: 7)],
+                failedSourceIDs: []))
+        await Self.waitForResultGate(loaderGate)
+        await loaderGate.resume(
+            result: SpendDashboardLoadResult(
+                inputs: [Self.input(provider: .codex, cost: 7)],
+                failedSourceIDs: []))
+        await Self.waitUntil { !controller.isRefreshing }
+
+        #expect(controller.generation == inFlightGeneration + 1)
+        #expect(controller.configuration == replacement)
+        #expect(controller.model.groups.first?.totalCost == 7)
+    }
+
+    @Test
+    func `ordinary in flight same owner revision churn preserves live load after suspended cached prefill`() async {
+        let cachedGate = SpendDashboardResultBatchGate()
+        let loaderGate = SpendDashboardResultBatchGate()
+        let initial = SpendDashboardConfiguration(
+            costUsageEnabled: true,
+            providerIDs: [UsageProvider.codex.rawValue],
+            codexAccountIdentities: ["same|owner-same"],
+            sourceRevisions: ["first"])
+        let replacement = SpendDashboardConfiguration(
+            costUsageEnabled: true,
+            providerIDs: [UsageProvider.codex.rawValue],
+            codexAccountIdentities: ["same|owner-same"],
+            sourceRevisions: ["second"])
+        let controllerBox = SpendDashboardControllerBox()
+        let controller = SpendDashboardController(
+            requestBuilder: { mode in
+                let configuration = controllerBox.controller?.configuration ?? initial
+                return SpendDashboardLoadRequest(
+                    configuration: configuration,
+                    capturedInputs: [],
+                    unavailableSourceIDs: [],
+                    codexRequests: [Self.scanRequest(id: "same", displayName: "Codex")],
+                    now: Date(timeIntervalSince1970: 1_784_179_200),
+                    force: mode.forcesLoader)
+            },
+            cachedLoader: { request in await cachedGate.load(request) },
+            loader: { request in await loaderGate.load(request) })
+        controllerBox.controller = controller
+
+        controller.update(configuration: initial)
+        await Self.waitForResultGate(cachedGate)
+        let inFlightGeneration = controller.generation
+        #expect(controller.isRefreshing)
+
+        // Revision churn arrives while cached prefill is suspended.
+        controller.update(configuration: replacement)
+        #expect(controller.generation == inFlightGeneration)
+        #expect(controller.configuration == replacement)
+
+        // Resume cached prefill with stale initial configuration result.
+        await cachedGate.resume(
+            result: SpendDashboardLoadResult(
+                inputs: [Self.input(id: "codex:same", cost: 3)],
+                failedSourceIDs: []))
+
+        // Ensure live load is still executed rather than aborting the task early.
+        await Self.waitForResultGate(loaderGate)
+        await loaderGate.resume(
+            result: SpendDashboardLoadResult(
+                inputs: [Self.input(id: "codex:same", cost: 12)],
+                failedSourceIDs: []))
+
+        // Reconciliation pass for remaining drift if needed.
+        if await loaderGate.pendingCount > 0 {
+            await loaderGate.resume(
+                result: SpendDashboardLoadResult(
+                    inputs: [Self.input(id: "codex:same", cost: 12)],
+                    failedSourceIDs: []))
+        }
+
+        await Self.waitUntil { !controller.isRefreshing }
+        #expect(controller.configuration == replacement)
+        #expect(controller.model.groups.first?.totalCost == 12)
+    }
+
+    @Test
+    func `Codex concurrent loads restore configured order when completing out of order`() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SpendDashboardSourceConcurrencyTests-order-\(UUID().uuidString)",
+                isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let first = try Self.makeAccount(id: "first", root: root)
+        let second = try Self.makeAccount(id: "second", root: root)
+        // Equal cost so providerRows tie-breaker is input order, making completion order visible.
+        let firstSnapshot = Self.input(cost: 5).snapshot
+        let secondSnapshot = Self.input(cost: 5).snapshot
+        let request = SpendDashboardLoadRequest(
+            configuration: SpendDashboardConfiguration(
+                costUsageEnabled: true,
+                providerIDs: [UsageProvider.codex.rawValue],
+                codexAccountIdentities: [first, second].map { "\($0.id)|\($0.cacheIdentity)" }),
+            capturedInputs: [],
+            unavailableSourceIDs: [],
+            codexRequests: [first, second],
+            now: Date(timeIntervalSince1970: 1_784_179_200),
+            force: true)
+
+        let gateFirst = SpendDashboardCodexBatchGate()
+        let gateSecond = SpendDashboardCodexBatchGate()
+        let loadTask = Task {
+            await SpendDashboardSource.load(
+                request,
+                codexSnapshotLoader: { context in
+                    switch context.account.id {
+                    case first.id:
+                        await gateFirst.load()
+                    case second.id:
+                        await gateSecond.load()
+                    default:
+                        fatalError("unexpected account \(context.account.id)")
+                    }
+                },
+                codexActivityLoader: { _ in nil })
+        }
+        // Wait until both gates are suspended, then resume second before first.
+        await Self.waitForCodexGate(gateFirst)
+        await Self.waitForCodexGate(gateSecond)
+        await gateSecond.resume(snapshot: secondSnapshot)
+        await gateFirst.resume(snapshot: firstSnapshot)
+        let final = await loadTask.value
+        // Inputs should be in configured order [first, second], not completion order.
+        #expect(final.inputs.map(\.id) == ["codex:first", "codex:second"])
+    }
+
+    @Test
     func `force request recaptures earlier provider after later refresh suspends`() async throws {
         let settings = testSettingsStore(suiteName: "SpendDashboardSourceConcurrencyTests-force-recapture")
         settings.costUsageEnabled = true
@@ -730,4 +903,9 @@ private actor SpendDashboardResultBatchGate {
     func resume(result: SpendDashboardLoadResult) {
         self.continuations.removeFirst().resume(returning: result)
     }
+}
+
+@MainActor
+private final class SpendDashboardControllerBox {
+    var controller: SpendDashboardController?
 }

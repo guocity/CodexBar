@@ -23,6 +23,12 @@ struct MenuPane: View {
                         subtitle: L("show_quota_warning_markers_subtitle"))
                 }
 
+                Toggle(isOn: self.$settings.paceVisible) {
+                    SettingsRowLabel(
+                        L("show_pace_title"),
+                        subtitle: L("show_pace_subtitle"))
+                }
+
                 SettingsMenuPicker(
                     selection: self.$settings.weeklyProgressWorkDays,
                     options: MenuSettingsMenuOptions.weeklyProgressWorkDays,
@@ -32,6 +38,19 @@ struct MenuPane: View {
                     optionLabel: { workDays in
                         Text(MenuSettingsMenuOptions.weeklyProgressWorkDaysLabel(workDays))
                     })
+
+                SettingsMenuPicker(
+                    selection: self.$settings.workdayTickAppearance,
+                    options: MenuSettingsMenuOptions.workdayTickAppearances,
+                    label: {
+                        SettingsRowLabel(
+                            L("workday_tick_appearance_title"),
+                            subtitle: L("workday_tick_appearance_subtitle"))
+                    },
+                    optionLabel: { appearance in
+                        Text(appearance.label)
+                    })
+                    .disabled(self.settings.weeklyProgressWorkDays == nil)
 
                 SettingsMenuPicker(
                     selection: self.$settings.resetTimesOption,

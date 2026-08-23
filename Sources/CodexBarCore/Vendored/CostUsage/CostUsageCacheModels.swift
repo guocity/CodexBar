@@ -13,11 +13,13 @@ struct CostUsageCache: Codable, Equatable, @unchecked Sendable {
     var codexProjectMetadataVersion: Int?
     var codexPriorityTurnKeys: [String: String]?
     var codexPriorityTurnIDsByDay: [String: [String]]?
+    var codexPriorityTurnsCursor: CostUsageScanner.CodexPriorityTurnsPersistedCursor?
     var codexScanCatchUpPending: Bool?
     var codexScanProcessedBytes: Int64?
     var codexScanTotalBytes: Int64?
     var codexScanCompletedFiles: Int?
     var codexScanTotalFiles: Int?
+    var codexScanInventoryPaths: [String]?
     var codexPreviousReport: CostUsageCodexPreviousReport?
     var codexSessionDiscovery: CostUsageCodexSessionDiscovery?
     var codexActiveLookbackState: CostUsageCodexActiveLookbackState?
@@ -30,9 +32,16 @@ struct CostUsageCodexActiveLookbackState: Codable, Equatable {
     var scanSinceKey: String
     var rootPaths: [String]
     var nextDayKeyByRoot: [String: String] = [:]
+    var nextDirectoryOffsetByRoot: [String: Int64]?
     var completedRootPaths: [String] = []
     var pendingFilePaths: [String] = []
     var legacyRecursivePendingRootPaths: [String] = []
+    var currentWindowNextDayKeyByRoot: [String: String]?
+    var currentWindowDirectoryOffsetByRoot: [String: Int64]?
+    var completedCurrentWindowRootPaths: [String]?
+    var currentWindowFlatDirectoryOffsetByRoot: [String: Int64]?
+    var completedCurrentWindowFlatRootPaths: [String]?
+    var cacheWideMigrationQueueActive: Bool?
 }
 
 struct CostUsageCodexSessionDiscovery: Codable, Equatable {
@@ -75,6 +84,10 @@ struct CostUsageCodexPreviousReport: Codable, Equatable {
         var costUSD: Double?
         var totalTokens: Int?
         var requestCount: Int?
+        var inputTokens: Int?
+        var outputTokens: Int?
+        var cacheReadTokens: Int?
+        var reasoningTokens: Int?
         var standardCostUSD: Double?
         var priorityCostUSD: Double?
         var standardTokens: Int?
@@ -85,6 +98,10 @@ struct CostUsageCodexPreviousReport: Codable, Equatable {
             self.costUSD = breakdown.costUSD
             self.totalTokens = breakdown.totalTokens
             self.requestCount = breakdown.requestCount
+            self.inputTokens = breakdown.inputTokens
+            self.outputTokens = breakdown.outputTokens
+            self.cacheReadTokens = breakdown.cacheReadTokens
+            self.reasoningTokens = breakdown.reasoningTokens
             self.standardCostUSD = breakdown.standardCostUSD
             self.priorityCostUSD = breakdown.priorityCostUSD
             self.standardTokens = breakdown.standardTokens
@@ -97,6 +114,10 @@ struct CostUsageCodexPreviousReport: Codable, Equatable {
                 costUSD: self.costUSD,
                 totalTokens: self.totalTokens,
                 requestCount: self.requestCount,
+                inputTokens: self.inputTokens,
+                outputTokens: self.outputTokens,
+                cacheReadTokens: self.cacheReadTokens,
+                reasoningTokens: self.reasoningTokens,
                 standardCostUSD: self.standardCostUSD,
                 priorityCostUSD: self.priorityCostUSD,
                 standardTokens: self.standardTokens,
@@ -110,11 +131,15 @@ struct CostUsageCodexPreviousReport: Codable, Equatable {
         var cacheReadTokens: Int?
         var cacheCreationTokens: Int?
         var outputTokens: Int?
+        var reasoningTokens: Int?
         var totalTokens: Int?
         var requestCount: Int?
         var costUSD: Double?
         var modelsUsed: [String]?
         var modelBreakdowns: [ModelBreakdown]?
+        var unpricedRequestCount: Int?
+        var unmeteredRequestCount: Int?
+        var estimatedRequestCount: Int?
 
         init(_ entry: CostUsageDailyReport.Entry) {
             self.date = entry.date
@@ -122,11 +147,15 @@ struct CostUsageCodexPreviousReport: Codable, Equatable {
             self.cacheReadTokens = entry.cacheReadTokens
             self.cacheCreationTokens = entry.cacheCreationTokens
             self.outputTokens = entry.outputTokens
+            self.reasoningTokens = entry.reasoningTokens
             self.totalTokens = entry.totalTokens
             self.requestCount = entry.requestCount
             self.costUSD = entry.costUSD
             self.modelsUsed = entry.modelsUsed
             self.modelBreakdowns = entry.modelBreakdowns?.map(ModelBreakdown.init)
+            self.unpricedRequestCount = entry.unpricedRequestCount
+            self.unmeteredRequestCount = entry.unmeteredRequestCount
+            self.estimatedRequestCount = entry.estimatedRequestCount
         }
 
         var dailyReportValue: CostUsageDailyReport.Entry {
@@ -136,11 +165,15 @@ struct CostUsageCodexPreviousReport: Codable, Equatable {
                 outputTokens: self.outputTokens,
                 cacheReadTokens: self.cacheReadTokens,
                 cacheCreationTokens: self.cacheCreationTokens,
+                reasoningTokens: self.reasoningTokens,
                 totalTokens: self.totalTokens,
                 requestCount: self.requestCount,
                 costUSD: self.costUSD,
                 modelsUsed: self.modelsUsed,
-                modelBreakdowns: self.modelBreakdowns?.map(\.dailyReportValue))
+                modelBreakdowns: self.modelBreakdowns?.map(\.dailyReportValue),
+                unpricedRequestCount: self.unpricedRequestCount,
+                unmeteredRequestCount: self.unmeteredRequestCount,
+                estimatedRequestCount: self.estimatedRequestCount)
         }
     }
 

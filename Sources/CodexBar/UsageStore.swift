@@ -58,6 +58,8 @@ extension UsageStore {
         _ = self.refreshingProviders
         _ = self.statuses
         _ = self.tokenSnapshotPublications
+        _ = self.spendDashboardTokenPublications
+        _ = self.spendDashboardPublication.revision
         _ = self.historicalPaceRevision
         return 0
     }
@@ -184,6 +186,13 @@ final class UsageStore {
     var tokenSnapshots: [ProviderInstanceID: CostUsageTokenSnapshot] = [:]
     var tokenSnapshotPublications: [ProviderInstanceID: TokenSnapshotPublication] = [:]
     var tokenSnapshotPublicationRevisions: [ProviderInstanceID: UInt64] = [:]
+    var spendDashboardTokenPublications: [ProviderInstanceID: TokenSnapshotPublication] = [:]
+    var spendDashboardTokenPublicationRevisions: [ProviderInstanceID: UInt64] = [:]
+    var spendDashboardPublication = SpendDashboardPublication.empty
+    @ObservationIgnored var sharedSpendDashboardControllerStorage: SpendDashboardController?
+    @ObservationIgnored var sharedSpendDashboardObservationStarted = false
+    @ObservationIgnored var sharedSpendDashboardObservationDebounceTask: Task<Void, Never>?
+    @ObservationIgnored var sharedSpendDashboardTokenPublicationDebounceTask: Task<Void, Never>?
     var tokenErrors: [ProviderInstanceID: String] = [:]
     var tokenRefreshInFlight: Set<ProviderInstanceID> = []
     var codexCostCatchUpActivity: CodexCostCatchUpActivity?
@@ -357,12 +366,14 @@ final class UsageStore {
     @ObservationIgnored var codexCostCatchUpMode: CodexCostCatchUpMode = .automatic
     @ObservationIgnored var codexCostCatchUpStopRequested = false
     @ObservationIgnored var codexCostCatchUpPassIsRunning = false
+    @ObservationIgnored var codexCostCatchUpRestartRequested = false
     @ObservationIgnored var spendDashboardCodexCostCatchUpTask: Task<Void, Never>?
     @ObservationIgnored var spendDashboardCodexCostCatchUpToken: UUID?
     @ObservationIgnored var spendDashboardCodexCostCatchUpScopeSignature: String?
     @ObservationIgnored var spendDashboardCodexCostCatchUpMode: CodexCostCatchUpMode = .automatic
     @ObservationIgnored var spendDashboardCodexCostCatchUpStopRequested = false
     @ObservationIgnored var spendDashboardCodexCostCatchUpPassIsRunning = false
+    @ObservationIgnored var spendDashboardCodexCostCatchUpRestartRequested = false
     @ObservationIgnored var forcedRefreshEnrichmentTask: Task<Void, Never>?
     @ObservationIgnored var forcedRefreshEnrichmentToken: UUID?
     @ObservationIgnored var pendingForcedRefreshEnrichmentTask: Task<Void, Never>?
@@ -396,6 +407,9 @@ final class UsageStore {
     @ObservationIgnored var codexHistoricalDataset: CodexHistoricalDataset?
     @ObservationIgnored var codexHistoricalDatasetAccountKey: String?
     @ObservationIgnored var lastKnownResetSnapshots: [ProviderInstanceID: UsageSnapshot] = [:]
+    /// A stable ambient Auto refresh failed after every live Claude source was exhausted, so persisted
+    /// plan-utilization history may safely supply a stale presentation snapshot for the same profile.
+    @ObservationIgnored var claudeHistoryFallbackEligible = false
     @ObservationIgnored var deepseekProfileTransition: DeepSeekProfileTransition?
     @ObservationIgnored var sessionQuotaTransitionStates: [ProviderInstanceID: SessionQuotaTransitionState] = [:]
     @ObservationIgnored var codexSessionQuotaBaselineRequirement: CodexSessionQuotaBaselineRequirement?
@@ -414,6 +428,9 @@ final class UsageStore {
     @ObservationIgnored var lastPermissionPromptNotificationAt: [ProviderInstanceID: Date] = [:]
     @ObservationIgnored var lastTokenFetchAt: [ProviderInstanceID: Date] = [:]
     @ObservationIgnored var lastTokenFetchScope: [ProviderInstanceID: String] = [:]
+    @ObservationIgnored var lastSpendDashboardTokenFetchAt: [ProviderInstanceID: Date] = [:]
+    @ObservationIgnored var lastSpendDashboardTokenFetchScope: [ProviderInstanceID: String] = [:]
+    @ObservationIgnored var spendDashboardTokenRefreshInFlight: Set<ProviderInstanceID> = []
     @ObservationIgnored var planUtilizationHistory: [ProviderInstanceID: PlanUtilizationHistoryBuckets] = [:]
     @ObservationIgnored var sessionEquivalentBurnCache: [ProviderInstanceID: SessionEquivalentBurnCacheEntry] = [:]
     @ObservationIgnored var sessionEquivalentHistoryScanCount: Int = 0
@@ -530,6 +547,7 @@ final class UsageStore {
             loginShellPATH: LoginShellPathCache.shared.current?.joined(separator: ":"))
         guard self.startupBehavior.automaticallyStartsBackgroundWork else { return }
         self.hydrateCachedTokenSnapshots()
+        self.startSharedSpendDashboardPublication()
         self.detectVersions()
         self.updateProviderRuntimes()
         Task { @MainActor [weak self] in
@@ -1624,10 +1642,13 @@ extension UsageStore {
             self.cancelSpendDashboardCodexCostCatchUp()
         }
         self.clearTokenSnapshot(for: provider)
+        self.clearSpendDashboardTokenSnapshot(for: provider)
         self.tokenErrors[provider.instanceID] = nil
         self.tokenFailureGates[provider.instanceID]?.reset()
         self.lastTokenFetchAt.removeValue(forKey: provider.instanceID)
         self.lastTokenFetchScope.removeValue(forKey: provider.instanceID)
+        self.lastSpendDashboardTokenFetchAt.removeValue(forKey: provider.instanceID)
+        self.lastSpendDashboardTokenFetchScope.removeValue(forKey: provider.instanceID)
     }
 
     private func logTokenUsageSuccess(

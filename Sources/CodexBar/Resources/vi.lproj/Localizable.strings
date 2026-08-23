@@ -1,7 +1,15 @@
 /* English localization for CodexBar (base/fallback) */
 
 /* iCloud Sync */
+"+ %d more" = "+ %d nữa";
+"Conversations (%@)" = "Cuộc trò chuyện (%@)";
+"Fast" = "Nhanh";
 "iCloud Sync" = "iCloud Sync";
+"Projects" = "Dự án";
+"Session %@" = "Phiên %@";
+"Std" = "Std";
+"Show all (%d)" = "Hiện tất cả (%d)";
+"Show less" = "Thu gọn";
 "Sync settings and providers across your Macs via iCloud" = "Sync settings and providers across your Macs via iCloud";
 "Include API keys, cookies, and tokens" = "Include API keys, cookies, and tokens";
 "Sync usage snapshots" = "Sync usage snapshots";
@@ -496,6 +504,10 @@
 "quota_depleted_title" = "Hạn mức đã cạn & được khôi phục";
 "quota_warning_notifications_subtitle" = "Cảnh báo khi phiên hoặc Hạn mức còn lại hàng tuần vượt qua ngưỡng được định cấu hình.";
 "threshold_warnings_title" = "Cảnh báo ngưỡng";
+"provider_accent_color_title" = "Màu nhấn";
+"provider_accent_color_footer" = "Đặt màu cho thanh mức dùng, biểu đồ và thẻ chuyển đổi của nhà cung cấp này.";
+"provider_accent_color_hex_label" = "Giá trị màu thập lục phân";
+"provider_accent_color_reset" = "Dùng mặc định";
 "quota_warnings_title" = "Hạn mức cảnh báo";
 "quota_warning_session" = "phiên";
 "quota_warning_session_capitalized" = "Phiên";
@@ -601,8 +613,15 @@
 "display_mode_subtitle" = "Chọn nội dung sẽ hiển thị trong thanh menu (Tốc độ hiển thị Mức sử dụng so với dự kiến).";
 "show_quota_warning_markers_title" = "Hiển thị Hạn mức dấu cảnh báo";
 "show_quota_warning_markers_subtitle" = "Vẽ dấu kiểm ngưỡng trên thanh Mức sử dụng khi cảnh báo Hạn mức được định cấu hình.";
+"show_pace_title" = "Hiển thị nhịp độ";
+"show_pace_subtitle" = "Hiển thị vạch vượt trước hoặc chậm hơn và văn bản dự báo trên thanh sử dụng.";
 "weekly_progress_work_days_title" = "Tiến độ ngày làm việc hàng tuần";
 "weekly_progress_work_days_subtitle" = "Đặt ngày làm việc cho các vạch trên thanh sử dụng hằng tuần và phép tính nhịp độ.";
+"workday_tick_appearance_title" = "Kiểu vạch ngày làm việc";
+"workday_tick_appearance_subtitle" = "Chọn cách hiển thị ranh giới ngày làm việc trên thanh sử dụng hằng tuần.";
+"workday_tick_appearance_hidden" = "Ẩn";
+"workday_tick_appearance_subtle" = "Nhẹ";
+"workday_tick_appearance_high_contrast" = "Tương phản cao";
 "show_provider_changelog_links_title" = "Hiển thị Nhà cung cấp liên kết nhật ký thay đổi";
 "show_provider_changelog_links_subtitle" = "Thêm liên kết ghi chú phát hành cho các nhà cung cấp được hỗ trợ CLI vào menu.";
 "show_credits_extra_usage_title" = "Hiển thị tín dụng + phần Mức sử dụng";
@@ -648,6 +667,15 @@
 "keychain_access_caption" = "Tắt tất cả Keychain đọc và ghi. Hãy sử dụng tùy chọn này nếu macOS liên tục nhắc về ' Chrome /Brave/Edge Safe Storage' ngay cả sau khi nhấp vào Luôn cho phép. Nhập cookie trình duyệt không khả dụng khi được bật; dán tiêu đề Cookie theo cách thủ công vào Nhà cung cấp. Claude /Codex OAuth thông qua CLI vẫn hoạt động.";
 "disable_keychain_access_title" = "Vô hiệu hóa quyền truy cập Keychain";
 "disable_keychain_access_subtitle" = "Ngăn chặn mọi quyền truy cập Keychain khi được bật.";
+"Re-authenticate" = "Xác thực lại";
+"kiro_reauthenticate_title" = "Đăng nhập Kiro CLI";
+"kiro_reauthenticate_subtitle" = "Chạy “kiro-cli login” để gia hạn phiên khi phiên hết hạn.";
+"Kiro CLI not found" = "Không tìm thấy Kiro CLI";
+"Install kiro-cli and try again." = "Hãy cài đặt kiro-cli rồi thử lại.";
+"Could not start kiro-cli login" = "Không thể bắt đầu kiro-cli login";
+"Kiro login timed out" = "Đăng nhập Kiro đã hết thời gian chờ";
+"kiro-cli login exited with status %d." = "kiro-cli login đã thoát với trạng thái %d.";
+"Kiro login failed" = "Đăng nhập Kiro thất bại";
 
 /* About Pane */
 "about_tagline" = "Cầu mong mã thông báo của bạn không bao giờ hết—giữ giới hạn đại lý trong tầm mắt.";
@@ -900,6 +928,7 @@
 "Monthly" = "Hàng tháng";
 "Sonnet" = "Sonnet";
 "Overages" = "Quá tải";
+"Overage" = "Vượt mức";
 "Activity" = "Hoạt động";
 "Copied" = "Đã sao chép";
 "Copy error" = "Lỗi sao chép";
@@ -910,6 +939,7 @@
 "Balance updates in near-real time (up to 5 min lag)" = "Cập nhật số dư trong thời gian gần như thực (độ trễ tối đa 5 phút)";
 "Daily billing data finalizes at 07:00 UTC" = "Dữ liệu thanh toán hàng ngày sẽ hoàn tất lúc 07:00 UTC";
 "%@ of %@ credits left" = "%@ trong số %@ tín dụng còn lại";
+"of %@" = "/ %@";
 "%@ of %@ bonus credits left" = "%@ trong số %@ tín dụng thưởng còn lại";
 "%@ / %@ (%@ remaining)" = "%@ / %@ ( %@ còn lại)";
 "%@/%@ left" = "%@ / %@ left";
@@ -921,6 +951,7 @@
 "Full in ~1 regen" = "Đầy đủ trong ~1 regen";
 "Full in ~%.0f regens" = "Đầy đủ trong ~%.0f regens";
 "Overage usage" = "Quá mức Mức sử dụng";
+"Overage credits left" = "Tín dụng vượt mức còn lại";
 "Overage cost" = "Chi phí quá mức";
 "credits" = "tín dụng";
 "Zen balance" = "Số dư Zen";
@@ -1291,6 +1322,9 @@
 "Native currencies stay separate; Codex account rows exclude Pi session history." = "Đơn vị tiền tệ gốc được giữ riêng biệt; các hàng tài khoản Codex không bao gồm lịch sử phiên Pi.";
 "Spend unavailable" = "Không có dữ liệu chi tiêu";
 "Model breakdown unavailable" = "Phân tích theo mô hình không khả dụng";
+"Partial estimate" = "Ước tính một phần";
+"Partial model breakdown" = "Phân tách mô hình một phần";
+"%d of %d subscriptions have spend" = "%d / %d gói đăng ký có chi tiêu";
 "Local estimated history" = "Lịch sử ước tính cục bộ";
 "Coverage" = "Phạm vi";
 "Estimated spend" = "Chi tiêu ước tính";
@@ -1299,6 +1333,12 @@
 "By subscription" = "Theo gói đăng ký";
 "No model-level history" = "Không có lịch sử theo mô hình";
 "Daily estimated spend" = "Chi tiêu ước tính hằng ngày";
+"Hourly estimated spend" = "Chi tiêu ước tính theo giờ";
+"Hour" = "Giờ";
+"%d hours of usage data across %d services" = "%d giờ dữ liệu sử dụng trên %d dịch vụ";
+"1 hour of usage data across 1 service" = "1 giờ dữ liệu sử dụng trên 1 dịch vụ";
+"%d hours of usage data across 1 service" = "%d giờ dữ liệu sử dụng trên 1 dịch vụ";
+"1 hour of usage data across %d services" = "1 giờ dữ liệu sử dụng trên %d dịch vụ";
 "≈%d full 5h windows of weekly left · %d windows until reset" = "Còn ≈%d cửa sổ 5 giờ đầy đủ của hạn mức tuần · %d cửa sổ đến khi đặt lại";
 "Weekly cannot run out before reset at this pace" = "Với tốc độ này, hạn mức tuần không thể hết trước khi đặt lại";
 "Weekly can run out ≈%d windows early" = "Hạn mức tuần có thể hết sớm ≈%d cửa sổ";
@@ -1335,12 +1375,14 @@
 "menu_bar_layout_empty_line" = "Thả một thẻ vào đây";
 "menu_bar_layout_line" = "Dòng %d";
 "menu_bar_layout_drag_remove" = "Kéo vào đây để xóa";
+"menu_bar_layout_remove_selected" = "Xoá mục đã chọn";
 "menu_bar_layout_size" = "Kích thước";
 "menu_bar_layout_size_small" = "Nhỏ";
 "menu_bar_layout_size_regular" = "Thường";
 "menu_bar_layout_gap" = "Khoảng cách";
 "menu_bar_layout_gap_tight" = "Hẹp";
 "menu_bar_layout_gap_regular" = "Thường";
+"menu_bar_layout_vertical_adjustment" = "Điều chỉnh dọc";
 "menu_bar_layout_keyboard_hint" = "Delete xóa thẻ đã chọn";
 "menu_bar_layout_sample_account" = "tài khoản";
 "menu_bar_layout_sample_runs_out" = "hết vào T6";
@@ -1453,3 +1495,60 @@
 "Opus" = "Opus";
 "now" = "now";
 "Time until reset" = "Time until reset";
+"claude_oauth_keychain_access_revoked" = "Quyền truy cập Chuỗi khóa Claude đã bị thu hồi do Claude Code xoay vòng mã thông báo. Nhấp vào Làm mới để cấp lại quyền truy cập hoặc chuyển nguồn sử dụng Claude sang CLI/Web.";
+"claude_showing_last_known_usage" = "Đang hiển thị mức sử dụng đã biết gần nhất, được ghi nhận %@.";
+/* Spend dashboard cost analysis */
+"90d" = "90d";
+"Input" = "Input";
+"Output" = "Output";
+"Cache write" = "Cache write";
+"Reasoning" = "Reasoning";
+"Sessions" = "Sessions";
+"Projects" = "Projects";
+"Plan metered" = "Plan metered";
+"List-price equivalent" = "List-price equivalent";
+"Metered and list-price" = "Metered and list-price";
+"List-price equivalent — not a billing receipt." = "List-price equivalent — not a billing receipt.";
+"Priced" = "Priced";
+"Unpriced" = "Unpriced";
+"Unmetered" = "Unmetered";
+"Estimated" = "Estimated";
+"Other models" = "Other models";
+"Include OpenCodex usage logs" = "Include OpenCodex usage logs";
+"Hide native Codex when OpenCodex is present" = "Hide native Codex when OpenCodex is present";
+"Export JSON" = "Export JSON";
+"Copy JSON" = "Sao chép JSON";
+"Sources" = "Sources";
+"OpenCodex" = "OpenCodex";
+
+"menu_bar_layout_token_conditional" = "Điều kiện";
+"menu_bar_layout_group_conditionals" = "Điều kiện";
+"menu_bar_layout_conditional_add" = "Điều kiện mới";
+"menu_bar_layout_conditional_edit" = "Sửa điều kiện";
+"menu_bar_layout_conditional_remove" = "Xóa khỏi thư viện";
+"menu_bar_layout_conditional_save" = "Lưu";
+"menu_bar_layout_conditional_if" = "Nếu";
+"menu_bar_layout_conditional_then" = "Thì hiển thị";
+"menu_bar_layout_conditional_else" = "Ngược lại hiển thị";
+"menu_bar_layout_conditional_and" = "và";
+"menu_bar_layout_conditional_or" = "hoặc";
+"menu_bar_layout_conditional_add_condition" = "Thêm điều kiện";
+"menu_bar_layout_conditional_none" = "Chưa có điều kiện nào";
+"menu_bar_layout_conditional_hide" = "Ẩn";
+"menu_bar_layout_conditional_name" = "Tên";
+"menu_bar_layout_conditional_name_placeholder" = "ví dụ: Kiểm tra phiên";
+"menu_bar_layout_conditional_name_error" = "Nhập tên duy nhất";
+"menu_bar_layout_conditional_used" = "đã dùng";
+"menu_bar_layout_conditional_remaining" = "còn lại";
+"menu_bar_layout_conditional_metric_resets_in" = "%@ đặt lại sau";
+"menu_bar_layout_conditional_metric_scoped_weekly" = "Hàng tuần theo phạm vi";
+"menu_bar_layout_conditional_duplicate" = "Nhân bản";
+"menu_bar_layout_conditional_summary" = "Nếu %1$@ thì %2$@ ngược lại %3$@";
+"menu_bar_layout_conditional_copy_name" = "%@ (bản sao)";
+"menu_bar_layout_conditional_copy_name_numbered" = "%1$@ (bản sao %2$d)";
+"menu_bar_layout_conditional_unavailable" = "Điều kiện không khả dụng";
+"menu_bar_layout_conditional_default_session_busy" = "Phiên đã dùng trên 50%";
+"menu_bar_layout_conditional_default_weekly_high" = "Tuần đã dùng trên 90%";
+"menu_bar_layout_conditional_default_session_spent" = "Phiên gần cạn";
+"menu_bar_layout_conditional_default_either_high" = "Phiên hoặc tuần đang ở mức cao";
+"menu_bar_layout_conditional_default_scoped_weekly" = "Tuần theo mô hình đã dùng trên 60%";

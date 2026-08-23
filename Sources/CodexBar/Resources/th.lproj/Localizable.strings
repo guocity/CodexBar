@@ -1,7 +1,15 @@
 /* Thai localization for CodexBar */
 
 /* iCloud Sync */
+"+ %d more" = "+ อีก %d รายการ";
+"Conversations (%@)" = "บทสนทนา (%@)";
+"Fast" = "เร็ว";
 "iCloud Sync" = "iCloud Sync";
+"Projects" = "โปรเจกต์";
+"Session %@" = "เซสชัน %@";
+"Std" = "มาตรฐาน";
+"Show all (%d)" = "แสดงทั้งหมด (%d)";
+"Show less" = "แสดงน้อยลง";
 "Sync settings and providers across your Macs via iCloud" = "Sync settings and providers across your Macs via iCloud";
 "Include API keys, cookies, and tokens" = "Include API keys, cookies, and tokens";
 "Sync usage snapshots" = "Sync usage snapshots";
@@ -485,6 +493,10 @@
 "quota_depleted_title" = "โควต้าหมดและกลับมาใช้งานได้";
 "quota_warning_notifications_subtitle" = "เตือนเมื่อเซสชันหรือโควต้ารายสัปดาห์ที่เหลืออยู่ข้ามเกณฑ์ที่กําหนดค่าไว้";
 "threshold_warnings_title" = "คำเตือนตามเกณฑ์";
+"provider_accent_color_title" = "สีเน้น";
+"provider_accent_color_footer" = "กำหนดสีของแถบการใช้งาน แผนภูมิ และแท็บสลับของผู้ให้บริการนี้";
+"provider_accent_color_hex_label" = "ค่าสีฐานสิบหก";
+"provider_accent_color_reset" = "ใช้ค่าเริ่มต้น";
 "quota_warnings_title" = "คําเตือนโควต้า";
 "quota_warning_session" = "เซสชั่น";
 "quota_warning_session_capitalized" = "เซสชั่น";
@@ -611,8 +623,15 @@
 "display_mode_subtitle" = "เลือกสิ่งที่จะแสดงในแถบเมนู (อัตราก้าวแสดงการใช้งานเทียบกับที่คาดไว้)";
 "show_quota_warning_markers_title" = "แสดงเครื่องหมายเตือนโควต้า";
 "show_quota_warning_markers_subtitle" = "วาดเครื่องหมายถูกเกณฑ์บนแถบการใช้งานเมื่อมีการกําหนดค่าคําเตือนโควต้า";
+"show_pace_title" = "แสดงอัตราการใช้งาน";
+"show_pace_subtitle" = "แสดงแถบบอกว่าเร็วหรือช้ากว่ากำหนด และข้อความคาดการณ์บนแถบการใช้งาน";
 "weekly_progress_work_days_title" = "วันทํางานความคืบหน้ารายสัปดาห์";
 "weekly_progress_work_days_subtitle" = "กําหนดวันทํางานสําหรับเครื่องหมายแถบการใช้งานรายสัปดาห์และการคํานวณความเร็ว";
+"workday_tick_appearance_title" = "ลักษณะขีดวันทำงาน";
+"workday_tick_appearance_subtitle" = "เลือกวิธีแสดงขอบเขตวันทำงานบนแถบการใช้งานรายสัปดาห์";
+"workday_tick_appearance_hidden" = "ซ่อน";
+"workday_tick_appearance_subtle" = "ละเอียดอ่อน";
+"workday_tick_appearance_high_contrast" = "คอนทราสต์สูง";
 "show_provider_changelog_links_title" = "แสดงลิงก์บันทึกการเปลี่ยนแปลงของผู้ให้บริการ";
 "show_provider_changelog_links_subtitle" = "เพิ่มลิงก์บันทึกประจํารุ่นสําหรับผู้ให้บริการที่ได้รับการสนับสนุน CLI ในเมนู";
 "show_credits_extra_usage_title" = "แสดงเครดิต + การใช้งานเพิ่มเติม";
@@ -658,6 +677,15 @@
 "keychain_access_caption" = "ปิดใช้งานการอ่านและเขียน Keychain ทั้งหมด ใช้ตัวเลือกนี้หาก macOS ยังคงแจ้งให้ 'Chrome/Brave/Edge ที่เก็บข้อมูลที่ปลอดภัย' แม้ว่าจะคลิกอนุญาตเสมอแล้วก็ตาม การนําเข้าคุกกี้ของเบราว์เซอร์ไม่พร้อมใช้งานในขณะที่เปิดใช้งาน วางส่วนหัวของคุกกี้ด้วยตนเองในผู้ให้บริการ Claude/Codex OAuth ผ่าน CLI ยังคงใช้งานได้";
 "disable_keychain_access_title" = "ปิดใช้งานการเข้าถึง Keychain";
 "disable_keychain_access_subtitle" = "ป้องกันการเข้าถึง Keychain ใดๆ ขณะเปิดใช้งาน";
+"Re-authenticate" = "ยืนยันตัวตนอีกครั้ง";
+"kiro_reauthenticate_title" = "เข้าสู่ระบบ Kiro CLI";
+"kiro_reauthenticate_subtitle" = "เรียกใช้ “kiro-cli login” เพื่อต่ออายุเซสชันเมื่อหมดอายุ";
+"Kiro CLI not found" = "ไม่พบ Kiro CLI";
+"Install kiro-cli and try again." = "ติดตั้ง kiro-cli แล้วลองอีกครั้ง";
+"Could not start kiro-cli login" = "ไม่สามารถเริ่ม kiro-cli login ได้";
+"Kiro login timed out" = "การเข้าสู่ระบบ Kiro หมดเวลา";
+"kiro-cli login exited with status %d." = "kiro-cli login สิ้นสุดด้วยสถานะ %d";
+"Kiro login failed" = "การเข้าสู่ระบบ Kiro ล้มเหลว";
 
 /* About Pane */
 "about_tagline" = "ขอให้โทเค็นของคุณไม่มีวันหมด ให้คํานึงถึงขีดจํากัดของเจ้าหน้าที่";
@@ -911,6 +939,7 @@
 "Monthly" = "รายเดือน";
 "Sonnet" = "โคลง";
 "Overages" = "ส่วนเกิน";
+"Overage" = "ส่วนเกิน";
 "Activity" = "กิจกรรม";
 "Copied" = "คัดลอกแล้ว";
 "Copy error" = "ข้อผิดพลาดในการคัดลอก";
@@ -921,6 +950,7 @@
 "Balance updates in near-real time (up to 5 min lag)" = "อัปเดตเครื่องชั่งแบบเกือบเรียลไทม์ (หน่วงสูงสุด 5 นาที)";
 "Daily billing data finalizes at 07:00 UTC" = "ข้อมูลการเรียกเก็บเงินรายวันจะสรุปเวลา 07:00 น. UTC";
 "%@ of %@ credits left" = "เหลือ %@ จาก %@ หน่วยกิต";
+"of %@" = "จาก %@";
 "%@ of %@ bonus credits left" = "%@ จาก %@ เครดิตโบนัสที่เหลืออยู่";
 "%@ / %@ (%@ remaining)" = "%@ / %@ (เหลือ %@)";
 "%@/%@ left" = "เหลือ %@/%@";
@@ -932,6 +962,7 @@
 "Full in ~1 regen" = "เต็มที่ ~1 รีเจน";
 "Full in ~%.0f regens" = "เต็มไปด้วยการฟื้นฟู ~%.0f ครั้ง";
 "Overage usage" = "การใช้งานส่วนเกิน";
+"Overage credits left" = "เครดิตส่วนเกินที่เหลือ";
 "Overage cost" = "ค่าใช้จ่ายส่วนเกิน";
 "credits" = "เครดิต";
 "Zen balance" = "ความสมดุลแบบเซน";
@@ -1294,6 +1325,9 @@
 "Native currencies stay separate; Codex account rows exclude Pi session history." = "สกุลเงินต้นทางแยกจากกัน แถวบัญชี Codex ไม่รวมประวัติเซสชัน Pi";
 "Spend unavailable" = "ไม่มีข้อมูลค่าใช้จ่าย";
 "Model breakdown unavailable" = "ไม่มีรายละเอียดแยกตามโมเดล";
+"Partial estimate" = "ประมาณการบางส่วน";
+"Partial model breakdown" = "รายละเอียดโมเดลบางส่วน";
+"%d of %d subscriptions have spend" = "%d จาก %d การสมัครมีข้อมูลการใช้จ่าย";
 "Local estimated history" = "ประวัติโดยประมาณในเครื่อง";
 "Coverage" = "ความครอบคลุม";
 "Estimated spend" = "ค่าใช้จ่ายโดยประมาณ";
@@ -1302,6 +1336,12 @@
 "By subscription" = "แยกตามการสมัครสมาชิก";
 "No model-level history" = "ไม่มีประวัติระดับโมเดล";
 "Daily estimated spend" = "ค่าใช้จ่ายรายวันโดยประมาณ";
+"Hourly estimated spend" = "ค่าใช้จ่ายรายชั่วโมงโดยประมาณ";
+"Hour" = "ชั่วโมง";
+"%d hours of usage data across %d services" = "ข้อมูลการใช้งาน %d ชั่วโมง จาก %d บริการ";
+"1 hour of usage data across 1 service" = "ข้อมูลการใช้งาน 1 ชั่วโมง จาก 1 บริการ";
+"%d hours of usage data across 1 service" = "ข้อมูลการใช้งาน %d ชั่วโมง จาก 1 บริการ";
+"1 hour of usage data across %d services" = "ข้อมูลการใช้งาน 1 ชั่วโมง จาก %d บริการ";
 "≈%d full 5h windows of weekly left · %d windows until reset" = "เหลือโควตารายสัปดาห์ ≈%d ช่วงเต็ม 5 ชม. · อีก %d ช่วงจนรีเซ็ต";
 "Weekly cannot run out before reset at this pace" = "ด้วยอัตรานี้ โควตารายสัปดาห์จะไม่หมดก่อนรีเซ็ต";
 "Weekly can run out ≈%d windows early" = "โควตารายสัปดาห์อาจหมดเร็วขึ้น ≈%d ช่วง";
@@ -1338,12 +1378,14 @@
 "menu_bar_layout_empty_line" = "วางโทเค็นที่นี่";
 "menu_bar_layout_line" = "บรรทัด %d";
 "menu_bar_layout_drag_remove" = "ลากมาที่นี่เพื่อลบ";
+"menu_bar_layout_remove_selected" = "ลบรายการที่เลือก";
 "menu_bar_layout_size" = "ขนาด";
 "menu_bar_layout_size_small" = "เล็ก";
 "menu_bar_layout_size_regular" = "ปกติ";
 "menu_bar_layout_gap" = "ระยะห่าง";
 "menu_bar_layout_gap_tight" = "ชิด";
 "menu_bar_layout_gap_regular" = "ปกติ";
+"menu_bar_layout_vertical_adjustment" = "ปรับแนวตั้ง";
 "menu_bar_layout_keyboard_hint" = "Delete ลบโทเค็นที่เลือก";
 "menu_bar_layout_sample_account" = "บัญชี";
 "menu_bar_layout_sample_runs_out" = "หมดวันศุกร์";
@@ -1456,3 +1498,60 @@
 "Opus" = "Opus";
 "now" = "now";
 "Time until reset" = "Time until reset";
+"claude_oauth_keychain_access_revoked" = "สิทธิ์เข้าถึงพวงกุญแจ Claude ถูกเพิกถอนจากการหมุนเวียนโทเค็นของ Claude Code คลิกรีเฟรชเพื่อให้สิทธิ์อีกครั้ง หรือเปลี่ยนแหล่งที่มาการใช้งาน Claude เป็น CLI/Web";
+"claude_showing_last_known_usage" = "กำลังแสดงการใช้งานล่าสุดที่ทราบ ซึ่งบันทึกเมื่อ %@";
+/* Spend dashboard cost analysis */
+"90d" = "90d";
+"Input" = "Input";
+"Output" = "Output";
+"Cache write" = "Cache write";
+"Reasoning" = "Reasoning";
+"Sessions" = "Sessions";
+"Projects" = "Projects";
+"Plan metered" = "Plan metered";
+"List-price equivalent" = "List-price equivalent";
+"Metered and list-price" = "Metered and list-price";
+"List-price equivalent — not a billing receipt." = "List-price equivalent — not a billing receipt.";
+"Priced" = "Priced";
+"Unpriced" = "Unpriced";
+"Unmetered" = "Unmetered";
+"Estimated" = "Estimated";
+"Other models" = "Other models";
+"Include OpenCodex usage logs" = "Include OpenCodex usage logs";
+"Hide native Codex when OpenCodex is present" = "Hide native Codex when OpenCodex is present";
+"Export JSON" = "Export JSON";
+"Copy JSON" = "คัดลอก JSON";
+"Sources" = "Sources";
+"OpenCodex" = "OpenCodex";
+
+"menu_bar_layout_token_conditional" = "ตามเงื่อนไข";
+"menu_bar_layout_group_conditionals" = "เงื่อนไข";
+"menu_bar_layout_conditional_add" = "เงื่อนไขใหม่";
+"menu_bar_layout_conditional_edit" = "แก้ไขเงื่อนไข";
+"menu_bar_layout_conditional_remove" = "ลบออกจากไลบรารี";
+"menu_bar_layout_conditional_save" = "บันทึก";
+"menu_bar_layout_conditional_if" = "ถ้า";
+"menu_bar_layout_conditional_then" = "จากนั้นแสดง";
+"menu_bar_layout_conditional_else" = "มิฉะนั้นแสดง";
+"menu_bar_layout_conditional_and" = "และ";
+"menu_bar_layout_conditional_or" = "หรือ";
+"menu_bar_layout_conditional_add_condition" = "เพิ่มเงื่อนไข";
+"menu_bar_layout_conditional_none" = "ยังไม่มีเงื่อนไข";
+"menu_bar_layout_conditional_hide" = "ซ่อน";
+"menu_bar_layout_conditional_name" = "ชื่อ";
+"menu_bar_layout_conditional_name_placeholder" = "เช่น ตรวจสอบเซสชัน";
+"menu_bar_layout_conditional_name_error" = "ป้อนชื่อที่ไม่ซ้ำกัน";
+"menu_bar_layout_conditional_used" = "ที่ใช้";
+"menu_bar_layout_conditional_remaining" = "ที่เหลือ";
+"menu_bar_layout_conditional_metric_resets_in" = "%@ รีเซ็ตใน";
+"menu_bar_layout_conditional_metric_scoped_weekly" = "รายสัปดาห์ตามขอบเขต";
+"menu_bar_layout_conditional_duplicate" = "ทำสำเนา";
+"menu_bar_layout_conditional_summary" = "ถ้า %1$@ จากนั้น %2$@ มิฉะนั้น %3$@";
+"menu_bar_layout_conditional_copy_name" = "%@ (สำเนา)";
+"menu_bar_layout_conditional_copy_name_numbered" = "%1$@ (สำเนา %2$d)";
+"menu_bar_layout_conditional_unavailable" = "เงื่อนไขไม่พร้อมใช้งาน";
+"menu_bar_layout_conditional_default_session_busy" = "ใช้เซสชันเกิน 50%";
+"menu_bar_layout_conditional_default_weekly_high" = "ใช้รายสัปดาห์เกิน 90%";
+"menu_bar_layout_conditional_default_session_spent" = "เซสชันเกือบหมด";
+"menu_bar_layout_conditional_default_either_high" = "เซสชันหรือรายสัปดาห์อยู่ในระดับสูง";
+"menu_bar_layout_conditional_default_scoped_weekly" = "รายสัปดาห์ตามโมเดลเกิน 60%";
