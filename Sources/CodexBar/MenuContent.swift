@@ -138,6 +138,8 @@ struct MenuContent: View {
             if let urlObj = URL(string: url) {
                 NSWorkspace.shared.open(urlObj)
             }
+        case .openCodexWorkspaces:
+            CodexWorkspacesPresenter.shared.present()
         case .settings:
             self.actions.openSettings()
         case .stats:
@@ -265,6 +267,7 @@ struct StatusIconView: View {
             stale: self.store.isStale(provider: self.provider),
             style: self.store.style(for: self.provider),
             statusIndicator: self.store.statusIndicator(for: self.provider),
-            hideCritters: self.store.settings.menuBarHidesCritters)
+            hideCritters: self.store.settings.menuBarHidesCritters,
+            quotaLayoutPolicy: .provider(self.provider))
     }
 }

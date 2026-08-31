@@ -22,8 +22,8 @@ struct CostUsagePerformanceGateTests {
     func `time limited codex catch-up bounds oversized active day discovery`() throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }
-        CostUsageScanner.resetCodexDirectoryCursorsForTesting()
-        defer { CostUsageScanner.resetCodexDirectoryCursorsForTesting() }
+        CostUsageScanner.resetCodexDirectoryCursorsForTesting(under: env.root)
+        defer { CostUsageScanner.resetCodexDirectoryCursorsForTesting(under: env.root) }
         let day = try env.makeLocalNoon(year: 2026, month: 5, day: 10)
         let corpusSize = 1500
         let candidateLimit = CostUsageScanner.codexCatchUpScanCandidateLimit
@@ -63,7 +63,7 @@ struct CostUsagePerformanceGateTests {
         #expect(firstCache.files.count == candidateLimit)
         #expect(firstCache.codexScanCatchUpPending == true)
 
-        CostUsageScanner.resetCodexDirectoryCursorsForTesting()
+        CostUsageScanner.resetCodexDirectoryCursorsForTesting(under: env.root)
         let relaunchedRecorder = CostUsageScanner.CodexScanWorkRecorder()
         options.codexScanWorkRecorderForTesting = relaunchedRecorder
         _ = CostUsageScanner.loadDailyReport(
@@ -84,6 +84,8 @@ struct CostUsagePerformanceGateTests {
         #expect(relaunchedCache.files.count == candidateLimit)
         #expect(relaunchedCache.codexScanCatchUpPending == true)
 
+        // A different fixture's simulated restart must not discard this cursor.
+        CostUsageScanner.resetCodexDirectoryCursorsForTesting(under: env.root.appendingPathComponent("unrelated"))
         let secondRecorder = CostUsageScanner.CodexScanWorkRecorder()
         options.codexScanWorkRecorderForTesting = secondRecorder
         _ = CostUsageScanner.loadDailyReport(
@@ -408,8 +410,8 @@ struct CostUsagePerformanceGateTests {
             + "elapsed=\(warmScannerTiming.elapsed) cpu=\(warmScannerTiming.cpu)")
     }
 
-    @Test
-    func `compatible predecessor store adoption performs zero session head parses`() throws {
+    @Test(arguments: ["43609cc56f76a003", "c6c46a376ba16304"])
+    func `compatible predecessor store adoption performs zero session head parses`(predecessorHash: String) throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }
         let day = try env.makeLocalNoon(year: 2026, month: 5, day: 10)
@@ -428,7 +430,6 @@ struct CostUsagePerformanceGateTests {
             now: day,
             options: coldOptions)
         let cache = CostUsageStoreAccess.read(cacheRoot: coldCacheRoot, calendar: coldOptions.calendar)
-        let predecessorHash = "43609cc56f76a003"
         let predecessorStore = CostUsageStore(
             cacheRoot: env.cacheRoot,
             schemaVersion: CostUsageStore.combinedSchemaVersion(
@@ -1091,7 +1092,11 @@ struct CostUsagePerformanceGateTests {
         rebuildingCache.timeZoneIdentifier = options.calendar.timeZone.identifier
         rebuildingCache.roots = priorCache.roots
         rebuildingCache.codexScanCatchUpPending = true
-        rebuildingCache.codexPreviousReport = CostUsageCodexPreviousReport(report: priorReport, cache: priorCache)
+        rebuildingCache.codexPreviousReport = CostUsageCodexPreviousReport(
+            report: priorReport,
+            cache: priorCache,
+            reportSinceKey: range.sinceKey,
+            reportUntilKey: range.untilKey)
         CostUsageStoreAccess.replace(cacheRoot: env.cacheRoot, cache: rebuildingCache)
         var report = CostUsageScanner.loadDailyReport(
             provider: .codex,
@@ -1915,7 +1920,7 @@ extension CostUsagePerformanceGateTests {
                             + #""model":"\#(model)"}}}"#)
                 }
             }
-            let fileURL = try env.writeCodexSessionFile(
+            let fileURL = try env.seedCodexSessionFile(
                 day: day,
                 filename: "session-\(fileIndex).jsonl",
                 contents: lines.joined(separator: "\n") + "\n")

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CodexBar
 
-@Suite(.serialized)
+@Suite(.serialized, CodexCredentialFixtures())
 struct CodexProfileHomeAccountTests {
     @MainActor
     private static func makeSettings(suite: String) throws -> SettingsStore {
@@ -24,10 +24,10 @@ struct CodexProfileHomeAccountTests {
     func `settings store discovers configured codex profile homes`() throws {
         let suite = "CodexProfileHomeAccountTests-discovery"
         let settings = try Self.makeSettings(suite: suite)
-        let missingLiveHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let missingLiveHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
-        let profileHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let profileHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
         try Self.writeCodexAuthFile(
@@ -69,7 +69,7 @@ struct CodexProfileHomeAccountTests {
     func `provider registry scopes selected codex profile home`() throws {
         let suite = "CodexProfileHomeAccountTests-routing"
         let settings = try Self.makeSettings(suite: suite)
-        let profileHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let profileHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
         try Self.writeCodexAuthFile(
@@ -190,11 +190,36 @@ struct CodexProfileHomeAccountTests {
         #expect(fixture.store.tokenSnapshot(for: .codex) == profileBSnapshot)
         #expect(completedModel.tokenUsage?.sessionLine.contains("$34") == true)
         #expect(completedModel.tokenUsage?.sessionLine.contains("$12") == false)
-        #expect(completedModel.inlineUsageDashboard?.points.map(\.value) == [34])
+        let completedPoints = try #require(completedModel.inlineUsageDashboard?.points)
+        #expect(completedPoints.count == 30)
+        #expect(completedPoints.last?.id == "2026-08-21")
+        #expect(completedPoints.last?.value == 34)
         #expect(completedModel.inlineUsageDashboard?.detailLines
             .contains { $0.contains("fictional-profile-b") } == true)
         #expect(completedModel.inlineUsageDashboard?.detailLines
             .contains { $0.contains("fictional-profile-a") } == false)
+    }
+
+    @Test
+    @MainActor
+    func `provider details chart uses the pinned cost bucket calendar`() throws {
+        let fixture = try Self.makeProfileHomeCostFixture(suite: "CodexProfileHomeAccountTests-chart-calendar")
+        defer { fixture.cleanup() }
+        fixture.settings.costUsageBucketTimeZoneIdentifier = "Pacific/Kiritimati"
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-08-24T12:30:00Z"))
+        let snapshot = CostUsageTokenSnapshot(
+            sessionTokens: 100,
+            sessionCostUSD: 3,
+            last30DaysTokens: 100,
+            last30DaysCostUSD: 3,
+            historyDays: 1,
+            daily: [InlineCostCalendarFixture.entry("2026-08-25", cost: 3)],
+            updatedAt: now)
+        fixture.store._setTokenSnapshotForTesting(snapshot, provider: .codex)
+        let model = ProvidersPane(settings: fixture.settings, store: fixture.store)
+            ._test_menuCardModel(for: .codex)
+        #expect(model.inlineUsageDashboard?.points.map(\.id) == ["2026-08-25"])
+        #expect(model.inlineUsageDashboard?.points.map(\.value) == [3])
     }
 
     @Test
@@ -217,7 +242,10 @@ struct CodexProfileHomeAccountTests {
             ._test_menuCardModel(for: .codex)
         #expect(fixture.store.tokenSnapshot(for: .codex) == ambientSnapshot)
         #expect(model.tokenUsage?.sessionLine.contains("$56") == true)
-        #expect(model.inlineUsageDashboard?.points.map(\.value) == [56])
+        let points = try #require(model.inlineUsageDashboard?.points)
+        #expect(points.count == 30)
+        #expect(points.last?.id == "2026-08-21")
+        #expect(points.last?.value == 56)
     }
 
     @Test
@@ -225,10 +253,10 @@ struct CodexProfileHomeAccountTests {
     func `removed profile home falls back without routing stale path`() throws {
         let suite = "CodexProfileHomeAccountTests-stale-routing"
         let settings = try Self.makeSettings(suite: suite)
-        let missingLiveHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let missingLiveHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
-        let removedProfileHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let removedProfileHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
         settings._test_codexReconciliationEnvironment = ["CODEX_HOME": missingLiveHome.path]
@@ -266,10 +294,10 @@ struct CodexProfileHomeAccountTests {
     func `external config removal immediately invalidates profile routing caches`() throws {
         let suite = "CodexProfileHomeAccountTests-external-removal"
         let settings = try Self.makeSettings(suite: suite)
-        let missingLiveHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let missingLiveHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
-        let profileHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let profileHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
         try Self.writeCodexAuthFile(
@@ -338,10 +366,10 @@ struct CodexProfileHomeAccountTests {
     func `unreadable configured profile home remains selected and routed`() throws {
         let suite = "CodexProfileHomeAccountTests-unreadable-routing"
         let settings = try Self.makeSettings(suite: suite)
-        let missingLiveHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let missingLiveHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
-        let unreadableProfileHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let unreadableProfileHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
         settings._test_codexReconciliationEnvironment = ["CODEX_HOME": missingLiveHome.path]
@@ -374,10 +402,10 @@ struct CodexProfileHomeAccountTests {
     func `profile without verified email refuses open A I cookie import`() async throws {
         let suite = "CodexProfileHomeAccountTests-missing-web-email"
         let settings = try Self.makeSettings(suite: suite)
-        let missingLiveHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let missingLiveHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
-        let unreadableProfileHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let unreadableProfileHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
         settings._test_codexReconciliationEnvironment = ["CODEX_HOME": missingLiveHome.path]
@@ -419,7 +447,7 @@ struct CodexProfileHomeAccountTests {
     func `profile home matching live home resolves to visible live account`() throws {
         let suite = "CodexProfileHomeAccountTests-live-duplicate"
         let settings = try Self.makeSettings(suite: suite)
-        let liveHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let liveHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
         let liveAccount = ObservedSystemCodexAccount(
@@ -449,7 +477,7 @@ struct CodexProfileHomeAccountTests {
     func `profile home matching managed home resolves to visible managed account`() throws {
         let suite = "CodexProfileHomeAccountTests-managed-duplicate"
         let settings = try Self.makeSettings(suite: suite)
-        let managedHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+        let managedHome = CodexCredentialFixtures.root.appendingPathComponent(
             UUID().uuidString,
             isDirectory: true)
         let managedAccount = ManagedCodexAccount(
@@ -501,7 +529,7 @@ struct CodexProfileHomeAccountTests {
         settings.costUsageEnabled = true
         settings.costSummaryDisplayStyle = .both
         settings.codexLocalSessionCostLedgerEnabled = localLedgerEnabled
-        let root = FileManager.default.temporaryDirectory
+        let root = CodexCredentialFixtures.root
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let firstHome = root.appendingPathComponent("profile-a", isDirectory: true)
         let secondHome = root.appendingPathComponent("profile-b", isDirectory: true)
@@ -544,7 +572,14 @@ struct CodexProfileHomeAccountTests {
     }
 
     private static func costSnapshot(cost: Double, tokens: Int, model: String) -> CostUsageTokenSnapshot {
-        CostUsageTokenSnapshot(
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let updatedAt = calendar.date(from: DateComponents(
+            year: 2026,
+            month: 8,
+            day: 21,
+            hour: 12)) ?? Date(timeIntervalSince1970: 1_787_313_600)
+        return CostUsageTokenSnapshot(
             sessionTokens: tokens,
             sessionCostUSD: cost,
             last30DaysTokens: tokens,
@@ -560,7 +595,7 @@ struct CodexProfileHomeAccountTests {
                     modelName: model,
                     costUSD: cost,
                     totalTokens: tokens)])],
-            updatedAt: Date())
+            updatedAt: updatedAt)
     }
 
     private static func writeCodexAuthFile(

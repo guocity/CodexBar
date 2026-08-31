@@ -239,6 +239,7 @@
 "No cost history data." = "Không có dữ liệu lịch sử chi phí.";
 "No data available" = "Không có dữ liệu";
 "No data yet" = "Chưa có dữ liệu";
+"Workspaces" = "Không gian làm việc";
 "No enabled providers available for Overview." = "Không có nhà cung cấp nào được bật cho Tổng quan.";
 "No providers selected" = "Chưa có nhà cung cấp nào được chọn";
 "No token accounts yet." = "Chưa có tài khoản token.";
@@ -651,6 +652,8 @@
 "section_keyboard_shortcut" = "Phím tắt";
 "open_menu_shortcut_title" = "Mở menu";
 "open_menu_shortcut_subtitle" = "Kích hoạt menu thanh menu từ mọi nơi.";
+"record_shortcut" = "Ghi phím tắt";
+"press_shortcut" = "Nhấn phím tắt";
 "install_cli" = "Cài đặt CLI";
 "install_cli_subtitle" = "Liên kết tượng trưng CodexBarCLI tới /usr/local/bin và /opt/homebrew/bin dưới dạng codexbar.";
 "cli_not_found" = "Không tìm thấy CodexBarCLI trong gói ứng dụng.";
@@ -661,6 +664,9 @@
 "surprise_me_subtitle" = "Kiểm tra xem bạn có thích các đại lý của mình vui vẻ ở đó không.";
 "hide_personal_info_title" = "Ẩn thông tin cá nhân";
 "hide_personal_info_subtitle" = "Địa chỉ email tối nghĩa trong thanh menu và giao diện người dùng menu.";
+"hide_cost_history_identity_subtitle" = "Đồng thời ẩn tên và đường dẫn dự án/nguồn trong lịch sử chi phí mà không thay đổi dữ liệu đã lưu.";
+"Project %d" = "Dự án %d";
+"Source %d" = "Nguồn %d";
 "show_provider_storage_usage_title" = "Hiển thị Nhà cung cấp bộ nhớ Mức sử dụng";
 "show_provider_storage_usage_subtitle" = "Hiển thị ổ đĩa cục bộ Mức sử dụng trong menu. Quét các đường dẫn thuộc quyền sở hữu của Nhà cung cấp đã biết ở chế độ nền.";
 "section_keychain_access" = "Keychain quyền truy cập";
@@ -1368,6 +1374,9 @@
 "menu_bar_layout_preset_compact_stacked" = "Xếp chồng gọn";
 "menu_bar_layout_preset_custom" = "Tùy chỉnh";
 "menu_bar_layout_live_preview" = "Xem trước trực tiếp";
+"menu_bar_layout_default_preview" = "Xem trước bố cục mặc định";
+"menu_bar_layout_overrides_notice" = "Các nhà cung cấp đang bật này dùng bố cục riêng đã lưu:";
+"menu_bar_layout_use_all_accessibility" = "%@: Dùng bố cục của tất cả nhà cung cấp";
 "menu_bar_layout_strip" = "Dải thanh menu";
 "menu_bar_layout_remove_line_break" = "Xóa ngắt dòng";
 "menu_bar_layout_chip_hint" = "Chọn, kéo để sắp xếp lại hoặc dùng thao tác Xóa.";
@@ -1435,6 +1444,7 @@
 "More" = "Nhiều";
 
 /* Provider Plugins */
+"Plugins" = "Plugins";
 "Install…" = "Cài đặt…";
 "Install plugin" = "Cài đặt plugin";
 "Copies a JavaScript or TypeScript file into the plugins directory." = "Sao chép tệp JavaScript hoặc TypeScript vào thư mục plugin.";
@@ -1552,3 +1562,4 @@
 "menu_bar_layout_conditional_default_session_spent" = "Phiên gần cạn";
 "menu_bar_layout_conditional_default_either_high" = "Phiên hoặc tuần đang ở mức cao";
 "menu_bar_layout_conditional_default_scoped_weekly" = "Tuần theo mô hình đã dùng trên 60%";
+"Spending cap, not balance" = "Hạn mức chi tiêu, không phải số dư";

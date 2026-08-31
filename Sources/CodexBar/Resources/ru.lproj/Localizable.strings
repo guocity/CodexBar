@@ -241,6 +241,7 @@
 "No cost history data." = "Нет истории расходов.";
 "No data available" = "Нет доступных данных";
 "No data yet" = "Данных пока нет";
+"Workspaces" = "Рабочие пространства";
 "No enabled providers available for Overview." = "Нет включённых провайдеров для обзора.";
 "No providers selected" = "Провайдеры не выбраны";
 "No token accounts yet." = "Токен-аккаунтов пока нет.";
@@ -656,6 +657,8 @@
 "section_keyboard_shortcut" = "Сочетание клавиш";
 "open_menu_shortcut_title" = "Открыть меню";
 "open_menu_shortcut_subtitle" = "Вызывать меню строки меню из любого места.";
+"record_shortcut" = "Добавить";
+"press_shortcut" = "Запись…";
 "install_cli" = "Установить CLI";
 "install_cli_subtitle" = "Создать symlink CodexBarCLI как codexbar в /usr/local/bin и /opt/homebrew/bin.";
 "cli_not_found" = "CodexBarCLI не найден в комплекте приложения.";
@@ -666,6 +669,9 @@
 "surprise_me_subtitle" = "Включите, если хотите немного оживить индикаторы агентов в строке меню.";
 "hide_personal_info_title" = "Скрыть личную информацию";
 "hide_personal_info_subtitle" = "Скрывает email-адреса в строке меню и интерфейсе меню.";
+"hide_cost_history_identity_subtitle" = "Также скрывает названия и пути проектов и источников в истории расходов, не изменяя сохранённые данные.";
+"Project %d" = "Проект %d";
+"Source %d" = "Источник %d";
 "show_provider_storage_usage_title" = "Показать использование хранилища провайдера";
 "show_provider_storage_usage_subtitle" = "Показывать использование локального диска в меню. Сканирует известные пути, принадлежащие провайдеру, в фоновом режиме.";
 "section_keychain_access" = "Доступ к Keychain";
@@ -1369,6 +1375,9 @@
 "menu_bar_layout_preset_compact_stacked" = "Компактно в две строки";
 "menu_bar_layout_preset_custom" = "Пользовательский";
 "menu_bar_layout_live_preview" = "Предпросмотр";
+"menu_bar_layout_default_preview" = "Предпросмотр макета по умолчанию";
+"menu_bar_layout_overrides_notice" = "Эти включённые провайдеры используют собственные сохранённые макеты:";
+"menu_bar_layout_use_all_accessibility" = "%@: Использовать макет для всех провайдеров";
 "menu_bar_layout_strip" = "Строка меню";
 "menu_bar_layout_remove_line_break" = "Удалить разрыв строки";
 "menu_bar_layout_chip_hint" = "Выберите, перетащите для изменения порядка или используйте действие удаления.";
@@ -1436,6 +1445,7 @@
 "More" = "Больше";
 
 /* Provider Plugins */
+"Plugins" = "Plugins";
 "Install…" = "Установить…";
 "Install plugin" = "Установить плагин";
 "Copies a JavaScript or TypeScript file into the plugins directory." = "Копирует файл JavaScript или TypeScript в каталог плагинов.";
@@ -1552,3 +1562,4 @@
 "menu_bar_layout_conditional_default_session_spent" = "Сессия почти исчерпана";
 "menu_bar_layout_conditional_default_either_high" = "Сессия или неделя на высоком уровне";
 "menu_bar_layout_conditional_default_scoped_weekly" = "Недельное окно модели более 60 %";
+"Spending cap, not balance" = "Лимит расходов, не баланс";

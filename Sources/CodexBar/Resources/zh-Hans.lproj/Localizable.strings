@@ -247,6 +247,7 @@
 "No credits history data." = "暂无额度记录。";
 "No data available" = "无可用数据";
 "No data yet" = "暂无数据";
+"Workspaces" = "工作区";
 "No enabled providers available for Overview." = "“概览”中没有可用的已启用提供商。";
 "No providers selected" = "未选择提供商";
 "No token accounts yet." = "尚无令牌账户。";
@@ -628,6 +629,8 @@
 "section_keyboard_shortcut" = "快捷键";
 "open_menu_shortcut_title" = "打开菜单";
 "open_menu_shortcut_subtitle" = "从任意位置触发菜单栏菜单。";
+"record_shortcut" = "设置快捷键";
+"press_shortcut" = "按下快捷键";
 "install_cli" = "安装 CLI";
 "install_cli_subtitle" = "将 CodexBarCLI 作为 codexbar 符号链接到 /usr/local/bin 和 /opt/homebrew/bin。";
 "cli_not_found" = "在应用包中未找到 CodexBarCLI。";
@@ -638,6 +641,9 @@
 "surprise_me_subtitle" = "看看你是否喜欢你的智能体在上面找点乐子。";
 "hide_personal_info_title" = "隐藏个人信息";
 "hide_personal_info_subtitle" = "在菜单栏和菜单界面中隐藏电子邮件地址。";
+"hide_cost_history_identity_subtitle" = "同时隐藏费用历史中的项目和来源名称及路径，不更改已存储的数据。";
+"Project %d" = "项目 %d";
+"Source %d" = "来源 %d";
 "show_provider_storage_usage_title" = "显示提供商存储用量";
 "show_provider_storage_usage_subtitle" = "在菜单中显示本地磁盘用量。会在后台扫描已知的提供商自有路径。";
 "section_keychain_access" = "钥匙串访问";
@@ -1368,6 +1374,9 @@
 "menu_bar_layout_preset_compact_stacked" = "紧凑堆叠";
 "menu_bar_layout_preset_custom" = "自定义";
 "menu_bar_layout_live_preview" = "实时预览";
+"menu_bar_layout_default_preview" = "默认布局预览";
+"menu_bar_layout_overrides_notice" = "以下已启用的提供商使用各自保存的布局：";
+"menu_bar_layout_use_all_accessibility" = "%@：使用所有提供商的布局";
 "menu_bar_layout_strip" = "菜单栏条带";
 "menu_bar_layout_remove_line_break" = "移除换行";
 "menu_bar_layout_chip_hint" = "选择、拖动以重新排序，或使用移除操作。";
@@ -1435,6 +1444,7 @@
 "More" = "多";
 
 /* Provider Plugins */
+"Plugins" = "Plugins";
 "Install…" = "安装…";
 "Install plugin" = "安装插件";
 "Copies a JavaScript or TypeScript file into the plugins directory." = "将 JavaScript 或 TypeScript 文件复制到插件目录。";
@@ -1563,3 +1573,4 @@
 "in %@h" = "%@ 小时后";
 "in %@m" = "%@ 分钟后";
 "now" = "现在";
+"Spending cap, not balance" = "支出上限，并非余额";

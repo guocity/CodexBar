@@ -39,6 +39,14 @@ Usage source picker:
 - The menu and provider settings list every still-available expiry, while the optional credits setting controls
   nearing-expiry notifications. CodexBar does not redeem or modify reset credits.
 - `rate_limit.primary_window` / `secondary_window` map to the session/weekly lanes.
+- Suspicious weekly resets keep the last trusted usage while confirmation is pending. A successful refresh for the
+  same account and workspace clears stale connectivity errors even when the reading is withheld; failed, cancelled,
+  or superseded refreshes do not clear them. Cached usage, credits, and other accounts remain unchanged.
+- Debug logs in `codex-weekly-reset-publication` include fixed reason codes for delayed-candidate
+  creation, pruning, revalidation, and account-scoped storage requests. They distinguish source/confidence,
+  timing, boundary, identity/plan compatibility, and credit-inventory failures without logging account or credit
+  identifiers. Codes describe the first rejected prerequisite; they do not relax confirmation policy or prove the
+  cause of a past stale reading. `storeRequested` means the file-store call was made, not that a disk write succeeded.
 - `additional_rate_limits[]` (model-specific limits such as GPT-5.3-Codex-Spark) map to named
   `UsageSnapshot.extraRateWindows` entries. Spark uses stable `codex-spark` / `codex-spark-weekly` ids and
   `Codex Spark 5-hour` / `Codex Spark Weekly` titles. When the field is absent, the snapshot is unchanged.
@@ -57,6 +65,8 @@ Usage source picker:
   Automatic mode also suppresses unscoped CLI fallback whenever a managed workspace is selected. Explicit
   managed-account workspace selection is stored in CodexBar's private managed-account metadata; it never edits the
   source `auth.json` or publishes an `account_id` change back to another application's credential file.
+- Reusing OpenCode OAuth enables remote account quota, not OpenCode session token/cost ingestion. See
+  [OpenCode with Codex or OpenAI](opencode.md#using-opencode-with-codex-or-openai) for the current history boundary.
 
 ### Advanced profile-home accounts
 - Managed Codex accounts remain the default multi-account path.
@@ -90,6 +100,11 @@ Example:
 - Uses an off-screen `WKWebView` with a per-account `WKWebsiteDataStore`.
   - Store key: deterministic UUID from the normalized email.
 - WebKit store can hold multiple accounts concurrently.
+- Each WebView acquisition keeps ownership across asynchronous page preparation. Explicit store eviction invalidates
+  that store's pending preparations, so stale success, failure, or timeout retry cannot displace a replacement view.
+  Evict-all invalidates all pending preparations; ordinary lease release does not invalidate concurrent temporary views.
+- Leases retain their cleanup owner independently of the cache and release only once. Validated pages still support
+  the brief reuse handoff; other releases schedule the existing deferred WebKit cleanup, including temporary views.
 - Cookie import (Automatic mode, when WebKit store has no matching session or login required):
   1) Safari: `~/Library/Cookies/Cookies.binarycookies`
   2) Chrome/Chromium forks: `~/Library/Application Support/Google/Chrome/*/Cookies`
@@ -162,6 +177,8 @@ Example:
   - By default, a selected managed account keeps its own `CODEX_HOME` session history.
   - **Local session cost estimates** is a Codex-only opt-in that instead scans this Mac's ambient `$CODEX_HOME`
     (or `~/.codex`) independently of quota, OAuth, web-dashboard, and administrator access.
+  - Regular menu cost refreshes publish local session estimates even when global cost tracking is off. This does not
+    enable other providers' cost scans; results still require the same provider configuration and history/account scope.
   - The local-only mode never makes a network request or uploads session content. It uses an existing local models.dev
     cache when available, then the bundled `CostUsagePricing` rates.
 - Source files:
@@ -182,9 +199,28 @@ Example:
   - Native conversation rows reuse the corrected cached per-file totals and existing pricing tables. They are hidden
     when pi-compatible usage joins the aggregate because the native-only rows would not reconcile with the merged total.
 - Cache:
-  - Native + merged provider cache: `~/Library/Caches/CodexBar/cost-usage/codex-v11.json`
-  - pi-compatible session cache: `~/Library/Caches/CodexBar/cost-usage/pi-sessions-v7.json`
-- Window: configurable 1-365 day rolling history, with a 60s minimum refresh interval.
+  - Native session store: `~/Library/Caches/CodexBar/cost-usage/cost-usage.sqlite`
+  - pi-compatible session cache: `~/Library/Caches/CodexBar/cost-usage/pi-sessions-v8.json`
+  - Catch-up status reads progress metadata without loading historical usage JSON or replay bodies. Cached reports
+    retain row-level pricing evidence and project/session details, but omit raw token snapshots, accumulator state,
+    and replay bodies. File cursor metadata, including JSONL resume state, remains available for progress tracking.
+    Scanner and save operations still load the complete state; fresh database opens retain integrity validation.
+  - Saved day/model aggregates group each file's usage rows in one pass per aggregate build. Packed token totals,
+    authoritative costs (including zero), and standard/priority estimation buckets retain their existing meanings.
+- Window: configurable 1-365 day rolling history.
+- App cadence: regular timer-driven local-history refreshes have a 15-minute minimum (30 minutes in Low Power Mode).
+  Manual disables the recurring refresh timer, not all scan activity: startup refreshes and pending Codex catch-up can
+  still scan local history. Faster provider refreshes still update quota/status. The scanner's default 60-second
+  debounce is a separate internal limit, bypassed by forced scans and catch-up passes; it is not the app's refresh cadence.
+- Inline cost charts preserve a slot for every day in that window, using the selected cost-bucket time zone and the snapshot's date. Missing days are zero only after history coverage is established; unscanned days and entries without prices remain unknown. Long windows fit within the menu width without dropping dates.
+- **Hide personal information** replaces project/source names with numbered labels and hides their paths in the cost-history submenu; Usage & Spend also masks project names. Costs, tokens, grouping, and stored history are unchanged, and disabling the setting restores the original labels. This is display masking, not data deletion or export sanitization.
+- While a bounded refresh catches up with new session history, established totals remain visible only for the same
+  account, history window, and bucket time zone. An incomplete first scan never borrows another account's totals.
+- Pending local-history files receive a turn before fresh work, within the existing byte and duration limits.
+  Unfinished files rotate behind waiting work, and the queue survives restarts without rebuilding compatible caches.
+- Parent-session discovery also resumes within those limits after the requesting fork files leave both scan roots.
+  Stale pending path associations are reconciled in the existing cache; surviving forks with missing parents still
+  retain their unresolved usage instead of being counted as complete.
 
 ### Usage & Spend account rows
 

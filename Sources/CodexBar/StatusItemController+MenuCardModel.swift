@@ -163,6 +163,7 @@ extension StatusItemController {
             paceVisible: self.settings.paceVisible,
             usesLiveSubtitle: surface == .liveCard,
             preferredCurrencyCode: self.settings.preferredCurrencyCode,
+            costUsageBucketCalendar: self.settings.costUsageBucketCalendar,
             now: now)
         return UsageMenuCardView.Model.make(input)
     }
@@ -222,10 +223,18 @@ extension StatusItemController {
         let weeklyPace = if let codexProjection,
                             let weekly = codexProjection.rateWindow(for: .weekly)
         {
-            self.store.weeklyPace(provider: target, window: weekly, now: now)
+            self.store.weeklyPace(
+                provider: target,
+                window: weekly,
+                dataConfidence: snapshot?.dataConfidence ?? .unknown,
+                now: now)
         } else {
             paceWindow.flatMap { window in
-                self.store.weeklyPace(provider: target, window: window, now: now)
+                self.store.weeklyPace(
+                    provider: target,
+                    window: window,
+                    dataConfidence: snapshot?.dataConfidence ?? .unknown,
+                    now: now)
             }
         }
         let forecast: SessionEquivalentForecast? = if let codexProjection,

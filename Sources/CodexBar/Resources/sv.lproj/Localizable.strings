@@ -240,6 +240,7 @@
 "No credits history data." = "Ingen kredithistorik.";
 "No data available" = "Inga data tillgängliga";
 "No data yet" = "Inga data än";
+"Workspaces" = "Arbetsytor";
 "No enabled providers available for Overview." = "Inga aktiverade leverantörer är tillgängliga för översikten.";
 "No providers selected" = "Inga leverantörer valda";
 "No token accounts yet." = "Inga tokenkonton än.";
@@ -654,6 +655,8 @@
 "section_keyboard_shortcut" = "Kortkommando";
 "open_menu_shortcut_title" = "Öppna meny";
 "open_menu_shortcut_subtitle" = "Öppna menyradsmenyn var du än är.";
+"record_shortcut" = "Spela in kortkommando";
+"press_shortcut" = "Tryck på kortkommandot";
 "install_cli" = "Installera CLI";
 "install_cli_subtitle" = "Symlänka CodexBarCLI till /usr/local/bin och /opt/homebrew/bin som codexbar.";
 "cli_not_found" = "CodexBarCLI hittades inte i apppaketet.";
@@ -664,6 +667,9 @@
 "surprise_me_subtitle" = "Kontrollera om du vill att agenterna ska få leka lite där uppe.";
 "hide_personal_info_title" = "Dölj personuppgifter";
 "hide_personal_info_subtitle" = "Maskera e-postadresser i menyraden och menygränssnittet.";
+"hide_cost_history_identity_subtitle" = "Döljer även projekt- och källnamn samt sökvägar i kostnadshistoriken utan att ändra lagrade data.";
+"Project %d" = "Projekt %d";
+"Source %d" = "Källa %d";
 "show_provider_storage_usage_title" = "Visa leverantörers lagringsanvändning";
 "show_provider_storage_usage_subtitle" = "Visa lokal diskanvändning i menyer. Söker igenom kända leverantörsägda sökvägar i bakgrunden.";
 "section_keychain_access" = "Åtkomst till Nyckelring";
@@ -1366,6 +1372,9 @@
 "menu_bar_layout_preset_compact_stacked" = "Kompakt staplad";
 "menu_bar_layout_preset_custom" = "Anpassat";
 "menu_bar_layout_live_preview" = "Liveförhandsvisning";
+"menu_bar_layout_default_preview" = "Förhandsvisning av standardlayout";
+"menu_bar_layout_overrides_notice" = "Dessa aktiverade leverantörer använder egna sparade layouter:";
+"menu_bar_layout_use_all_accessibility" = "%@: Använd layouten för alla leverantörer";
 "menu_bar_layout_strip" = "Menyradsremsa";
 "menu_bar_layout_remove_line_break" = "Ta bort radbrytning";
 "menu_bar_layout_chip_hint" = "Markera, dra för att ändra ordning eller använd åtgärden Ta bort.";
@@ -1433,6 +1442,7 @@
 "More" = "Mer";
 
 /* Provider Plugins */
+"Plugins" = "Plugins";
 "Install…" = "Installera…";
 "Install plugin" = "Installera plugin";
 "Copies a JavaScript or TypeScript file into the plugins directory." = "Kopierar en JavaScript- eller TypeScript-fil till pluginmappen.";
@@ -1550,3 +1560,4 @@
 "menu_bar_layout_conditional_default_session_spent" = "Sessionen nästan förbrukad";
 "menu_bar_layout_conditional_default_either_high" = "Session eller vecka ligger högt";
 "menu_bar_layout_conditional_default_scoped_weekly" = "Modellvecka över 60 % använt";
+"Spending cap, not balance" = "Utgiftstak, inte saldo";

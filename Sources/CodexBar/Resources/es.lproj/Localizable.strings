@@ -239,6 +239,7 @@
 "No credits history data." = "No hay datos de historial de créditos.";
 "No data available" = "No hay datos disponibles";
 "No data yet" = "Aún no hay datos";
+"Workspaces" = "Espacios de trabajo";
 "No enabled providers available for Overview." = "No hay proveedores activados disponibles para Resumen.";
 "No providers selected" = "No hay proveedores seleccionados";
 "No token accounts yet." = "Aún no hay cuentas con token.";
@@ -647,6 +648,8 @@
 "section_keyboard_shortcut" = "Atajo de teclado";
 "open_menu_shortcut_title" = "Abrir menú";
 "open_menu_shortcut_subtitle" = "Abrir el menú de la barra de menús desde cualquier lugar.";
+"record_shortcut" = "Grabar atajo";
+"press_shortcut" = "Pulsar atajo";
 "install_cli" = "Instalar CLI";
 "install_cli_subtitle" = "Crear un enlace simbólico de CodexBarCLI en /usr/local/bin y /opt/homebrew/bin como codexbar.";
 "cli_not_found" = "No se encontró CodexBarCLI en el paquete de la app.";
@@ -658,6 +661,9 @@
 "surprise_me_subtitle" = "Actívalo si te gusta que tus agentes se diviertan ahí arriba.";
 "hide_personal_info_title" = "Ocultar información personal";
 "hide_personal_info_subtitle" = "Oculta las direcciones de correo en la barra de menús y la interfaz del menú.";
+"hide_cost_history_identity_subtitle" = "También oculta los nombres y las rutas de proyectos y fuentes del historial de costes, sin cambiar los datos guardados.";
+"Project %d" = "Proyecto %d";
+"Source %d" = "Fuente %d";
 "show_provider_storage_usage_title" = "Mostrar uso de almacenamiento del proveedor";
 "show_provider_storage_usage_subtitle" = "Muestra el uso de disco local en los menús. Analiza en segundo plano las rutas conocidas del proveedor.";
 "section_keychain_access" = "Acceso al Llavero";
@@ -1366,6 +1372,9 @@
 "menu_bar_layout_preset_compact_stacked" = "Apilado compacto";
 "menu_bar_layout_preset_custom" = "Personalizado";
 "menu_bar_layout_live_preview" = "Vista previa en directo";
+"menu_bar_layout_default_preview" = "Vista previa del diseño predeterminado";
+"menu_bar_layout_overrides_notice" = "Estos proveedores habilitados usan sus propios diseños guardados:";
+"menu_bar_layout_use_all_accessibility" = "%@: Usar el diseño de todos los proveedores";
 "menu_bar_layout_strip" = "Franja de la barra de menús";
 "menu_bar_layout_remove_line_break" = "Quitar salto de línea";
 "menu_bar_layout_chip_hint" = "Selecciona, arrastra para reordenar o usa la acción Quitar.";
@@ -1433,6 +1442,7 @@
 "More" = "Más";
 
 /* Provider Plugins */
+"Plugins" = "Plugins";
 "Install…" = "Instalar…";
 "Install plugin" = "Instalar plugin";
 "Copies a JavaScript or TypeScript file into the plugins directory." = "Copia un archivo JavaScript o TypeScript en el directorio de plugins.";
@@ -1549,3 +1559,4 @@
 "menu_bar_layout_conditional_default_session_spent" = "Sesión casi agotada";
 "menu_bar_layout_conditional_default_either_high" = "Sesión o semana en nivel alto";
 "menu_bar_layout_conditional_default_scoped_weekly" = "Semana por modelo por encima del 60 %";
+"Spending cap, not balance" = "Límite de gasto, no saldo";

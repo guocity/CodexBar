@@ -23,6 +23,11 @@ public enum AntigravityOfflineStore {
             .appendingPathComponent("conversations", isDirectory: true)
     }
 
+    public static func appDataDirectory(home: URL, env: [String: String] = [:]) -> URL {
+        self.geminiHomeDirectory(home: home, env: env)
+            .appendingPathComponent("antigravity", isDirectory: true)
+    }
+
     /// Tokscale cache alternative: `~/.config/tokscale/antigravity-cache/sessions`
     public static func tokscaleCacheDirectory(home: URL) -> URL {
         home.appendingPathComponent(".config", isDirectory: true)
@@ -38,8 +43,13 @@ public enum AntigravityOfflineStore {
         fileManager: FileManager = .default) -> Int
     {
         let primary = self.conversationsDirectory(home: home, env: env)
+        let appData = self.appDataDirectory(home: home, env: env)
+        let appDataConversations = appData.appendingPathComponent("conversations", isDirectory: true)
         let primaryCount = self.countDBFiles(in: primary, fileManager: fileManager)
-        if primaryCount > 0 { return primaryCount }
+        let appDataCount = self.countDBFiles(in: appData, fileManager: fileManager)
+        let appDataConvCount = self.countDBFiles(in: appDataConversations, fileManager: fileManager)
+        let totalDB = primaryCount + appDataCount + appDataConvCount
+        if totalDB > 0 { return totalDB }
         // Fallback to tokscale JSONL cache (also counts as offline availability)
         let cache = self.tokscaleCacheDirectory(home: home)
         return self.countJSONLFiles(in: cache, fileManager: fileManager)

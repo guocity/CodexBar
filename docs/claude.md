@@ -139,6 +139,8 @@ The accepted multi-account design in
 
 - Setup: Preferences → Providers → Claude → "Read accounts from claude-swap", then set the path to the
   [`cswap`](https://github.com/realiti4/claude-swap) executable (for example `~/.local/bin/cswap`).
+- Version detection retries after a failed or cancelled startup probe; replaced refreshes cannot overwrite a newer
+  result, and disabling the adapter or changing its executable clears the previous detected version.
 - Behavior: on each Claude refresh, CodexBar runs `cswap --list --json` independently of the ambient Claude fetch (no
   shell, fixed arguments, bounded runtime and output), requires `schemaVersion == 1`, and parses only slot number,
   active state, usage status, email (display only), display-only `organizationName` (always present, may be empty),
@@ -244,7 +246,7 @@ Model-scoped weekly-window proof (synthetic data, no real accounts or credential
     single pi-compatible session can contribute to multiple models/days.
   - Matching assistant entry IDs within the same session are counted once across roots; distinct turns are retained.
 - Cache:
-  - Native + merged provider cache: `~/Library/Caches/CodexBar/cost-usage/claude-v2.json`
+  - Native provider cache: `~/Library/Caches/CodexBar/cost-usage/claude-v6.json`
   - pi-compatible session cache: `~/Library/Caches/CodexBar/cost-usage/pi-sessions-v7.json`
 
 ## Key files

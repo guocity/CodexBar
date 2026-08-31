@@ -224,6 +224,7 @@
 "No cost history data." = "Tidak ada data riwayat biaya.";
 "No data available" = "Tidak ada data tersedia";
 "No data yet" = "Belum ada data";
+"Workspaces" = "Ruang Kerja";
 "No enabled providers available for Overview." = "Tidak ada penyedia aktif untuk Ikhtisar.";
 "No providers selected" = "Tidak ada penyedia dipilih";
 "No token accounts yet." = "Belum ada akun token.";
@@ -663,6 +664,8 @@
 "section_keyboard_shortcut" = "Pintasan keyboard";
 "open_menu_shortcut_title" = "Buka menu";
 "open_menu_shortcut_subtitle" = "Picu menu bar dari mana saja.";
+"record_shortcut" = "Rekam pintasan";
+"press_shortcut" = "Tekan pintasan";
 "install_cli" = "Pasang CLI";
 "install_cli_subtitle" = "Symlink CodexBarCLI ke /usr/local/bin dan /opt/homebrew/bin sebagai codexbar.";
 "cli_not_found" = "CodexBarCLI tidak ditemukan di bundel aplikasi.";
@@ -673,6 +676,9 @@
 "surprise_me_subtitle" = "Centang jika Anda suka agen bersenang-senang di atas sana.";
 "hide_personal_info_title" = "Sembunyikan informasi pribadi";
 "hide_personal_info_subtitle" = "Samarkan alamat email di menu bar dan antarmuka menu.";
+"hide_cost_history_identity_subtitle" = "Juga sembunyikan nama dan jalur proyek/sumber dalam riwayat biaya tanpa mengubah data tersimpan.";
+"Project %d" = "Proyek %d";
+"Source %d" = "Sumber %d";
 "show_provider_storage_usage_title" = "Tampilkan penggunaan penyimpanan penyedia";
 "show_provider_storage_usage_subtitle" = "Tampilkan penggunaan disk lokal di menu. Memindai path milik penyedia di latar belakang.";
 "section_keychain_access" = "Akses Keychain";
@@ -1371,6 +1377,9 @@
 "menu_bar_layout_preset_compact_stacked" = "Tumpukan ringkas";
 "menu_bar_layout_preset_custom" = "Kustom";
 "menu_bar_layout_live_preview" = "Pratinjau langsung";
+"menu_bar_layout_default_preview" = "Pratinjau tata letak default";
+"menu_bar_layout_overrides_notice" = "Penyedia aktif ini menggunakan tata letak tersimpan sendiri:";
+"menu_bar_layout_use_all_accessibility" = "%@: Gunakan tata letak semua penyedia";
 "menu_bar_layout_strip" = "Strip bar menu";
 "menu_bar_layout_remove_line_break" = "Hapus pemisah baris";
 "menu_bar_layout_chip_hint" = "Pilih, seret untuk mengurutkan ulang, atau gunakan tindakan Hapus.";
@@ -1438,6 +1447,7 @@
 "More" = "Banyak";
 
 /* Provider Plugins */
+"Plugins" = "Plugins";
 "Install…" = "Pasang…";
 "Install plugin" = "Pasang plugin";
 "Copies a JavaScript or TypeScript file into the plugins directory." = "Menyalin file JavaScript atau TypeScript ke direktori plugin.";
@@ -1555,3 +1565,4 @@
 "menu_bar_layout_conditional_default_session_spent" = "Sesi hampir habis";
 "menu_bar_layout_conditional_default_either_high" = "Sesi atau mingguan sedang tinggi";
 "menu_bar_layout_conditional_default_scoped_weekly" = "Mingguan per model di atas 60%";
+"Spending cap, not balance" = "Batas pengeluaran, bukan saldo";

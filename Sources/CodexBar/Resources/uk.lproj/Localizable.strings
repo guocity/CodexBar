@@ -239,6 +239,7 @@
 "No cost history data." = "Немає даних історії витрат.";
 "No data available" = "Немає даних";
 "No data yet" = "Даних ще немає";
+"Workspaces" = "Робочі простори";
 "No enabled providers available for Overview." = "Немає активованих постачальників, доступних для огляду.";
 "No providers selected" = "Не вибрано жодного постачальника";
 "No token accounts yet." = "Жетонів ще немає.";
@@ -655,6 +656,8 @@
 "section_keyboard_shortcut" = "Комбінація клавіш";
 "open_menu_shortcut_title" = "Відкрити меню";
 "open_menu_shortcut_subtitle" = "Викликати меню панелі меню з будь-якого місця.";
+"record_shortcut" = "Записати комбінацію";
+"press_shortcut" = "Натисніть комбінацію";
 "install_cli" = "Встановіть CLI";
 "install_cli_subtitle" = "Символьне посилання CodexBarCLI на /usr/local/bin і /opt/homebrew/bin як codexbar.";
 "cli_not_found" = "CodexBarCLI не знайдено в пакеті програм.";
@@ -665,6 +668,9 @@
 "surprise_me_subtitle" = "Перевірте, чи подобається вам, що ваші агенти розважаються там.";
 "hide_personal_info_title" = "Приховати особисту інформацію";
 "hide_personal_info_subtitle" = "Незрозумілі адреси електронної пошти на панелі меню та інтерфейсі меню.";
+"hide_cost_history_identity_subtitle" = "Також приховує назви та шляхи проєктів і джерел в історії витрат, не змінюючи збережені дані.";
+"Project %d" = "Проєкт %d";
+"Source %d" = "Джерело %d";
 "show_provider_storage_usage_title" = "Показати використання сховища постачальника";
 "show_provider_storage_usage_subtitle" = "Показати використання локального диска в меню. Сканує відомі шляхи, що належать провайдеру, у фоновому режимі.";
 "section_keychain_access" = "Доступ через брелок";
@@ -1367,6 +1373,9 @@
 "menu_bar_layout_preset_compact_stacked" = "Компактно у два рядки";
 "menu_bar_layout_preset_custom" = "Користувацький";
 "menu_bar_layout_live_preview" = "Попередній перегляд";
+"menu_bar_layout_default_preview" = "Перегляд типового макета";
+"menu_bar_layout_overrides_notice" = "Ці ввімкнені провайдери використовують власні збережені макети:";
+"menu_bar_layout_use_all_accessibility" = "%@: Використовувати макет для всіх провайдерів";
 "menu_bar_layout_strip" = "Смуга меню";
 "menu_bar_layout_remove_line_break" = "Видалити розрив рядка";
 "menu_bar_layout_chip_hint" = "Виберіть, перетягніть для зміни порядку або скористайтеся дією видалення.";
@@ -1434,6 +1443,7 @@
 "More" = "Більше";
 
 /* Provider Plugins */
+"Plugins" = "Plugins";
 "Install…" = "Встановити…";
 "Install plugin" = "Встановити плагін";
 "Copies a JavaScript or TypeScript file into the plugins directory." = "Копіює файл JavaScript або TypeScript до каталогу плагінів.";
@@ -1551,3 +1561,4 @@
 "menu_bar_layout_conditional_default_session_spent" = "Сесія майже вичерпана";
 "menu_bar_layout_conditional_default_either_high" = "Сесія або тиждень на високому рівні";
 "menu_bar_layout_conditional_default_scoped_weekly" = "Тижневе вікно моделі понад 60 %";
+"Spending cap, not balance" = "Ліміт витрат, не баланс";

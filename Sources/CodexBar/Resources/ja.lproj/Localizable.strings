@@ -239,6 +239,7 @@
 "No cost history data." = "コスト履歴データがありません。";
 "No data available" = "データがありません";
 "No data yet" = "まだデータがありません";
+"Workspaces" = "ワークスペース";
 "No enabled providers available for Overview." = "概要に表示できる有効なプロバイダがありません。";
 "No providers selected" = "プロバイダが選択されていません";
 "No token accounts yet." = "トークンアカウントはまだありません。";
@@ -652,6 +653,8 @@
 "section_keyboard_shortcut" = "キーボードショートカット";
 "open_menu_shortcut_title" = "メニューを開く";
 "open_menu_shortcut_subtitle" = "どこからでもメニューバーのメニューを開きます。";
+"record_shortcut" = "キーを記録";
+"press_shortcut" = "キーを押してください";
 "install_cli" = "CLI をインストール";
 "install_cli_subtitle" = "CodexBarCLI を codexbar として /usr/local/bin と /opt/homebrew/bin にシンボリックリンクします。";
 "cli_not_found" = "アプリバンドル内に CodexBarCLI が見つかりません。";
@@ -662,6 +665,9 @@
 "surprise_me_subtitle" = "エージェントたちがメニューバーで少し遊ぶのが好きか試してみてください。";
 "hide_personal_info_title" = "個人情報を隠す";
 "hide_personal_info_subtitle" = "メニューバーとメニュー UI のメールアドレスを伏せ字にします。";
+"hide_cost_history_identity_subtitle" = "保存データを変更せずに、コスト履歴のプロジェクト名・ソース名とパスも非表示にします。";
+"Project %d" = "プロジェクト %d";
+"Source %d" = "ソース %d";
 "show_provider_storage_usage_title" = "プロバイダのストレージ使用量を表示";
 "show_provider_storage_usage_subtitle" = "ローカルディスクの使用量をメニューに表示します。既知のプロバイダ所有パスをバックグラウンドでスキャンします。";
 "section_keychain_access" = "キーチェーンアクセス";
@@ -1368,6 +1374,9 @@
 "menu_bar_layout_preset_compact_stacked" = "コンパクトな2段表示";
 "menu_bar_layout_preset_custom" = "カスタム";
 "menu_bar_layout_live_preview" = "ライブプレビュー";
+"menu_bar_layout_default_preview" = "デフォルトレイアウトのプレビュー";
+"menu_bar_layout_overrides_notice" = "次の有効なプロバイダーは独自の保存済みレイアウトを使用しています：";
+"menu_bar_layout_use_all_accessibility" = "%@：全プロバイダーのレイアウトを使用";
 "menu_bar_layout_strip" = "メニューバー表示";
 "menu_bar_layout_remove_line_break" = "改行を削除";
 "menu_bar_layout_chip_hint" = "選択、ドラッグで並べ替え、または削除アクションを使用します。";
@@ -1435,6 +1444,7 @@
 "More" = "多";
 
 /* Provider Plugins */
+"Plugins" = "Plugins";
 "Install…" = "インストール…";
 "Install plugin" = "プラグインをインストール";
 "Copies a JavaScript or TypeScript file into the plugins directory." = "JavaScript または TypeScript ファイルをプラグインディレクトリにコピーします。";
@@ -1551,3 +1561,4 @@
 "menu_bar_layout_conditional_default_session_spent" = "セッションがほぼ上限";
 "menu_bar_layout_conditional_default_either_high" = "セッションまたは週間が高水準";
 "menu_bar_layout_conditional_default_scoped_weekly" = "モデル別週間の使用率 60% 超";
+"Spending cap, not balance" = "利用上限額（残高ではありません）";

@@ -1,5 +1,133 @@
 # Changelog
 
+## 0.56.2 — Unreleased
+
+### Fixed
+- Codex: recover cost-history catch-up when removed fork files leave abandoned parent discovery in an existing cache, preserving stored totals and unresolved-fork accounting (partial fix for #2815). Thanks @xiehaibin18!
+- OpenCode Go: omit misleading pace and run-out advice for locally estimated quotas while preserving percentages, resets, and cost history (partial fix for #3286). Thanks @Akagilnc!
+- OpenRouter: open Activity from Usage Dashboard instead of credit settings (#3290). Thanks @akshayprabhu200!
+
+## 0.56.1 — 2026-08-30
+
+### Performance
+- Codex: load saved cost totals in one pass per file instead of rescanning history for every day and model, preserving costs and token totals (follow-up to #3247). Thanks @robertoecf!
+
+### Fixed
+- Menu bar: preserve measured card heights across cached provider tabs, preventing plugin cards from clipping on the first tab switch after launch.
+- Privacy: honor “Hide personal information” for project/source names and paths in cost history and project names in Usage & Spend, preserving costs, tokens, and stored data (#3262). Thanks @vinschger!
+- Codex: show completed cost catch-up without starting another scan, preserve scan timestamps, and retain prior totals when native or Pi/OMP history is unavailable (partial follow-up to #3243). Thanks @zhulijin1991!
+- Codex: preserve calendar spacing in inline cost charts, keep unscanned and unpriced days unknown, honor the selected time zone, and fit year-long histories within the menu (#3232). Thanks @findwangdi!
+- Keychain: honor saved disabled-access preferences before startup credential migration, including shared settings, and keep deferred migrations retryable (investigated alongside #3249). Thanks @jaychou0642-create!
+- Antigravity: recognize an already-running `agy` even when its command line uses a bare name, and preserve CLI sign-in guidance when the IDE fallback is unavailable (follow-up to #3146). Thanks @haixing23!
+- Antigravity: make existing local token history available in CLI cost, serve, and dashboard selection, keeping unknown dollar costs and unavailable history distinct from zero usage (investigated alongside #3266). Thanks @chid!
+- Cursor: correctly decode BOM-less ASCII UTF-16LE app-token database values without changing other decoding or cached-account fallback rules (extracted from #2398). Thanks @markmay!
+- Claude: price the documented Kimi `k3[1m]` context alias in local usage reports and refresh affected Pi costs, without changing model names or native Codex caches (investigated alongside #2374). Thanks @joeVenner!
+- Localization: translate missing Catalan iCloud, spend, and Plugins sidebar labels, restore the Projects translation, and align command labels and instructions with their UI roles (#3245). Thanks @pmontp19!
+
+### Diagnostics
+- Codex: add redacted weekly-reset diagnostics for candidate admission, expiry, and account-scoped storage requests; reset publication rules are unchanged (investigated alongside #3248). Thanks @kcharlan!
+
+### Documentation
+- Clarify the Codex cost-history refresh floor and explain that Manual stops recurring refreshes, not startup or pending catch-up scans.
+- Distinguish OpenCode-backed Codex OAuth quota from unsupported OpenCode session cost imports, preserving provider and account boundaries (investigated alongside #3273). Thanks @pedrommone!
+- Document existing z.ai credit quotas and explain how to configure independent provider widgets.
+
+## 0.56.0 — 2026-08-28
+
+### Added
+- Antigravity: track token history directly from supported local SQLite conversations, without requiring a tokscale export; unavailable history stays distinct from zero usage, and dollar-cost estimates are not inferred (#3212). Thanks @Yuxin-Qiao!
+- Cursor: estimate API-rate costs when usage events omit prices, using cached or bundled pricing while keeping unknown costs unpriced and estimates separate from Cursor-metered charges (#3129). Thanks @Yuxin-Qiao!
+
+### Fixed
+- Cursor: show empty cost-history windows without a decoding error, while preserving incomplete-history and malformed-response checks.
+- Codex: honor the native access token's expiry so valid OAuth sessions keep model-specific limits, while leaving credential refresh under CLI ownership (#3221, #3222). Thanks @anagnorisis2peripeteia!
+- Codex: clear stale connectivity errors after a successful fetch, even when weekly usage cannot yet be published, including persisted and stacked-account errors (#3214). Thanks @olddonkey!
+- Grok: keep usage, identity, and plan on the same account when a native login changes during billing; cookie-based usage no longer picks up unrelated auth-file metadata.
+- Codex: prevent stale OpenAI dashboard preparation and timeout retries from displacing replacement views, and preserve cleanup when views leave the cache (#3252).
+- Usage & Spend: keep 365-day histories fresh after regular usage updates without losing older rows or starting overlapping scans (investigated alongside #3209, #3176). Thanks @vinschger!
+- Overview: preserve known history-day coverage when another selected subscription has no spend data, while keeping incomplete totals marked partial (#3129). Thanks @Yuxin-Qiao!
+- Codex: refresh local session cost estimates when global cost tracking is off instead of repeatedly rejecting successful scans as stale. Thanks @vinschger!
+- Codex: finish older partial session histories during busy cost scans without increasing scan limits or rebuilding compatible caches (#3207). Thanks @IchenDEV!
+- OpenCode Go: show API percentages at their correct scale, so 1% usage no longer appears as 100%, including local-history overlays (#3216). Thanks @rodrigoalma!
+- Antigravity: show the most constrained known quota separately for session and weekly menu-bar values, so unused model families do not hide consumed quota (#3206). Thanks @foobra!
+- Claude: honor the used/remaining fill preference for capped Extra Usage, so an exhausted cap is empty in remaining mode (#3213). Thanks @vinschger!
+- OpenRouter: consistently label the API key spending limit as a cap, separate from the account balance (#3158). Thanks @vinschger!
+- Menu bar: clarify that All providers is the default layout, show saved provider overrides, and offer “Use all-providers layout” to remove those overrides (#3210). Thanks @Sedrak-Hovhannisyan!
+
+### Performance
+- Codex: reduce the work needed to load cached cost reports, including project and session details, without loading raw scanner state (#3247). Thanks @robertoecf!
+
+### Security
+- CLI install: isolate helper validation and administrator commands from inherited shell functions and startup hooks, while preserving the existing approval flow and install locations (#3205, #3217).
+
+## 0.55.1 — 2026-08-25
+
+### Highlights
+- **Codex weekly resets recover cleanly**: early backend resets refresh open usage cards without mixing accounts, spending reset credits, or losing confirmation across relaunches (#3177, #3189).
+- **Codex spend stays visible during catch-up**: established totals remain accurate while newer local session history finishes processing, without rebuilding existing caches (#3051, #3114).
+- **Grok menus stay responsive**: local session scans no longer block menu opening, and bearer billing restores real usage without losing account context (#3181, #3195).
+- **Bailian CLI Token Plan support**: signed-in Alibaba accounts now load region-aware 5-hour and weekly quotas directly from the CLI, with browser fallback (#3020, #3080).
+- **Fireworks billing spend restored**: real 30-day API spending appears even when local cost summaries are disabled (#3183, #3185).
+
+### Fixed
+- Claude: retry failed claude-swap version detection, ignore superseded startup probes, and clear stale adapter versions when disabled (#3126).
+- Alibaba Token Plan: try the signed-in Bailian CLI before browser cookies, with isolated subprocess credentials and region-aware 5-hour/weekly quotas (#3020, #3080). Thanks @Hek846!
+- Codex: preserve established local spend totals while newer session history catches up, without crossing accounts, history windows, or time zones; upgrade existing spend caches in place (#3051). Thanks @mauriciopolvora!
+- Codex: refresh open usage cards in place after weekly resets without clipping reset details or mixing account identities (#3168, #3189). Thanks @Zihao-Qi!
+- Codex: recover weekly usage after early backend resets without spending a reset credit, preserve account-scoped confirmation across relaunch, and expire stale observations safely (#3177, #3179). Thanks @Zihao-Qi!
+- Grok: recover the usage bar from bearer billing when credits expose only a period, preserve the authoritative reset, and explain genuinely unavailable usage without switching accounts (#3181). Thanks @olddonkey!
+- Spend dashboard: finish the final local Codex history file promptly while the dashboard is visible, preserve explicit background and stop choices, and keep existing usage caches intact (#3114). Thanks @Yuxin-Qiao!
+- Fireworks: show real 30-day API billing spend even when local cost summaries are disabled (#3183, #3185). Thanks @dhalarewich!
+- OpenRouter: accept timestamp-shaped Activity API dates so exact 30-day spend history loads again (#3174).
+- Amp: parse bold Markdown usage labels from the latest CLI while preserving compatibility with older plain-text output (#3171).
+- OpenCode Go: expose a Monthly % lane token for custom menu bar layouts once the monthly window has been observed (#3175).
+
+### Performance
+- Grok: keep menu opening responsive by reusing published local-session totals and moving filesystem scans off the main thread (#3195).
+- OpenCodex: parse only newly appended usage-log entries instead of rebuilding the entire cache on every refresh, cutting memory use while preserving compatibility with older app versions (#3140). Thanks @olddonkey!
+
+### Usage & Spend
+- Added AED (UAE dirham) to the display currency options (#3186). Thanks @samiashi!
+
+### Localization
+- Settings: keep the keyboard shortcut recorder in the selected app language while recording and after editing (#3190). Thanks @endless7!
+- Turkish: improve translations throughout settings and provider views, including the previously untranslated iCloud sync section (#3178). Thanks @husodrn46!
+
+## 0.55.0 — 2026-08-24
+
+### Highlights
+- **Codex inside ChatGPT.app detected**: Adaptive (agent-aware) refresh recognizes the ChatGPT-bundled Codex and holds the 5-minute active cadence while it works (#3160, #3163).
+- **Antigravity without the desktop app**: menu-bar quota refresh reuses an already signed-in `agy` CLI, and logged-out states show sign-in guidance instead of "Launch Antigravity" (#3146, #3161).
+- **Faster OpenCodex spend**: pricing each usage entry once drops the spend refresh from ~12 s to ~3 s on a 35k-entry log (#3136).
+- **Gemini shutdown guidance**: Google's consumer-tier shutdown response surfaces the Antigravity migration path again instead of a bare `HTTP 403` (#3139).
+- **Codex token parity with tokscale**: local token counts now match tokscale on cached usage, out-of-order events, and bare usage rows (#3120).
+
+### Fixed
+- Gemini: recognize Google's live consumer-tier shutdown — an HTTP 200 `loadCodeAssist` body whose `ineligibleTiers` carries `UNSUPPORTED_CLIENT` — instead of surfacing the follow-up quota call as a bare `HTTP 403`, so the Antigravity migration guidance and the **Enable Antigravity provider** action appear; the login action also stops deleting `~/.gemini/oauth_creds.json` to launch a sign-in Google rejects (#3139). Thanks @betive37!
+- Merged Warp icons keep a present-but-unused bonus lane visible and an exhausted bonus in the missing-secondary layout, matching direct Warp rendering; the visible-zero sentinel now survives the renderer's tenth-percent cache quantization (#3165, #3166). Thanks @akshayprabhu200!
+- Fixed single-quota menu-bar icons understating remaining usage: a provider's only meaningful quota now renders as one prominent meter instead of half an icon next to a reserved empty lane, including when it arrives in the secondary slot (#3154, #3155). Thanks @akshayprabhu200!
+- Codex: tokscale parity for local token counts — cached usage derives from the larger of `cached_input_tokens`/`cache_read_input_tokens`, out-of-order token_count events are detected field-level before watermark latching, and bare usage rows in non-event rollout lines parse (#3120). Thanks @Yuxin-Qiao!
+- Fixed the Codex cost card blanking Today and recent days when priority processing is in use: row-ownership evidence now accepts the trace database's tier classification instead of discarding whole (day, model) groups (#3150). Thanks @olddonkey!
+- Stopped re-merging the Codex plan-utilization history with itself on every refresh and menu open — the legacy-bucket migration now runs only when a non-canonical bucket actually exists (#3141). Thanks @olddonkey!
+- Claude: web-cookie refresh works in ad-hoc development builds by routing cookie cache entries to process memory, keeping persistent Keychain storage for signed builds and OAuth credentials; cookie imports prefer Chrome and evaluate other browsers lazily (#3162). Thanks @Zihao-Qi!
+- Grok: report period-only CLI-proxy responses as unknown usage instead of 0% when Grok Build has hit its free limit, keeping identity and reset metadata (#3157, #3159). Thanks @anupamchugh!
+- OpenRouter: request the latest completed UTC day from the Activity API instead of the current date, fixing the HTTP 400 that suppressed spend history (#3133, #3138). Thanks @kiranmagic7!
+- CLI install: report success even when unrelated PATH directories are non-writable, while still listing genuine `codexbar` conflicts from earlier PATH entries (#3153). Thanks @yicone!
+
+### Performance
+- OpenCodex: price each `usage.jsonl` entry once with a pre-resolved models.dev catalog and custom-pricing overlay, memoize day/hour buckets per calendar interval, and read the models.dev cache metadata with a plain `stat` instead of an extended-attribute read — the OpenCodex spend refresh drops from ~12 s to ~3 s on a 35k-entry log with identical output; existing cost caches are adopted on upgrade, not rebuilt (#3136). Thanks @olddonkey!
+
+### Providers
+- Codex: Adaptive (agent-aware) refresh detects ongoing Codex activity from the unified ChatGPT.app — the ChatGPT-bundled Codex is recognized at approved locations (signing-validated), recent rollout writes hold the 5-minute active cadence, and an idle open app is not treated as coding activity (#3160, #3163).
+- Antigravity: menu-bar quota refresh reuses an already signed-in `agy` CLI without requiring the desktop app, and logged-out/keyring-timeout states report CLI sign-in guidance instead of asking users to launch an unavailable app (#3146, #3161).
+- Antigravity: map retired Flash wire IDs to their current tier, and count local conversations as an offline fallback when the desktop app is unavailable (#3119). Thanks @Yuxin-Qiao!
+- Qwen Cloud: restored Brave browser support in cookie import (#3148). Thanks @umutkeltek!
+
+### Usage & Spend
+- Spend dashboard: silently refresh independent providers (Claude/Cursor) when their token publications update, bucket the activity heatmap with the configured IANA timezone, and stop coalescing display-affecting ownership and revision changes (#3106). Thanks @Yuxin-Qiao!
+- Spend: add tokscale-compatible local readers for Cursor and Antigravity local history (#3113). Thanks @Yuxin-Qiao!
+- Added CHF (Swiss Franc) to the display currency options (#3149).
+
 ## 0.54.1 — 2026-08-21
 
 ### Highlights

@@ -95,12 +95,57 @@ struct MenuCardHeightFingerprintTests {
         #expect(one.heightFingerprint(section: "card") != two.heightFingerprint(section: "card"))
     }
 
+    @Test
+    func `tracked layout preserves reset timelines while countdown values change`() {
+        let reset = Date(timeIntervalSince1970: 1_800_000_000)
+        let current = Self.model(
+            statusText: nil,
+            resetText: "Resets in 2h",
+            resetHelpText: "Today at 3 PM",
+            resetTimeline: .init(resetsAt: reset, windowSeconds: 18000))
+        let updated = Self.model(
+            statusText: nil,
+            resetText: "Resets in 1h",
+            resetHelpText: "Today at 4 PM",
+            resetTimeline: .init(resetsAt: reset.addingTimeInterval(3600), windowSeconds: 18000))
+        let withoutTimeline = Self.model(
+            statusText: nil,
+            resetText: "Resets in 2h",
+            resetHelpText: "Today at 3 PM")
+
+        #expect(current.hasCompatibleTrackedLayout(with: updated))
+        #expect(!current.hasCompatibleTrackedLayout(with: withoutTimeline))
+        #expect(!withoutTimeline.hasCompatibleTrackedLayout(with: current))
+        #expect(current.heightFingerprint(section: "card") != withoutTimeline.heightFingerprint(section: "card"))
+    }
+
+    @Test
+    func `tracked layout keeps workday markers in its compatibility check`() {
+        let current = Self.model(statusText: nil, workdayMarkerPercents: [20, 40])
+        let changed = Self.model(statusText: nil, workdayMarkerPercents: [25, 50])
+
+        #expect(current.hasCompatibleTrackedLayout(with: current))
+        #expect(!current.hasCompatibleTrackedLayout(with: changed))
+    }
+
+    @Test
+    func `tracked layout permits metadata to disappear from its reserved line`() {
+        let withMetadata = Self.model(statusText: nil, detailLeftText: "On pace")
+        let withoutMetadata = Self.model(statusText: nil)
+
+        #expect(withMetadata.hasCompatibleTrackedLayout(with: withoutMetadata))
+        #expect(!withoutMetadata.hasCompatibleTrackedLayout(with: withMetadata))
+    }
+
     private static func model(
         percent: Double = 42,
         percentStyle: UsageMenuCardView.Model.PercentStyle = .left,
         resetCredits: CodexResetCreditsPresentation? = nil,
         statusText: String? = "Secret status",
         resetText: String? = nil,
+        resetHelpText: String? = nil,
+        resetTimeline: UsageMenuCardView.Model.ResetTimeline? = nil,
+        workdayMarkerPercents: [Double] = [],
         detailLeftText: String? = nil,
         sessionEquivalentDetail: UsagePaceText.SessionEquivalentDetail? = nil) -> UsageMenuCardView.Model
     {
@@ -119,11 +164,14 @@ struct MenuCardHeightFingerprintTests {
                     percentStyle: percentStyle,
                     statusText: statusText,
                     resetText: resetText,
+                    resetHelpText: resetHelpText,
                     detailText: nil,
                     detailLeftText: detailLeftText,
                     detailRightText: nil,
                     pacePercent: nil,
                     paceOnTop: true,
+                    resetTimeline: resetTimeline,
+                    workdayMarkerPercents: workdayMarkerPercents,
                     sessionEquivalentDetail: sessionEquivalentDetail),
             ],
             usageNotes: ["Secret note"],
