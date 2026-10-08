@@ -13,6 +13,51 @@ resolve_package_signing_mode() {
   SIGNING_MODE="$requested"
 }
 
+resolve_package_signing_identity() {
+  if [[ "$SIGNING_MODE" == "adhoc" ]]; then
+    APP_TEAM_ID="${APP_TEAM_ID:-Y5PE65HELJ}"
+    return
+  fi
+
+  local requested="${APP_IDENTITY:-Developer ID Application: Peter Steinberger (Y5PE65HELJ)}"
+  local identities line name hash selected_name="" selected_hash="" matches=0
+  if ! identities=$(security find-identity -p codesigning -v); then
+    echo "ERROR: Unable to list valid code-signing identities." >&2
+    return 1
+  fi
+  local identity_pattern='^[[:space:]]*[[:digit:]]+\)[[:space:]]+([[:xdigit:]]{40})[[:space:]]+"([^"]+)"[[:space:]]*$'
+  local requested_hash
+  requested_hash=$(printf '%s' "$requested" | tr '[:lower:]' '[:upper:]')
+  while IFS= read -r line; do
+    [[ "$line" =~ $identity_pattern ]] || continue
+    hash="${BASH_REMATCH[1]}"
+    name="${BASH_REMATCH[2]}"
+    if [[ "$hash" == "$requested_hash" || "$name" == *"$requested"* ]]; then
+      selected_name="$name"
+      selected_hash="$hash"
+      matches=$((matches + 1))
+    fi
+  done <<<"$identities"
+  if [[ "$matches" != "1" ]]; then
+    echo "ERROR: APP_IDENTITY must match exactly one valid identity (found $matches); use its full name or SHA-1 hash." >&2
+    return 1
+  fi
+  # Developer ID names end in the Team ID; development names may end in a personal ID instead.
+  local team_pattern='^Developer ID Application: .+ \(([A-Z0-9]{10})\)$'
+  if [[ ! "$selected_name" =~ $team_pattern ]]; then
+    echo "ERROR: Cannot derive a Team ID from APP_IDENTITY; use a Developer ID Application identity." >&2
+    return 1
+  fi
+  local team="${BASH_REMATCH[1]}"
+  if [[ -n "${APP_TEAM_ID:-}" && "$APP_TEAM_ID" != "$team" ]]; then
+    echo "ERROR: APP_TEAM_ID does not match the selected signing identity." >&2
+    return 1
+  fi
+  APP_TEAM_ID="$team"
+  # Sign with the same certificate whose team authorized the entitlement selection.
+  CODESIGN_ID="$selected_hash"
+}
+
 verify_no_quarantine_attribute() {
   local bundle="$1"
   local quarantined
@@ -251,11 +296,8 @@ if [[ "$SIGNING_MODE" == "adhoc" ]]; then
   AUTO_CHECKS=false
 fi
 WIDGET_BUNDLE_ID="${BUNDLE_ID}.widget"
-APP_TEAM_ID="${APP_TEAM_ID:-Y5PE65HELJ}"
-APP_GROUP_ID="${APP_TEAM_ID}.com.steipete.codexbar"
-if [[ "$BUNDLE_ID" == *".debug"* ]]; then
-  APP_GROUP_ID="${APP_TEAM_ID}.com.steipete.codexbar.debug"
-fi
+resolve_package_signing_identity
+APP_GROUP_ID="${APP_TEAM_ID}.${BUNDLE_ID}"
 ENTITLEMENTS_DIR="$ROOT/.build/entitlements"
 APP_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBar.entitlements"
 WIDGET_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBarWidget.entitlements"
@@ -265,8 +307,8 @@ if [[ "$ALLOW_LLDB" == "1" && "$LOWER_CONF" != "debug" ]]; then
   exit 1
 fi
 # iCloud sync (CloudKit) requires restricted entitlements authorized by an embedded
-# Developer ID provisioning profile. Only identity-signed release builds of the primary
-# bundle ID carry them; adhoc/debug builds run with sync unavailable.
+# Developer ID provisioning profile. Only upstream-team identity-signed release builds of the primary
+# bundle ID carry them; other teams and adhoc/debug builds run with sync unavailable.
 PROVISIONING_PROFILE_SOURCE="$ROOT/Scripts/profiles/CodexBar-DeveloperID.provisionprofile"
 EMBED_PROVISIONING_PROFILE=0
 ICLOUD_ENTITLEMENT_KEYS=""
@@ -277,7 +319,7 @@ if [[ "${CODEXBAR_EMBED_PROVISIONING_PROFILE:-0}" == "1" ||
       ( "${CODEXBAR_EMBED_PROVISIONING_PROFILE:-1}" == "1" &&
         "$SIGNING_MODE" == "identity" && "$LOWER_CONF" == "release" &&
         "$BUNDLE_ID" == "com.steipete.codexbar" && -f "$PROVISIONING_PROFILE_SOURCE" &&
-        "$APP_TEAM_ID" == "$(security cms -D -i "$PROVISIONING_PROFILE_SOURCE" 2>/dev/null | grep -A1 TeamIdentifier | grep string | sed -E 's/.*<string>(.*)<\/string>.*/\1/')" ) ]]; then
+        "$APP_TEAM_ID" == "Y5PE65HELJ" ) ]]; then
   if [[ ! -f "$PROVISIONING_PROFILE_SOURCE" ]]; then
     echo "ERROR: Missing $PROVISIONING_PROFILE_SOURCE (required for iCloud entitlements in release builds)" >&2
     exit 1
@@ -624,7 +666,6 @@ elif [[ "$ALLOW_LLDB" == "1" ]]; then
   CODESIGN_ID="-"
   CODESIGN_ARGS=(--force --sign "$CODESIGN_ID")
 else
-  CODESIGN_ID="${APP_IDENTITY:-Developer ID Application: Peter Steinberger (Y5PE65HELJ)}"
   CODESIGN_ARGS=(--force --timestamp --options runtime --sign "$CODESIGN_ID")
 fi
 function resign() { codesign "${CODESIGN_ARGS[@]}" "$1"; }

@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Synthetic process ownership tests; never launch Swift or inspect provider data."""
 
+import contextlib
 import ctypes
 import errno
+import io
 import json
 import os
 from pathlib import Path
+import select
 import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 from unittest.mock import Mock, patch
 
@@ -56,6 +60,14 @@ def release_observed_fixture(root, owned, include_grandchild=False):
 
 def fixture(mode, directory, ready_delay=0):
     root = Path(directory)
+    if mode == "ready-sentinel":
+        if os.getpgrp() != os.getpid():
+            os.setpgid(0, 0)
+        publish_fixture_identity(root)
+        print("ready", flush=True)
+        # The controller owns this sentinel's lifetime; startup load must not consume it.
+        sys.stdin.buffer.read(1)
+        return
     if mode == "session-leader":
         publish_fixture_identity(root)
         grandchild = root / "grandchild"
@@ -85,7 +97,10 @@ def fixture(mode, directory, ready_delay=0):
     signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
     if ready_delay:
         ready_at = time.monotonic() + ready_delay
-        wait_until(lambda: time.monotonic() >= ready_at or (root / "stop").exists())
+        wait_until(
+            lambda: time.monotonic() >= ready_at or (root / "stop").exists(),
+            timeout=ready_delay + 3,
+        )
         if (root / "stop").exists():
             return
     subprocess.Popen(
@@ -93,7 +108,7 @@ def fixture(mode, directory, ready_delay=0):
         start_new_session=mode in ("timeout-session", "success-session", "success-session-tree"),
     )
     # Preserve ancestry until the real ownership refresh has observed the ready identities.
-    wait_until(lambda: (root / "observed").exists() or (root / "stop").exists())
+    wait_until(lambda: (root / "observed").exists() or (root / "stop").exists(), timeout=10)
     if (root / "stop").exists():
         return
     if mode in ("success", "success-session", "success-session-tree"):
@@ -103,6 +118,137 @@ def fixture(mode, directory, ready_delay=0):
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline and not (root / "stop").exists():
         time.sleep(0.05)
+
+
+def nested_fixture(directory):
+    root = Path(directory)
+    child = root / "child"
+    original_refresh = runner.TestProcessOwnership.refresh
+    original_drain = runner.TestProcessOwnership.drain
+    def refresh(ownership, **kwargs):
+        owned = original_refresh(ownership, **kwargs)
+        if (child / "ready").exists() and not (child / "observed").exists():
+            identity = json.loads((child / "ready").read_text())
+            info = owned.get(identity["pid"])
+            if info is None or info.birth != tuple(identity["birth"]):
+                return owned
+            ready = root / "leader-ready.tmp"
+            ready.write_text(str(ownership.root.pid))
+            ready.replace(root / "leader-ready")
+            wait_until(lambda: (root / "allow-exit").exists() or (child / "stop").exists())
+            release_observed_fixture(child, owned)
+        return owned
+    def drain(ownership, process):
+        try:
+            assert runner.unreaped_exit_code(process) == 23
+            assert process.returncode is None
+            (root / "before-drain").touch()
+            wait_until(lambda: (root / "allow-drain").exists() or (child / "stop").exists())
+        finally:
+            original_drain(ownership, process)
+    with patch.object(runner.TestProcessOwnership, "refresh", refresh), \
+            patch.object(runner.TestProcessOwnership, "drain", drain):
+        result = runner.run_command([sys.executable, __file__, "--fixture", "failure", str(child)], timeout=5)
+        assert result == 23
+    (root / "complete").touch()
+
+
+class NestedProcessCleanupTests(unittest.TestCase):
+    def test_outer_observation_defers_unknown_orphan_until_inner_owner_drains(self):
+        with tempfile.TemporaryDirectory(prefix="codexbar-nested-cleanup-") as directory:
+            root = Path(directory)
+            child_root = root / "child"
+            sentinel_root = root / "sentinel"
+            child_root.mkdir()
+            sentinel_root.mkdir()
+            sentinel = subprocess.Popen(
+                [sys.executable, __file__, "--fixture", "ready-sentinel", str(sentinel_root)],
+                start_new_session=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            original_snapshot = runner.test_process_snapshot
+            original_refresh = runner.TestProcessOwnership.refresh
+            original_send = runner.TestProcessOwnership.send
+            observations = []
+            signaled = []
+            attempts = 0
+            def snapshot(required=()):
+                if attempts == 0:
+                    wait_until(lambda: (root / "leader-ready").exists())
+                    leader = int((root / "leader-ready").read_text())
+                    # First outer poll sees the live leader, but misses its child's birth.
+                    infos = original_snapshot(required)
+                    self.assertFalse(infos[leader].zombie)
+                    child = int((child_root / "pid").read_text())
+                    infos.pop(child, None)
+                    return infos
+                if attempts == 1:
+                    wait_until(lambda: (root / "before-drain").exists())
+                    leader = int((root / "leader-ready").read_text())
+                    child = int((child_root / "pid").read_text())
+                    wait_until(lambda: runner.test_process(child).parent != leader)
+                    infos = original_snapshot(required)
+                    # Model Darwin's hidden exited leader even on hosts exposing zombie metadata.
+                    infos.pop(leader, None)
+                    self.assertIn(child, infos)
+                    return infos
+                wait_until(lambda: (root / "complete").exists())
+                return original_snapshot(required)
+            def refresh(ownership, **kwargs):
+                nonlocal attempts
+                phase = attempts
+                try:
+                    owned = original_refresh(ownership, **kwargs)
+                    if phase < 2:
+                        leader = int((root / "leader-ready").read_text())
+                        child = int((child_root / "pid").read_text())
+                        self.assertNotIn(child, ownership.known, "outer must not adopt an uncertain orphan")
+                        self.assertIn(leader, ownership.sessions)
+                        if phase == 1:
+                            self.assertEqual(ownership.pending_sessions, {leader: {child}})
+                        observations.append(phase)
+                        if phase == 0:
+                            (root / "allow-exit").touch()
+                    return owned
+                finally:
+                    attempts += 1
+                    if phase == 1:
+                        (root / "allow-drain").touch()
+            def send(ownership, info, sig):
+                signaled.append(info.pid)
+                original_send(ownership, info, sig)
+            try:
+                self.assertTrue(select.select([sentinel.stdout], [], [], 60)[0], "sentinel did not become ready")
+                self.assertEqual(sentinel.stdout.readline(), b"ready\n")
+                with patch.object(runner, "test_process_snapshot", side_effect=snapshot), \
+                        patch.object(runner.TestProcessOwnership, "refresh", refresh), \
+                        patch.object(runner.TestProcessOwnership, "send", send):
+                    self.assertEqual(runner.run_command(
+                        [sys.executable, __file__, "--nested-fixture", directory], timeout=5), 0)
+                self.assertEqual(observations, [0, 1])
+                self.assertNotIn(int((child_root / "pid").read_text()), signaled)
+                self.assertNotIn(sentinel.pid, signaled)
+                for name in ("pid", "parent-pid"):
+                    self.assertFalse(running(int((child_root / name).read_text())))
+                self.assertIsNone(runner.unreaped_exit_code(sentinel))
+                print(json.dumps(dict(nested_observations=observations, uncertain_orphan_adopted=False,
+                                      outer_signaled=signaled, inner_exit=23, owned_children_drained=True,
+                                      unrelated_sentinel_alive=True)), flush=True)
+            finally:
+                sentinel_alive = runner.unreaped_exit_code(sentinel) is None
+                (root / "allow-exit").touch()
+                (root / "allow-drain").touch()
+                (child_root / "stop").touch()
+                (sentinel_root / "stop").touch()
+                sentinel.stdin.close()
+                runner.stop_unreaped_child(sentinel)
+                sentinel.stdout.close()
+                for name in ("pid", "parent-pid"):
+                    path = child_root / name
+                    if path.exists():
+                        pid = int(path.read_text())
+                        wait_until(lambda: not running(pid))
+                self.assertTrue(sentinel_alive, "unrelated sentinel was terminated before fixture teardown")
+                print(json.dumps(dict(nested_teardown_complete=True,
+                                      unrelated_sentinel_alive_before_teardown=sentinel_alive)), flush=True)
 
 
 class ProcessCleanupTests(unittest.TestCase):
@@ -119,22 +265,30 @@ class ProcessCleanupTests(unittest.TestCase):
             )
             timer = None
             try:
-                wait_until(lambda: (sentinel_root / "pid").exists())
-                if interrupt:
-                    timer = threading.Timer(2, lambda: os.kill(os.getpid(), signal.SIGINT))
-                    timer.start()
+                # Interpreter/file startup is setup; the cleanup deadlines below start afterward.
+                wait_until(lambda: (sentinel_root / "pid").exists(), timeout=10)
                 started = time.monotonic()
                 command = [sys.executable, __file__, "--fixture", mode, str(child_root), str(ready_delay)]
                 original_refresh = runner.TestProcessOwnership.refresh
                 original_drain = runner.TestProcessOwnership.drain
                 acknowledged = False
                 draining = False
-                def refresh(ownership):
-                    nonlocal acknowledged
-                    owned = original_refresh(ownership)
+                def refresh(ownership, **kwargs):
+                    nonlocal acknowledged, timer
+                    # Observe ready identities before timeout cleanup; virtual-clock tests cover exact deadlines.
+                    if not acknowledged and not draining:
+                        ready_roots = [child_root]
+                        if mode == "success-session-tree":
+                            ready_roots.append(child_root / "grandchild")
+                        wait_until(lambda: all((path / "ready").exists() for path in ready_roots), timeout=10)
+                    owned = original_refresh(ownership, **kwargs)
                     if not acknowledged and not draining:
                         acknowledged = release_observed_fixture(
                             child_root, owned, include_grandchild=mode == "success-session-tree")
+                        if acknowledged and interrupt:
+                            # Interrupt owned work, not interpreter startup before identities are visible.
+                            timer = threading.Timer(0.05, lambda: os.kill(os.getpid(), signal.SIGINT))
+                            timer.start()
                     return owned
                 def drain(ownership, process):
                     nonlocal draining
@@ -171,7 +325,6 @@ class ProcessCleanupTests(unittest.TestCase):
                     self.assertFalse(running(int(pid_file.read_text())), f"owned helper {pid_file} survived")
                 self.assertFalse(running(int((child_root / "parent-pid").read_text())))
                 self.assertIsNone(sentinel.poll(), "unrelated sentinel was terminated")
-                self.assertLess(elapsed, 9, "cleanup exceeded bounded grace")
                 print(json.dumps(dict(mode=mode, ready_delay=ready_delay, elapsed=round(elapsed, 3),
                                       observed_before_drain=acknowledged, child_terminated=True,
                                       unrelated_sentinel_alive=True)), flush=True)
@@ -219,10 +372,30 @@ class ProcessCleanupTests(unittest.TestCase):
         self.exercise("failure", 23)
 
     def test_keyboard_interrupt_drains_children_and_propagates(self):
-        self.exercise("timeout", None, interrupt=True)
+        self.exercise("timeout", None, interrupt=True, ready_delay=3)
 
 
 class FixtureReadinessTests(unittest.TestCase):
+    def test_startup_delay_does_not_race_its_wait_deadline(self):
+        with tempfile.TemporaryDirectory(prefix="codexbar-fixture-readiness-") as directory:
+            root = Path(directory)
+            child = runner.TestProcess(20, 10, 20, (101, 0))
+            # A scheduler interruption crosses 3s between the predicate and deadline check.
+            ticks = iter((0.0, 0.0, 2.99, 3.01))
+
+            def spawn(*_args, **_kwargs):
+                self.assertGreaterEqual(time.monotonic(), 3)
+                (root / "ready").write_text(json.dumps(dict(pid=child.pid, birth=child.birth)))
+                self.assertTrue(release_observed_fixture(root, {child.pid: child}))
+
+            with patch.object(subprocess, "Popen", side_effect=spawn) as popen, \
+                    patch.object(signal, "signal"), \
+                    patch.object(time, "monotonic", side_effect=lambda: next(ticks, 3.06)), \
+                    patch.object(time, "sleep"):
+                fixture("success", directory, ready_delay=3)
+            popen.assert_called_once()
+            self.assertTrue((root / "observed").exists())
+
     def test_delayed_startup_releases_observed_ancestry_within_two_seconds(self):
         with tempfile.TemporaryDirectory(prefix="codexbar-fixture-readiness-") as directory:
             root = Path(directory)
@@ -741,7 +914,7 @@ class ReviewRegressionTests(unittest.TestCase):
                     with self.assertRaises(OSError):
                         runner.test_process(123)
 
-    def exercise_initialization_failure(self, failure):
+    def exercise_initialization_failure(self, failure, deferred_kills=0):
         with tempfile.TemporaryDirectory(prefix="codexbar-init-cleanup-") as directory:
             root = Path(directory)
             spawned = []
@@ -765,16 +938,26 @@ class ReviewRegressionTests(unittest.TestCase):
                     return None
                 return original_lookup(pid, *args, **kwargs)
             started = time.monotonic()
+            drain_started = []
+            original_drain = runner.TestProcessOwnership._drain
+            def drain(ownership, process):
+                drain_started.append(time.monotonic() - started)
+                return original_drain(ownership, process)
             sent = []
             original_kill = os.kill
             def kill(pid, sig):
+                nonlocal deferred_kills
                 if spawned and pid == spawned[0].pid:
                     sent.append((sig, time.monotonic() - started))
+                    if sig == signal.SIGKILL and deferred_kills:
+                        deferred_kills -= 1
+                        return
                 return original_kill(pid, sig)
             try:
                 with patch.object(runner.subprocess, "Popen", side_effect=spawn), \
                         patch.object(runner, "test_process", side_effect=lookup), \
-                        patch.object(runner.os, "kill", side_effect=kill):
+                        patch.object(runner.os, "kill", side_effect=kill), \
+                        patch.object(runner.TestProcessOwnership, "_drain", autospec=True, side_effect=drain):
                     if failure is None:
                         self.assertEqual(runner.run_command(
                             [sys.executable, __file__, "--fixture", "stubborn", str(root)], timeout=2), 124)
@@ -785,8 +968,11 @@ class ReviewRegressionTests(unittest.TestCase):
                 self.assertEqual(len(spawned), 1)
                 self.assertIsNotNone(spawned[0].poll(), "initialization failure leaked direct child")
                 if failure is None:
-                    self.assertEqual([sig for sig, _ in sent], [signal.SIGTERM, signal.SIGKILL])
+                    self.assertEqual([sig for sig, _ in sent[:2]], [signal.SIGTERM, signal.SIGKILL])
+                    self.assertTrue(all(sig == signal.SIGKILL for sig, _ in sent[2:]))
                     self.assertGreaterEqual(sent[0][1], 2, "missing metadata shortened the command deadline")
+                    # Cleanup starts its grace before process inspection and the first signal.
+                    self.assertGreaterEqual(sent[1][1] - drain_started[0], 3, "cleanup shortened the termination grace")
                     self.assertEqual(spawned[0].returncode, -signal.SIGKILL)
                 self.assertLess(time.monotonic() - started, 9)
             finally:
@@ -805,7 +991,9 @@ class ReviewRegressionTests(unittest.TestCase):
         self.exercise_initialization_failure(KeyboardInterrupt())
 
     def test_initial_missing_metadata_times_out_and_reaps_term_ignoring_child(self):
-        self.exercise_initialization_failure(None)
+        for deferred_kills in (0, 2):
+            with self.subTest(deferred_kills=deferred_kills):
+                self.exercise_initialization_failure(None, deferred_kills=deferred_kills)
 
 
 class ExitTransitionTests(unittest.TestCase):
@@ -1037,6 +1225,280 @@ class SessionOwnershipTests(unittest.TestCase):
         self.assertNotIn(30, ownership.known)
 
 
+class PendingSessionTests(unittest.TestCase):
+    root = runner.TestProcess(10, 1, 10, (100, 0))
+    leader = runner.TestProcess(20, 10, 20, (101, 0))
+    orphan = runner.TestProcess(30, 1, 20, (102, 0))
+
+    def setUp(self):
+        self.process = Mock(pid=10, returncode=None)
+        self.ownership = runner.TestProcessOwnership(self.root, self.process)
+        self.ownership.known[20] = self.leader.birth
+        self.ownership.sessions[20] = self.leader.birth
+
+    def refresh(self, *infos, exited=None, observing=True):
+        snapshot = {info.pid: info for info in infos}
+        with patch.object(runner, "test_process_snapshot", return_value=snapshot), \
+                patch.object(runner, "test_process", side_effect=snapshot.get), \
+                patch.object(runner, "unreaped_exit_code", return_value=exited):
+            return self.ownership.refresh(observing=observing)
+
+    def test_live_command_observes_uncertainty_without_adopting_then_retires_empty_session(self):
+        self.assertEqual(set(self.refresh(self.root, self.orphan)), {10})
+        self.assertEqual(self.ownership.pending_sessions, {20: {30}})
+        self.assertNotIn(30, self.ownership.known)
+        self.assertEqual(set(self.refresh(self.root)), {10})
+        self.assertEqual(self.ownership.pending_sessions, {})
+        self.assertNotIn(20, self.ownership.sessions)
+        self.assertEqual(self.refresh(exited=0), {})
+
+    def test_command_exit_cannot_defer_uncertainty(self):
+        self.refresh(self.root, self.orphan)
+        with self.assertRaisesRegex(RuntimeError, "session continuity"):
+            self.refresh(self.orphan, exited=0)
+        self.assertNotIn(30, self.ownership.known)
+
+    def test_pending_member_cannot_escape_uncertainty_by_changing_sessions(self):
+        self.refresh(self.root, self.orphan)
+        moved = runner.TestProcess(30, 1, 30, self.orphan.birth)
+        self.assertEqual(set(self.refresh(self.root, moved)), {10})
+        self.assertNotIn(20, self.ownership.sessions)
+        self.assertEqual(self.ownership.pending_sessions, {20: {30}})
+        with self.assertRaisesRegex(RuntimeError, "cannot attribute pending PIDs"):
+            self.refresh(self.root, moved, observing=False)
+        self.assertNotIn(30, self.ownership.known)
+        self.assertEqual(self.refresh(exited=0), {})
+        self.assertEqual(self.ownership.pending_members, {})
+
+    def test_pending_birth_replacement_retires_without_claiming_replacement(self):
+        self.refresh(self.root, self.orphan)
+        replacement = runner.TestProcess(30, 1, 30, (200, 0))
+        self.assertEqual(set(self.refresh(self.root, replacement)), {10})
+        self.assertEqual(self.ownership.pending_members, {})
+        self.assertNotIn(30, self.ownership.known)
+
+    def test_pending_child_survives_parent_session_migration_and_disappearance(self):
+        self.refresh(self.root, self.orphan)
+        moved = runner.TestProcess(30, 1, 30, self.orphan.birth)
+        child = runner.TestProcess(31, 30, 30, (103, 0))
+        self.assertEqual(set(self.refresh(self.root, moved, child)), {10})
+        orphaned_child = runner.TestProcess(31, 1, 30, child.birth)
+        with self.assertRaisesRegex(RuntimeError, "cannot attribute pending PIDs"):
+            self.refresh(orphaned_child, exited=0)
+        self.assertEqual(set(self.ownership.pending_members), {30, 31})
+        self.assertEqual(self.ownership.known, {10: self.root.birth})
+
+    def test_new_pending_ancestry_is_recursive_and_survives_further_migration(self):
+        child = runner.TestProcess(31, 30, 31, (103, 0))
+        grandchild = runner.TestProcess(32, 31, 32, (104, 0))
+        self.assertEqual(set(self.refresh(self.root, grandchild, child, self.orphan)), {10})
+        self.assertEqual(set(self.ownership.pending_members), {30, 31, 32})
+        moved_child = runner.TestProcess(31, 1, 40, child.birth)
+        moved_grandchild = runner.TestProcess(32, 1, 50, grandchild.birth)
+        self.refresh(self.root, moved_grandchild, moved_child)
+        self.assertEqual(set(self.ownership.pending_members), {31, 32})
+        self.refresh(self.root, moved_grandchild)
+        self.assertEqual(set(self.ownership.pending_members), {32})
+        with self.assertRaisesRegex(RuntimeError, "cannot attribute pending PIDs"):
+            self.refresh(moved_grandchild, exited=0)
+
+    def test_live_pending_session_leader_retains_orphaned_peers_and_their_children(self):
+        self.refresh(self.root, self.orphan)
+        moved = runner.TestProcess(30, 1, 30, self.orphan.birth)
+        peer = runner.TestProcess(31, 1, 30, (103, 0))
+        child = runner.TestProcess(32, 31, 32, (104, 0))
+        self.assertEqual(set(self.refresh(self.root, child, peer, moved)), {10})
+        self.assertEqual(set(self.ownership.pending_members), {30, 31, 32})
+        self.assertEqual(self.ownership.known, {10: self.root.birth})
+        self.assertNotIn(30, self.ownership.sessions)
+        self.refresh(self.root, peer)
+        self.assertEqual(set(self.ownership.pending_members), {31})
+        with self.assertRaisesRegex(RuntimeError, "cannot attribute pending PIDs"):
+            self.refresh(self.root, peer, observing=False)
+
+    def test_pending_nonleader_does_not_seed_peers_in_its_current_or_former_session(self):
+        self.refresh(self.root, self.orphan)
+        moved = runner.TestProcess(30, 1, 30, self.orphan.birth)
+        self.refresh(self.root, moved)
+        moved_again = runner.TestProcess(30, 1, 40, self.orphan.birth)
+        former_peer = runner.TestProcess(31, 1, 30, (103, 0))
+        current_peer = runner.TestProcess(32, 1, 40, (104, 0))
+        self.assertEqual(set(self.refresh(self.root, moved_again, former_peer, current_peer)), {10})
+        self.assertEqual(set(self.ownership.pending_members), {30})
+        self.assertEqual(self.refresh(former_peer, current_peer, exited=0), {})
+
+    def test_pending_ancestry_and_session_edges_require_compatible_birth_order(self):
+        for parent in (1, 30):
+            for birth, expected in (((102, 0), False), ((102, 1), True), ((102, 2), True)):
+                with self.subTest(parent=parent, birth=birth):
+                    self.setUp()
+                    pending = runner.TestProcess(30, 1, 20, (102, 1))
+                    self.refresh(self.root, pending)
+                    moved = runner.TestProcess(30, 1, 30, pending.birth)
+                    candidate = runner.TestProcess(31, parent, 31 if parent == 30 else 30, birth)
+                    descendant = runner.TestProcess(32, 31, 32, (103, 0))
+                    self.assertEqual(set(self.refresh(self.root, descendant, candidate, moved)), {10})
+                    self.assertEqual(set(self.ownership.pending_members), {30, 31, 32} if expected else {30})
+                    self.assertEqual(self.ownership.known, {10: self.root.birth})
+
+    def test_pending_zombie_ancestry_retains_live_descendants_without_retaining_exits(self):
+        self.refresh(self.root, self.orphan)
+        zombie = runner.TestProcess(30, 1, 0, self.orphan.birth, True)
+        child = runner.TestProcess(31, 30, 0, (103, 0), True)
+        grandchild = runner.TestProcess(32, 31, 32, (104, 0))
+        unrelated = runner.TestProcess(33, 1, 30, (105, 0))
+        self.assertEqual(set(self.refresh(self.root, grandchild, child, zombie, unrelated)), {10})
+        self.assertEqual(set(self.ownership.pending_members), {32})
+        with self.assertRaisesRegex(RuntimeError, "cannot attribute pending PIDs"):
+            self.refresh(grandchild, unrelated, exited=0)
+
+    def test_replaced_pending_leader_does_not_seed_replacement_children_or_peers(self):
+        self.refresh(self.root, self.orphan)
+        moved = runner.TestProcess(30, 1, 30, self.orphan.birth)
+        self.refresh(self.root, moved)
+        replacement = runner.TestProcess(30, 1, 30, (200, 0))
+        child = runner.TestProcess(31, 30, 31, (201, 0))
+        peer = runner.TestProcess(32, 1, 30, (202, 0))
+        self.assertEqual(self.refresh(replacement, child, peer, exited=0), {})
+        self.assertEqual(self.ownership.pending_members, {})
+        self.assertEqual(self.ownership.known, {10: self.root.birth})
+
+    def test_replaced_pending_child_retires_but_previously_observed_grandchild_remains(self):
+        child = runner.TestProcess(31, 30, 31, (103, 0))
+        grandchild = runner.TestProcess(32, 31, 32, (104, 0))
+        self.refresh(self.root, self.orphan, child, grandchild)
+        replacement = runner.TestProcess(31, 1, 31, (200, 0))
+        new_child = runner.TestProcess(33, 31, 33, (201, 0))
+        orphaned_grandchild = runner.TestProcess(32, 1, 32, grandchild.birth)
+        self.refresh(self.root, replacement, new_child, orphaned_grandchild)
+        self.assertEqual(set(self.ownership.pending_members), {32})
+        self.assertEqual(self.ownership.known, {10: self.root.birth})
+        with self.assertRaisesRegex(RuntimeError, "cannot attribute pending PIDs"):
+            self.refresh(replacement, new_child, orphaned_grandchild, exited=0)
+
+    def test_confirmed_pending_descendant_exit_or_replacement_retires_old_birth(self):
+        child = runner.TestProcess(31, 30, 31, (103, 0))
+        for remaining in ((), (runner.TestProcess(31, 1, 0, child.birth, True),),
+                          (runner.TestProcess(31, 1, 31, (200, 0)),)):
+            with self.subTest(remaining=remaining):
+                self.setUp()
+                self.refresh(self.root, self.orphan, child)
+                self.assertIn(31, self.ownership.pending_members)
+                self.assertEqual(self.refresh(*remaining, exited=0), {})
+                self.assertEqual(self.ownership.pending_members, {})
+                self.assertNotIn(31, self.ownership.known)
+
+    def test_pending_descendant_metadata_stays_required_after_ancestry_disappears(self):
+        child = runner.TestProcess(31, 30, 31, (103, 0))
+        self.refresh(self.root, self.orphan, child)
+        moved = runner.TestProcess(31, 1, 40, child.birth)
+        self.refresh(self.root, moved)
+        for error in (errno.EPERM, errno.EACCES, errno.EIO):
+            with self.subTest(errno=error):
+                def lookup(pid):
+                    if pid == 31:
+                        raise OSError(error, "pending descendant unavailable")
+                    return self.root if pid == 10 else None
+                with patch.object(runner, "test_process_ids", return_value={10}), \
+                        patch.object(runner, "test_process", side_effect=lookup), \
+                        patch.object(runner, "unreaped_exit_code", return_value=None):
+                    with self.assertRaisesRegex(OSError, "pending descendant unavailable") as raised:
+                        self.ownership.refresh(observing=True)
+                self.assertEqual(raised.exception.errno, error)
+                self.assertEqual(set(self.ownership.pending_members), {31})
+                self.assertNotIn(31, self.ownership.known)
+
+    def test_pending_descendant_becomes_owned_only_through_independent_lineage_or_session(self):
+        child = runner.TestProcess(31, 30, 31, (103, 0))
+        for parent, session in ((10, 31), (1, 10)):
+            with self.subTest(parent=parent, session=session):
+                self.setUp()
+                self.refresh(self.root, self.orphan, child)
+                self.assertIn(31, self.ownership.pending_members)
+                proven = runner.TestProcess(31, parent, session, child.birth)
+                self.assertEqual(set(self.refresh(self.root, proven, observing=False)), {10, 31})
+                self.assertEqual(self.ownership.pending_members, {})
+                self.assertEqual(self.ownership.known[31], child.birth)
+
+    def test_pending_descendants_and_unrelated_peers_never_gain_signal_authority(self):
+        child = runner.TestProcess(31, 30, 31, (103, 0))
+        grandchild = runner.TestProcess(32, 31, 32, (104, 0))
+        peer = runner.TestProcess(40, 1, 40, (105, 0))
+        self.refresh(self.root, self.orphan, child, grandchild, peer)
+        self.assertEqual(set(self.ownership.pending_members), {30, 31, 32})
+        orphaned = runner.TestProcess(32, 1, 32, grandchild.birth)
+        self.refresh(self.root, orphaned, peer)
+        snapshot = {10: self.root, 32: orphaned, 40: peer}
+        with patch.object(runner, "test_process_snapshot", return_value=snapshot), \
+                patch.object(runner, "test_process", side_effect=snapshot.get), \
+                patch.object(runner, "unreaped_exit_code", return_value=None), \
+                patch.object(self.ownership, "send") as send, \
+                patch.object(runner, "stop_unreaped_child") as stop:
+            with self.assertRaisesRegex(RuntimeError, "cannot attribute pending PIDs"):
+                self.ownership.drain(self.process)
+        self.assertEqual([call.args[0].pid for call in send.call_args_list], [10])
+        stop.assert_called_once_with(self.process)
+        with patch.object(runner, "test_process", side_effect=snapshot.get), \
+                patch.object(runner.sys, "platform", "darwin"), \
+                patch.object(runner, "darwin_signal_process") as native, \
+                patch.object(runner.os, "kill") as kill:
+            for info in (orphaned, peer):
+                self.ownership.send(info, signal.SIGKILL)
+        native.assert_not_called()
+        kill.assert_not_called()
+        self.assertEqual(self.ownership.known, {10: self.root.birth})
+
+    def test_pending_member_metadata_stays_required_even_after_session_changes(self):
+        self.refresh(self.root, self.orphan)
+        def lookup(pid):
+            if pid == 30:
+                raise PermissionError(errno.EACCES, "pending identity unavailable")
+            return self.root if pid == 10 else None
+        with patch.object(runner, "test_process_ids", return_value={10}), \
+                patch.object(runner, "test_process", side_effect=lookup):
+            with self.assertRaisesRegex(PermissionError, "pending identity unavailable"):
+                self.ownership.refresh(observing=True)
+        self.assertNotIn(30, self.ownership.known)
+
+    def test_observation_without_direct_wait_ownership_cannot_defer_uncertainty(self):
+        self.ownership.process = None
+        with self.assertRaisesRegex(RuntimeError, "session continuity"):
+            self.refresh(self.root, self.orphan)
+        self.assertNotIn(30, self.ownership.known)
+
+    def test_reused_session_birth_still_fails_during_observation(self):
+        replacement = runner.TestProcess(20, 1, 20, (200, 0))
+        with self.assertRaisesRegex(RuntimeError, "session continuity"):
+            self.refresh(self.root, replacement, self.orphan)
+        self.assertEqual(self.ownership.known[20], self.leader.birth)
+        self.assertNotIn(30, self.ownership.known)
+
+    def test_reused_session_birth_after_enumeration_still_fails_during_observation(self):
+        replacement = runner.TestProcess(20, 1, 20, (200, 0))
+        with patch.object(runner, "test_process_snapshot", return_value={10: self.root, 20: self.leader, 30: self.orphan}), \
+                patch.object(runner, "test_process", return_value=replacement), \
+                patch.object(runner, "unreaped_exit_code", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "session continuity"):
+                self.ownership.refresh(observing=True)
+        self.assertNotIn(30, self.ownership.known)
+
+    def test_cleanup_of_live_command_fails_without_signaling_uncertain_or_unrelated_pid(self):
+        peer = runner.TestProcess(40, 1, 40, (103, 0))
+        self.refresh(self.root, self.orphan, peer)
+        snapshot = {10: self.root, 30: self.orphan, 40: peer}
+        with patch.object(runner, "test_process_snapshot", return_value=snapshot), \
+                patch.object(runner, "test_process", side_effect=snapshot.get), \
+                patch.object(runner, "unreaped_exit_code", return_value=None), \
+                patch.object(self.ownership, "send") as send, \
+                patch.object(runner, "stop_unreaped_child") as stop:
+            with self.assertRaisesRegex(RuntimeError, "session continuity"):
+                self.ownership.drain(self.process)
+        self.assertEqual([call.args[0].pid for call in send.call_args_list], [10])
+        stop.assert_called_once_with(self.process)
+        self.assertNotIn(30, self.ownership.known)
+        self.assertNotIn(40, self.ownership.known)
+
+
 @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux /proc and pthread_exit semantics")
 class LinuxThreadGroupTests(unittest.TestCase):
     def test_native_zombie_leader_with_live_worker_is_killed_and_reaped(self):
@@ -1100,8 +1562,86 @@ int main(int argc, char **argv) {
                         process.wait(timeout=2)
 
 
+@patch.object(runner.sys, "platform", "darwin")
+class ContainmentSupportTests(unittest.TestCase):
+    def test_partial_capabilities_name_only_the_missing_ones(self):
+        partial = types.SimpleNamespace(waitid=None, P_PID=0, WEXITED=0)
+        error = runner.containment_support_error(partial)
+        self.assertIsNotNone(error)
+        self.assertIn("WNOHANG", error)
+        self.assertIn("WNOWAIT", error)
+        self.assertNotIn("P_PID", error)
+        self.assertIn(sys.executable, error)
+
+    def test_complete_capabilities_report_no_error(self):
+        complete = types.SimpleNamespace(**{name: 0 for name in runner.CONTAINMENT_CAPABILITIES})
+        self.assertIsNone(runner.containment_support_error(complete))
+
+    def test_run_command_rejects_an_interpreter_without_waitid(self):
+        with (
+            patch.object(runner, "containment_support_error", return_value="no waitid here"),
+            patch.object(runner.subprocess, "Popen") as launch,
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                runner.run_command(["/bin/echo", "unreachable"])
+            launch.assert_not_called()
+        self.assertEqual(str(raised.exception), "no waitid here")
+
+    def test_unsupported_platform_is_reported(self):
+        with patch.object(runner.sys, "platform", "win32"):
+            self.assertEqual(
+                runner.containment_support_error(),
+                "Swift test process containment requires macOS or Linux, not win32.",
+            )
+
+    def test_main_rejects_missing_containment_before_discovery(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            patch.object(sys, "argv", ["runner"]),
+            patch.object(runner, "containment_support_error", return_value="no waitid here"),
+            patch.object(runner, "swift_test_list") as discovery,
+            patch.object(runner, "run_group") as execute,
+            patch.object(runner, "print_timing_summary") as timing,
+            patch.object(runner, "append_github_summary") as summary,
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            self.assertEqual(runner.main(), 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "no waitid here\n")
+        discovery.assert_not_called()
+        execute.assert_not_called()
+        timing.assert_not_called()
+        summary.assert_not_called()
+
+    def test_list_only_keeps_discovery_without_containment(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        selection = runner.TestSelection("SyntheticTests", "^SyntheticTests/")
+        with (
+            patch.object(sys, "argv", ["runner", "--list-only"]),
+            patch.object(runner, "containment_support_error", return_value="no waitid here") as guard,
+            patch.object(runner, "swift_test_list", return_value=[selection]) as discovery,
+            patch.object(runner, "run_group") as execute,
+            patch.object(runner, "append_github_summary") as summary,
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            self.assertEqual(runner.main(), 0)
+        self.assertEqual(
+            stdout.getvalue(),
+            "Discovered 1 test selections; running 1 selections in 1 groups\nSyntheticTests\n",
+        )
+        self.assertEqual(stderr.getvalue(), "")
+        guard.assert_not_called()
+        discovery.assert_called_once_with(["swift"])
+        execute.assert_not_called()
+        summary.assert_not_called()
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--fixture":
         fixture(sys.argv[2], sys.argv[3], float(sys.argv[4]) if len(sys.argv) > 4 else 0)
+    elif len(sys.argv) > 1 and sys.argv[1] == "--nested-fixture":
+        nested_fixture(sys.argv[2])
     else:
         unittest.main()

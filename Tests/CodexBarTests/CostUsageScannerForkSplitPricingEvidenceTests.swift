@@ -162,7 +162,8 @@ extension CostUsageScannerForkSplitTests {
 
         // The day aggregate crosses the long-context threshold, so the aggregate fallback cannot
         // price this group: only the retained rows can, and distrusting them blanks the whole day.
-        #expect(CostUsagePricing.codexAggregateCostUSD(
+        #expect(CostUsagePricing.codexCostUSD(
+            aggregate: true,
             model: model,
             inputTokens: inputPerRow * 2,
             cachedInputTokens: 0,
@@ -202,7 +203,7 @@ extension CostUsageScannerForkSplitTests {
         let inputPerRow = 150_000
         let outputPerRow = 10
         let tokensPerRow = inputPerRow + outputPerRow
-        let rows = (0..<2).map { index in
+        let rows = (0..<2).map { (index: Int) in
             CostUsageScanner.CodexUsageRow(
                 day: dayKey,
                 model: model,

@@ -700,15 +700,17 @@ struct TokenAccountEnvironmentPrecedenceTests {
             codexActiveSourceOverride: .liveSystem)
         #expect(liveEnv["CODEX_HOME"] == ambientHome.path)
 
+        try Self.writeCodexAuthFile(homeURL: firstHome, email: "first@example.com", accountID: "acct_first")
+        try Self.writeCodexAuthFile(homeURL: ambientHome, email: "ambient@example.com", accountID: "acct_ambient")
         let firstFetcher = context.fetcher(
             base: UsageFetcher(environment: ["CODEX_HOME": ambientHome.path]),
             provider: .codex,
             env: firstEnv)
-        #expect(Self.codexHomePath(from: firstFetcher) == firstHome.path)
+        #expect(firstFetcher.loadAccountInfo().email == "first@example.com")
 
         let nonCodexBaseFetcher = UsageFetcher(environment: ["CODEX_HOME": ambientHome.path])
         let nonCodexFetcher = context.fetcher(base: nonCodexBaseFetcher, provider: .claude, env: firstEnv)
-        #expect(Self.codexHomePath(from: nonCodexFetcher) == ambientHome.path)
+        #expect(nonCodexFetcher.loadAccountInfo().email == "ambient@example.com")
 
         let labeled = try context.applyCodexVisibleAccountLabel(
             UsageSnapshot(primary: nil, secondary: nil, updatedAt: Date()),
@@ -884,43 +886,14 @@ struct TokenAccountEnvironmentPrecedenceTests {
     }
 
     @Test
-    func `apply account label in app preserves snapshot fields`() throws {
-        let settings = Self.makeSettingsStore(suite: "TokenAccountEnvironmentPrecedenceTests-apply-app")
-        let store = Self.makeUsageStore(settings: settings)
+    func `account label projection preserves snapshot fields`() throws {
         let snapshot = try Self.makeSnapshotWithAllFields(provider: .zai)
-        let account = ProviderTokenAccount(
-            id: UUID(),
-            label: "Team Account",
-            token: "account-token",
-            addedAt: 0,
-            lastUsed: nil)
 
-        let labeled = store.applyAccountLabel(snapshot, provider: .zai, account: account)
+        let labeled = snapshot.withAccountLabel("Team Account", for: .zai)
 
         Self.expectSnapshotFieldsPreserved(before: snapshot, after: labeled)
         #expect(labeled.identity?.providerID == .zai)
         #expect(labeled.identity?.accountEmail == "Team Account")
-    }
-
-    @Test
-    func `apply account label in CLI preserves snapshot fields`() throws {
-        let context = try TokenAccountCLIContext(
-            selection: TokenAccountCLISelection(label: nil, index: nil, allAccounts: false),
-            config: CodexBarConfig(providers: []),
-            verbose: false)
-        let snapshot = try Self.makeSnapshotWithAllFields(provider: .zai)
-        let account = ProviderTokenAccount(
-            id: UUID(),
-            label: "CLI Account",
-            token: "account-token",
-            addedAt: 0,
-            lastUsed: nil)
-
-        let labeled = context.applyAccountLabel(snapshot, provider: .zai, account: account)
-
-        Self.expectSnapshotFieldsPreserved(before: snapshot, after: labeled)
-        #expect(labeled.identity?.providerID == .zai)
-        #expect(labeled.identity?.accountEmail == "CLI Account")
     }
 
     @Test
@@ -1097,15 +1070,6 @@ extension TokenAccountEnvironmentPrecedenceTests {
             baseEnvironment: ["CODEX_HOME": ambientHome.path],
             managedCodexAccountStoreURL: managedStoreURL)
         return context.settingsSnapshot(for: .codex, account: nil)?.codex?.dashboardAuthorityKnownOwners
-    }
-
-    fileprivate static func codexHomePath(from fetcher: UsageFetcher) -> String? {
-        guard let environment = Mirror(reflecting: fetcher).children.first(where: { $0.label == "environment" })?
-            .value as? [String: String]
-        else {
-            return nil
-        }
-        return environment["CODEX_HOME"]
     }
 
     fileprivate static func writeCodexAuthFile(homeURL: URL, email: String, accountID: String) throws {

@@ -61,6 +61,7 @@ Gemini uses the Gemini CLI OAuth credentials and private quota APIs. No browser 
 - Token refresh:
   - `POST https://oauth2.googleapis.com/token`
   - Form body: `client_id`, `client_secret`, `refresh_token`, `grant_type=refresh_token`.
+  - Values are form-encoded so literal plus signs, separators, and percent escapes remain intact.
 
 ## Parsing + mapping
 - Quota buckets:
@@ -72,6 +73,9 @@ Gemini uses the Gemini CLI OAuth credentials and private quota APIs. No browser 
 - UI mapping:
   - Primary: Pro models (lowest percent left).
   - Secondary: Flash models (lowest percent left).
+  - Tertiary: Flash Lite models (lowest percent left).
+  - Missing model tiers remain absent. The shared menu-bar metric fallback uses Flash Lite when both Pro and Flash
+    are unavailable, including Automatic, Pro, Flash, and Average. Average still combines Pro and Flash when both exist.
 
 ## Plan detection
 - Tier from `loadCodeAssist`:

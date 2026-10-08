@@ -10,6 +10,19 @@ struct TokenAccountCLISelection {
     var usesOverride: Bool {
         self.label != nil || self.index != nil || self.allAccounts
     }
+
+    func providerSelectionError(_ providers: [UsageProvider]) -> String? {
+        guard self.usesOverride else { return nil }
+        guard providers.count == 1 else { return "account selection requires a single provider." }
+        let provider = providers[0]
+        // Provider-specific by design: Codex exposes reconciled live/managed accounts beyond token accounts.
+        let includesReconciledAccounts = provider == .codex && self.allAccounts && self.label == nil && self
+            .index == nil
+        guard includesReconciledAccounts || TokenAccountSupportCatalog.support(for: provider) != nil else {
+            return "\(provider.rawValue) does not support token accounts."
+        }
+        return nil
+    }
 }
 
 enum TokenAccountCLIResolutionScope {
@@ -21,6 +34,7 @@ enum TokenAccountCLIError: LocalizedError {
     case noAccounts(UsageProvider)
     case accountNotFound(UsageProvider, String)
     case indexOutOfRange(UsageProvider, Int, Int)
+    case antigravityCLIAccountSelectionUnsupported
 
     var errorDescription: String? {
         switch self {
@@ -30,6 +44,9 @@ enum TokenAccountCLIError: LocalizedError {
             "No token account labeled '\(label)' for \(provider.rawValue)."
         case let .indexOutOfRange(provider, index, count):
             "Token account index \(index) out of range for \(provider.rawValue) (1-\(count))."
+        case .antigravityCLIAccountSelectionUnsupported:
+            "Antigravity CLI uses its local login and cannot select saved Google accounts. " +
+                "Use --source auto or --source oauth with account selection."
         }
     }
 }
@@ -38,8 +55,9 @@ struct TokenAccountCLIContext {
     let selection: TokenAccountCLISelection
     let config: CodexBarConfig
     let accountsByProvider: [UsageProvider: ProviderTokenAccountData]
-    private let baseEnvironment: [String: String]
+    @ProcessEnvironment private var baseEnvironment: [String: String]
     private let managedCodexAccountStoreURL: URL?
+    private let configStore: CodexBarConfigStore
 
     init(
         selection: TokenAccountCLISelection,
@@ -47,12 +65,14 @@ struct TokenAccountCLIContext {
         verbose _: Bool,
         resolutionScope: TokenAccountCLIResolutionScope = .configuredAccounts,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        managedCodexAccountStoreURL: URL? = nil) throws
+        managedCodexAccountStoreURL: URL? = nil,
+        configStore: CodexBarConfigStore = CodexBarConfigStore()) throws
     {
         self.selection = selection
         self.config = config
         self.baseEnvironment = baseEnvironment
         self.managedCodexAccountStoreURL = managedCodexAccountStoreURL
+        self.configStore = configStore
         self.accountsByProvider = switch resolutionScope {
         case .configuredAccounts:
             Dictionary(uniqueKeysWithValues: config.providers.compactMap { provider in
@@ -66,8 +86,20 @@ struct TokenAccountCLIContext {
         }
     }
 
-    func resolvedAccounts(for provider: UsageProvider) throws -> [ProviderTokenAccount] {
-        guard TokenAccountSupportCatalog.support(for: provider) != nil else { return [] }
+    func resolvedAccounts(
+        for provider: UsageProvider, sourceMode: ProviderSourceMode? = nil) throws -> [ProviderTokenAccount]
+    {
+        guard let support = TokenAccountSupportCatalog.support(for: provider) else { return [] }
+        let effectiveSourceMode = sourceMode ?? self.preferredSourceMode(for: provider)
+        // Provider-specific by design: agy owns its login; saved Google accounts cannot select its local identity.
+        if provider == .antigravity, effectiveSourceMode == .cli, self.selection.usesOverride {
+            throw TokenAccountCLIError.antigravityCLIAccountSelectionUnsupported
+        }
+        if !self.selection.usesOverride,
+           support.passiveSourceModes.contains(effectiveSourceMode)
+        {
+            return []
+        }
         guard let data = self.accountsByProvider[provider], !data.accounts.isEmpty else {
             if self.selection.usesOverride {
                 throw TokenAccountCLIError.noAccounts(provider)
@@ -160,9 +192,9 @@ struct TokenAccountCLIContext {
 
     func tokenUpdater(for account: ProviderTokenAccount?) -> ProviderFetchContext.TokenAccountTokenUpdater? {
         guard let account else { return nil }
+        let writeback = TokenAccountCLIWriteback(account: account, store: self.configStore)
         return { provider, accountID, token in
-            guard accountID == account.id else { return }
-            try? Self.updateStoredTokenAccount(provider: provider, accountID: accountID, token: token)
+            await writeback.update(provider: provider, accountID: accountID, token: token)
         }
     }
 
@@ -172,41 +204,54 @@ struct TokenAccountCLIContext {
         }
     }
 
-    private static func updateStoredTokenAccount(
+    @discardableResult
+    static func updateStoredTokenAccount(
+        store: CodexBarConfigStore,
         provider: UsageProvider,
         accountID: UUID,
-        token: String) throws
+        expectedToken: String,
+        token: String) throws -> Bool
     {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
 
-        let store = CodexBarConfigStore()
-        guard var config = try store.load() else { return }
-        guard var providerConfig = config.providerConfig(for: provider.instanceID),
-              let data = providerConfig.tokenAccounts,
-              let index = data.accounts.firstIndex(where: { $0.id == accountID })
-        else {
-            return
+        var didUpdate = false
+        try store.updateIfAvailable { config in
+            guard var providerConfig = config.providerConfig(for: provider.instanceID),
+                  let data = providerConfig.tokenAccounts,
+                  let index = data.accounts.firstIndex(where: { $0.id == accountID })
+            else {
+                return false
+            }
+
+            let existing = data.accounts[index]
+            guard existing.token == expectedToken else {
+                CodexBarLog.logger(LogCategories.tokenAccounts).warning(
+                    "Skipped token account writeback: the stored credential changed during the fetch",
+                    metadata: ["provider": provider.rawValue])
+                return false
+            }
+            var accounts = data.accounts
+            accounts[index] = ProviderTokenAccount(
+                id: existing.id,
+                label: existing.label,
+                token: trimmed,
+                addedAt: existing.addedAt,
+                lastUsed: existing.lastUsed,
+                externalIdentifier: existing.externalIdentifier,
+                usageScope: existing.usageScope,
+                organizationID: existing.organizationID,
+                workspaceID: existing.workspaceID,
+                seatCreditEntitlement: existing.seatCreditEntitlement)
+            providerConfig.tokenAccounts = ProviderTokenAccountData(
+                version: data.version,
+                accounts: accounts,
+                activeIndex: data.clampedActiveIndex())
+            config.setProviderConfig(providerConfig)
+            didUpdate = true
+            return true
         }
-
-        let existing = data.accounts[index]
-        var accounts = data.accounts
-        accounts[index] = ProviderTokenAccount(
-            id: existing.id,
-            label: existing.label,
-            token: trimmed,
-            addedAt: existing.addedAt,
-            lastUsed: existing.lastUsed,
-            externalIdentifier: existing.externalIdentifier,
-            usageScope: existing.usageScope,
-            organizationID: existing.organizationID,
-            workspaceID: existing.workspaceID)
-        providerConfig.tokenAccounts = ProviderTokenAccountData(
-            version: data.version,
-            accounts: accounts,
-            activeIndex: data.clampedActiveIndex())
-        config.setProviderConfig(providerConfig)
-        try store.save(config)
+        return didUpdate
     }
 
     func fetcher(base: UsageFetcher, provider: UsageProvider, env: [String: String]) -> UsageFetcher {
@@ -218,24 +263,6 @@ struct TokenAccountCLIContext {
     func visibleCodexAccounts() -> CodexVisibleAccountProjection {
         // Provider-specific by design: only Codex exposes reconciled live, managed, and profile-home accounts.
         self.codexAccountReconciler().loadVisibleAccounts()
-    }
-
-    func applyAccountLabel(
-        _ snapshot: UsageSnapshot,
-        provider: UsageProvider,
-        account: ProviderTokenAccount) -> UsageSnapshot
-    {
-        let label = account.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !label.isEmpty else { return snapshot }
-        let existing = snapshot.identity(for: provider.instanceID)
-        let email = existing?.accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedEmail = (email?.isEmpty ?? true) ? label : email
-        let identity = ProviderIdentitySnapshot(
-            providerID: provider.instanceID,
-            accountEmail: resolvedEmail,
-            accountOrganization: existing?.accountOrganization,
-            loginMethod: existing?.loginMethod)
-        return snapshot.withIdentity(identity)
     }
 
     func applyCodexVisibleAccountLabel(_ snapshot: UsageSnapshot, account: CodexVisibleAccount) -> UsageSnapshot {
@@ -314,6 +341,32 @@ struct TokenAccountCLIContext {
             return configuredPaths.contains {
                 CodexHomeScope.normalizedHomePath($0) == normalizedPath
             } ? normalizedPath : nil
+        }
+    }
+}
+
+/// A fetch may persist a refreshed token and then discovered account metadata.
+private actor TokenAccountCLIWriteback {
+    private let accountID: UUID
+    private let store: CodexBarConfigStore
+    private var expectedToken: String
+
+    init(account: ProviderTokenAccount, store: CodexBarConfigStore) {
+        self.accountID = account.id
+        self.store = store
+        self.expectedToken = account.token
+    }
+
+    func update(provider: UsageProvider, accountID: UUID, token: String) {
+        guard accountID == self.accountID else { return }
+        if (try? TokenAccountCLIContext.updateStoredTokenAccount(
+            store: self.store,
+            provider: provider,
+            accountID: accountID,
+            expectedToken: self.expectedToken,
+            token: token)) == true
+        {
+            self.expectedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 }

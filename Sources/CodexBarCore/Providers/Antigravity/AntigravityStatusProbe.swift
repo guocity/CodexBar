@@ -55,13 +55,6 @@ private enum AntigravityUsagePool: Hashable {
         case .claudeGPT: "Claude and GPT models"
         }
     }
-
-    var sortRank: Int {
-        switch self {
-        case .geminiAI: 0
-        case .claudeGPT: 1
-        }
-    }
 }
 
 private struct AntigravityModelVersion: Comparable {
@@ -96,6 +89,12 @@ public struct AntigravityStatusSnapshot: Sendable {
     public let accountPlan: String?
     public let source: AntigravityModelQuotaSource
     let quotaSummary: AntigravityQuotaSummary?
+
+    var hasKnownQuotaSummary: Bool {
+        self.quotaSummary?.groups.contains { group in
+            group.buckets.contains { !$0.disabled && $0.remainingFraction != nil }
+        } == true
+    }
 
     public init(
         modelQuotas: [AntigravityModelQuota],
@@ -135,7 +134,7 @@ public struct AntigravityStatusSnapshot: Sendable {
             throw AntigravityStatusProbeError.parseFailed("No quota models available")
         }
 
-        let normalized = Self.normalizedModels(self.modelQuotas)
+        let normalized = self.modelQuotas.map(Self.normalizeModel)
         let summaryCandidates = normalized.filter(Self.isSummaryCandidate)
         let primaryQuota = Self.representative(for: .geminiAI, in: summaryCandidates)
         let secondaryQuota = Self.representative(for: .claudeGPT, in: summaryCandidates)
@@ -160,10 +159,8 @@ public struct AntigravityStatusSnapshot: Sendable {
             from: normalized,
             summaryCandidates: summaryCandidates,
             compactFallbackModelID: fallbackQuota?.modelId,
-            representedPools: Set([
-                primaryQuota.map { _ in AntigravityUsagePool.geminiAI },
-                secondaryQuota.map { _ in AntigravityUsagePool.claudeGPT },
-            ].compactMap(\.self)))
+            representedQuotas: [.geminiAI: primaryQuota, .claudeGPT: secondaryQuota].compactMapValues(\.self),
+            source: self.source)
 
         let identity = ProviderIdentitySnapshot(
             providerID: .antigravity,
@@ -338,14 +335,11 @@ public struct AntigravityStatusSnapshot: Sendable {
     }
 
     private static func quotaGroupSortRank(_ group: AntigravityQuotaSummaryGroup) -> Int {
-        let title = group.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if title.contains("gemini") {
-            return 0
+        switch self.displayTitle(forQuotaGroup: group) {
+        case "Gemini": 0
+        case "Claude/GPT": 1
+        default: 2
         }
-        if title.contains("claude") || title.contains("gpt") {
-            return 1
-        }
-        return 2
     }
 
     private static func quotaBucketSortRank(_ bucket: AntigravityQuotaSummaryBucket) -> Int {
@@ -379,8 +373,14 @@ public struct AntigravityStatusSnapshot: Sendable {
     ]
 
     private static func quotaCadenceCandidates(for bucket: AntigravityQuotaSummaryBucket) -> Set<String> {
+        let explicit = bucket.window?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let values = if let explicit, !explicit.isEmpty {
+            [explicit]
+        } else {
+            [bucket.bucketId, bucket.displayName]
+        }
         var candidates: Set<String> = []
-        for rawValue in [bucket.bucketId, bucket.displayName] {
+        for rawValue in values {
             let normalized = rawValue
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
@@ -527,10 +527,6 @@ public struct AntigravityStatusSnapshot: Sendable {
         !model.isLite && !model.isAutocomplete && !model.isImage
     }
 
-    private static func normalizedModels(_ models: [AntigravityModelQuota]) -> [AntigravityNormalizedModel] {
-        models.map { self.normalizeModel($0) }
-    }
-
     private static func normalizeModel(_ quota: AntigravityModelQuota) -> AntigravityNormalizedModel {
         let canonicalQuota: AntigravityModelQuota = {
             let canonicalId = Self.canonicalModelID(quota.modelId)
@@ -651,10 +647,11 @@ public struct AntigravityStatusSnapshot: Sendable {
         from models: [AntigravityNormalizedModel],
         summaryCandidates: [AntigravityNormalizedModel],
         compactFallbackModelID: String?,
-        representedPools: Set<AntigravityUsagePool>) -> [NamedRateWindow]
+        representedQuotas: [AntigravityUsagePool: AntigravityModelQuota],
+        source: AntigravityModelQuotaSource) -> [NamedRateWindow]
     {
         let resetOnlyPoolWindows = [AntigravityUsagePool.geminiAI, .claudeGPT].compactMap { pool -> NamedRateWindow? in
-            guard !representedPools.contains(pool) else { return nil }
+            guard representedQuotas[pool] == nil else { return nil }
             let candidates = summaryCandidates.filter { Self.usagePool(for: $0) == pool }
             guard let resetOnly = candidates.first(where: { model in
                 model.quota.remainingFraction == nil &&
@@ -669,19 +666,26 @@ public struct AntigravityStatusSnapshot: Sendable {
                 usageKnown: false)
         }
 
-        let distinctWindows = Dictionary(grouping: models.filter {
-            $0.quota.modelId == compactFallbackModelID || Self.shouldShowDistinctExtraWindow($0)
-        }, by: { $0.quota.modelId.lowercased() })
+        let distinctWindows = Dictionary(grouping: models, by: { $0.quota.modelId.lowercased() })
             .values
             .compactMap { group -> AntigravityNormalizedModel? in
                 // Retired Flash mapping can collapse multiple wire ids to one canonical id;
                 // keep the most constrained (lowest remaining) to avoid duplicate windows.
                 group.min { lhs, rhs in
+                    if (lhs.quota.remainingFraction != nil) != (rhs.quota.remainingFraction != nil) {
+                        return lhs.quota.remainingFraction != nil
+                    }
                     if lhs.quota.remainingPercent != rhs.quota.remainingPercent {
                         return lhs.quota.remainingPercent < rhs.quota.remainingPercent
                     }
                     return lhs.quota.label < rhs.quota.label
                 }
+            }
+            .filter { model in
+                let pool = Self.usagePool(for: model) ?? (model.isAutocomplete ? .geminiAI : nil)
+                return model.quota.modelId == compactFallbackModelID || Self.shouldShowDistinctExtraWindow(
+                    model,
+                    poolQuota: source == .remote ? pool.flatMap { representedQuotas[$0] } : nil)
             }
             .sorted(by: Self.modelOrderPrecedes)
             .map { m in
@@ -694,34 +698,27 @@ public struct AntigravityStatusSnapshot: Sendable {
                     usageKnown: m.quota.remainingFraction != nil)
             }
 
-        return resetOnlyPoolWindows.sorted { lhs, rhs in
-            guard let lhsPool = Self.pool(forExtraWindowID: lhs.id),
-                  let rhsPool = Self.pool(forExtraWindowID: rhs.id)
-            else {
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-            }
-            return lhsPool.sortRank < rhsPool.sortRank
-        } + distinctWindows
+        return resetOnlyPoolWindows + distinctWindows
     }
 
     private static func compactFallbackWindowID(modelID: String) -> String {
         "antigravity-compact-fallback-\(modelID)"
     }
 
-    private static func shouldShowDistinctExtraWindow(_ model: AntigravityNormalizedModel) -> Bool {
+    private static func shouldShowDistinctExtraWindow(
+        _ model: AntigravityNormalizedModel,
+        poolQuota: AntigravityModelQuota?) -> Bool
+    {
         guard !self.isSummaryCandidate(model) else { return false }
+        if let poolQuota, let reset = model.quota.resetTime,
+           reset == poolQuota.resetTime, model.quota.remainingFraction == poolQuota.remainingFraction
+        {
+            return false
+        }
         if model.quota.remainingFraction == nil {
             return model.quota.resetTime != nil || model.quota.resetDescription != nil
         }
         return model.quota.remainingPercent < 99.9
-    }
-
-    private static func pool(forExtraWindowID id: String) -> AntigravityUsagePool? {
-        switch id {
-        case AntigravityUsagePool.geminiAI.id: .geminiAI
-        case AntigravityUsagePool.claudeGPT.id: .claudeGPT
-        default: nil
-        }
     }
 
     private static func usagePool(for model: AntigravityNormalizedModel) -> AntigravityUsagePool? {
@@ -775,6 +772,8 @@ public enum AntigravityStatusProbeError: LocalizedError, Sendable, Equatable {
     case portDetectionFailed(String)
     case apiError(String)
     case parseFailed(String)
+    /// A failed `agy` print-usage invocation, without raw subprocess output.
+    case cliReportFailed(AntigravityCLIPrintFailure)
     case timedOut
     case authenticationRequired
     case accountMismatch(expected: String?, found: String?)
@@ -791,6 +790,8 @@ public enum AntigravityStatusProbeError: LocalizedError, Sendable, Equatable {
             Self.apiErrorDescription(message)
         case let .parseFailed(message):
             "Could not parse Antigravity quota: \(message)"
+        case let .cliReportFailed(failure):
+            "Antigravity CLI usage report failed: \(failure.message)"
         case .timedOut:
             "Antigravity quota request timed out."
         case .authenticationRequired:
@@ -804,10 +805,10 @@ public enum AntigravityStatusProbeError: LocalizedError, Sendable, Equatable {
         let selected = expected ?? "the selected account"
         if let found {
             return "Antigravity local session is signed in as \(found), not \(selected); "
-                + "using the selected account's OAuth data instead."
+                + "local usage cannot be used for the selected account."
         }
         return "Antigravity local session did not report an account matching \(selected); "
-            + "using the selected account's OAuth data instead."
+            + "local usage cannot be used for the selected account."
     }
 
     private static func portDetectionDescription(_ message: String) -> String {
@@ -876,7 +877,7 @@ public struct AntigravityStatusProbe: Sendable {
     public func fetch(matchingAccountEmail expectedAccountEmail: String? = nil) async throws
         -> AntigravityStatusSnapshot
     {
-        let deadline = Date().addingTimeInterval(self.timeout)
+        let deadline = Self.deadlineNow().addingTimeInterval(self.timeout)
         let processInfos = try await Self.detectProcessInfos(timeout: self.timeout, scope: self.processScope)
         let result = try await Self.fetchProcessSnapshots(processInfos: processInfos) { processInfo in
             try await Self.fetch(
@@ -1462,7 +1463,7 @@ public struct AntigravityStatusProbe: Sendable {
         remainingAttemptCount: Int) -> TimeInterval?
     {
         guard let deadline else { return timeout }
-        let remaining = deadline.timeIntervalSinceNow
+        let remaining = deadline.timeIntervalSince(Self.deadlineNow())
         guard remaining > 0 else { return nil }
         return min(timeout, remaining / Double(max(1, remainingAttemptCount)))
     }
@@ -1584,12 +1585,10 @@ public struct AntigravityStatusProbe: Sendable {
                 payload: RequestPayload(
                     path: self.quotaSummaryPath,
                     body: ["forceRefresh": true]),
-                context: self.quotaSummaryRequestContext(from: context),
+                context: self.fallbackReservingRequestContext(from: context),
                 send: send,
                 parse: self.parseQuotaSummaryResponse)
-            guard quotaSummary.quotaSummary?.groups.contains(where: { group in
-                group.buckets.contains { !$0.disabled && $0.remainingFraction != nil }
-            }) == true else {
+            guard quotaSummary.hasKnownQuotaSummary else {
                 throw AntigravityStatusProbeError.parseFailed("Quota summary has no usable quota buckets")
             }
             let identity = try? await self.makeParsedRequest(
@@ -1611,7 +1610,7 @@ public struct AntigravityStatusProbe: Sendable {
                 payload: RequestPayload(
                     path: self.getUserStatusPath,
                     body: self.defaultRequestBody()),
-                context: self.legacyUserStatusRequestContext(from: context),
+                context: self.fallbackReservingRequestContext(from: context),
                 send: send,
                 parse: self.parseUserStatusResponse)
         } catch {
@@ -1625,24 +1624,14 @@ public struct AntigravityStatusProbe: Sendable {
         }
     }
 
-    private static func legacyUserStatusRequestContext(from context: RequestContext) -> RequestContext {
+    private static func fallbackReservingRequestContext(from context: RequestContext) -> RequestContext {
         guard let deadline = context.deadline else { return context }
-        let remaining = max(0, deadline.timeIntervalSinceNow)
-        let userStatusBudget = remaining / 2
+        let remaining = max(0, deadline.timeIntervalSince(Self.deadlineNow()))
+        let attemptBudget = remaining / 2
         return RequestContext(
             endpoints: context.endpoints,
-            timeout: min(context.timeout, userStatusBudget),
-            deadline: Date().addingTimeInterval(userStatusBudget))
-    }
-
-    private static func quotaSummaryRequestContext(from context: RequestContext) -> RequestContext {
-        guard let deadline = context.deadline else { return context }
-        let remaining = max(0, deadline.timeIntervalSinceNow)
-        let quotaSummaryBudget = remaining / 2
-        return RequestContext(
-            endpoints: context.endpoints,
-            timeout: min(context.timeout, quotaSummaryBudget),
-            deadline: Date().addingTimeInterval(quotaSummaryBudget))
+            timeout: min(context.timeout, attemptBudget),
+            deadline: Self.deadlineNow().addingTimeInterval(attemptBudget))
     }
 
     private static func identityRequestContext(from context: RequestContext) -> RequestContext {

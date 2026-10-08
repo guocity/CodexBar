@@ -9,6 +9,16 @@ struct MenuBarLayoutWindows {
     let session: RateWindow?
     let weekly: RateWindow?
     let automatic: RateWindow?
+
+    func resetWindow(_ selection: PercentWindow, snapshot: UsageSnapshot?) -> RateWindow? {
+        let window: RateWindow? = switch selection {
+        case .session: self.session
+        case .weekly: self.weekly
+        case .automatic: self.automatic
+        case .scopedWeekly: MenuBarLayoutSemanticWindowResolver.scopedWeeklyNamedWindow(snapshot: snapshot)?.window
+        }
+        return window?.isSyntheticPlaceholder == true ? nil : window
+    }
 }
 
 /// Menu-bar cost values resolved in one pass: the display strings in the user's preferred currency plus
@@ -31,7 +41,7 @@ extension StatusItemController {
         now: Date = .init())
         -> Bool?
     {
-        let resolution = self.settings.menuBarLayoutResolution(for: provider)
+        let resolution = self.renderedMenuBarLayoutResolution(for: provider)
         guard !resolution.usesLegacyRendering,
               self.settings.menuBarIconStyle == .iconAndPercent,
               let button = statusItem.button
@@ -46,8 +56,107 @@ extension StatusItemController {
             snapshot: snapshot,
             warningFlash: warningFlash,
             now: now)
-        let appearanceName = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? "default"
-        let options = MenuBarLayoutRenderOptions(
+        let options = self.menuBarLayoutRenderOptions(for: provider, button: button, now: now)
+        let rendered = self.menuBarLayoutRenderer.render(
+            layout: resolution.layout,
+            data: data,
+            icon: renderedIcon,
+            options: options)
+        let expectedImagePosition: NSControl.ImagePosition = if rendered.statusImage != nil {
+            .imageOnly
+        } else if rendered.leadingIcon != nil {
+            rendered.attributedTitle.length > 0 ? .imageLeft : .imageOnly
+        } else {
+            .noImage
+        }
+        let expectedTitle = rendered.statusImage == nil ? rendered.attributedTitle : NSAttributedString()
+        let wasCached = button.image === (rendered.statusImage ?? rendered.leadingIcon)
+            && button.imagePosition == expectedImagePosition
+            && button.attributedTitle.isEqual(to: expectedTitle)
+        self.setButtonLayoutContent(rendered, for: button, statusItem: statusItem)
+        return wasCached
+    }
+
+    private var mergedIconPresentation: MergedIconPresentation {
+        self.settings.mergedIconPresentation(
+            activeProviders: self.store.enabledFirstPartyProvidersForDisplay(),
+            mergeIcons: self.shouldMergeIcons)
+    }
+
+    func stackedMergeIconProvidersIfActive() -> MergedIconPresentation.Pair? {
+        self.mergedIconPresentation.stackedProviders
+    }
+
+    func renderedMenuBarLayoutResolution(for provider: UsageProvider) -> MenuBarLayoutResolution {
+        self.mergedIconPresentation.renderedResolution(
+            self.settings.menuBarLayoutResolution(for: provider), for: provider)
+    }
+
+    /// Uses the existing merged status item so its identity, menu, and placement stay stable.
+    func applyStoredStackedMenuBarLayoutIfNeeded(
+        top: UsageProvider,
+        bottom: UsageProvider,
+        now: Date = .init())
+        -> Bool?
+    {
+        guard self.settings.menuBarShowsBrandIconWithPercent,
+              self.settings.menuBarIconStyle == .iconAndPercent,
+              let button = self.statusItem.button
+        else {
+            self.statusItem.length = NSStatusItem.variableLength
+            return nil
+        }
+        guard let topRow = self.renderStackedProviderRow(provider: top, now: now),
+              let bottomRow = self.renderStackedProviderRow(provider: bottom, now: now)
+        else {
+            self.statusItem.length = NSStatusItem.variableLength
+            return nil
+        }
+        let rendered = MenuBarLayoutRenderer.composeStackedProviderRows(
+            top: topRow,
+            bottom: bottomRow,
+            topProviderName: L(self.store.metadata(for: top).displayName),
+            bottomProviderName: L(self.store.metadata(for: bottom).displayName))
+        let wasCached = button.image == nil && button.attributedTitle.isEqual(to: rendered.attributedTitle)
+        self.statusItem.length = Self.applyMenuBarLayoutContent(
+            rendered,
+            for: button,
+            gap: self.settings.menuBarLayoutGap)
+        return wasCached
+    }
+
+    private func renderStackedProviderRow(provider: UsageProvider, now: Date) -> MenuBarLayoutRenderedTitle? {
+        let resolution = self.renderedMenuBarLayoutResolution(for: provider)
+        let warningFlash = self.quotaWarningFlashActive(provider: provider)
+        let snapshot = self.store.menuBarSnapshot(for: provider.instanceID)
+        let icon = ProviderBrandIcon.image(for: provider)
+            .map { warningFlash ? Self.quotaWarningFlashImage(base: $0) : $0 }
+        let data = self.menuBarLayoutRenderData(
+            provider: provider,
+            snapshot: snapshot,
+            warningFlash: warningFlash,
+            now: now)
+        let options = self.menuBarLayoutRenderOptions(
+            for: provider,
+            button: self.statusItem.button,
+            now: now,
+            forceStackedStyle: true)
+        return self.menuBarLayoutRenderer.render(
+            layout: resolution.layout,
+            data: data,
+            icon: icon,
+            options: options)
+    }
+
+    private func menuBarLayoutRenderOptions(
+        for provider: UsageProvider,
+        button: NSButton?,
+        now: Date,
+        forceStackedStyle: Bool = false)
+        -> MenuBarLayoutRenderOptions
+    {
+        let appearanceName = button?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? "default"
+        return MenuBarLayoutRenderOptions(
             size: self.settings.menuBarLayoutSize,
             highContrast: self.shouldUseHighContrastStatusItemContent,
             showUsed: self.settings.usageBarsShowUsed,
@@ -56,22 +165,9 @@ extension StatusItemController {
             isDebugApp: Self.isDebugApp(bundleIdentifier: Bundle.main.bundleIdentifier),
             isStale: self.store.isStale(provider: provider),
             now: now,
-            verticalAdjustment: self.settings.menuBarLayoutVerticalAdjustment)
-        let rendered = self.menuBarLayoutRenderer.render(
-            layout: resolution.layout,
-            data: data,
-            icon: renderedIcon,
-            options: options)
-        let expectedImagePosition: NSControl.ImagePosition = if rendered.leadingIcon != nil {
-            rendered.attributedTitle.length > 0 ? .imageLeft : .imageOnly
-        } else {
-            .noImage
-        }
-        let wasCached = button.image === rendered.leadingIcon
-            && button.imagePosition == expectedImagePosition
-            && button.attributedTitle.isEqual(to: rendered.attributedTitle)
-        self.setButtonLayoutContent(rendered, for: button, statusItem: statusItem)
-        return wasCached
+            verticalAdjustment: self.settings.menuBarLayoutVerticalAdjustment,
+            colorPace: self.settings.menuBarColorPace,
+            forceStackedStyle: forceStackedStyle)
     }
 
     func menuBarLayoutRenderData(
@@ -99,6 +195,10 @@ extension StatusItemController {
         let balanceAmounts = MenuBarLayoutBalanceResolver.balanceAmountsUSD(
             provider: provider,
             snapshot: snapshot)
+        let codexCredits = self.menuBarLayoutCodexCredits(
+            provider: provider,
+            snapshot: snapshot,
+            now: now)
         let providerName = L(self.store.metadata(for: provider).displayName)
         let accountLabel = self.menuBarLayoutAccountLabel(provider: provider, snapshot: snapshot)
         let automatic = MenuBarLayoutRenderWindow(windows.automatic)
@@ -112,15 +212,16 @@ extension StatusItemController {
             primary: MenuBarLayoutRenderWindow(windows.primary),
             secondary: MenuBarLayoutRenderWindow(windows.secondary),
             tertiary: MenuBarLayoutRenderWindow(windows.tertiary),
+            extraRateWindows: (snapshot?.extraRateWindows ?? []).map(MenuBarLayoutRenderExtra.init),
             session: MenuBarLayoutRenderWindow(windows.session),
             weekly: MenuBarLayoutRenderWindow(windows.weekly),
             scopedWeekly: MenuBarLayoutRenderWindow(scopedNamed?.window),
             scopedWeeklyTitle: scopedNamed?.title,
             automatic: automatic,
-            // Provider-specific by design: Mistral uses spend text when its automatic lane has no percentage window.
-            automaticText: provider == .mistral && automatic == nil
-                ? Self.mistralSpendDisplayText(snapshot: snapshot)
-                : nil,
+            automaticText: Self.menuBarLayoutAutomaticText(
+                provider: provider,
+                snapshot: snapshot,
+                automatic: automatic),
             sessionPace: self.store.menuBarLayoutPaceText(
                 provider: provider,
                 window: windows.session,
@@ -138,7 +239,10 @@ extension StatusItemController {
                 dataConfidence: snapshot?.dataConfidence ?? .unknown,
                 now: now),
             runsOut: runsOut,
-            balance: MenuBarLayoutBalanceResolver.balance(provider: provider, snapshot: snapshot),
+            balance: MenuBarLayoutBalanceResolver.balance(
+                provider: provider,
+                snapshot: snapshot,
+                codexCredits: codexCredits),
             costToday: costs.today,
             cost30d: costs.last30Days,
             metrics: MenuBarLayoutRenderMetrics(
@@ -163,6 +267,18 @@ extension StatusItemController {
                 balanceUsedUSD: balanceAmounts.used,
                 costTodayUSD: costs.todayUSD,
                 cost30dUSD: costs.last30DaysUSD))
+    }
+
+    func menuBarLayoutCodexCredits(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot?,
+        now: Date = .init()) -> CreditsSnapshot?
+    {
+        self.store.codexConsumerProjectionIfNeeded(
+            for: provider,
+            surface: .menuBar,
+            snapshotOverride: snapshot,
+            now: now)?.credits?.snapshot
     }
 
     func menuBarLayoutAccountLabel(provider: UsageProvider, snapshot: UsageSnapshot?) -> String? {
@@ -258,32 +374,49 @@ extension StatusItemController {
                 window: automatic))
     }
 
+    /// Select dates from the same semantic windows as reset display tokens. Keep styles separate:
+    /// an absolute weekly clock must not cause minute-by-minute countdown wakeups.
+    func menuBarLayoutResetDates(
+        for provider: UsageProvider,
+        now: Date,
+        absolute: Bool? = nil) -> [Date]
+    {
+        let snapshot = self.store.menuBarSnapshot(for: provider.instanceID)
+        let windows = self.menuBarLayoutWindows(provider: provider, snapshot: snapshot, now: now)
+        let tokens = self.renderedMenuBarLayoutResolution(for: provider).layout
+            .flattenedTokens(conditionals: self.settings.menuBarLayoutConditionals)
+        let selections = Set(tokens.filter { absolute == nil || $0.resetIsAbsolute == absolute }
+            .compactMap(\.resetWindow))
+        return PercentWindow.allCases.filter(selections.contains).compactMap {
+            windows.resetWindow($0, snapshot: snapshot)?.resetsAt
+        }
+    }
+
     private func setButtonLayoutContent(
         _ rendered: MenuBarLayoutRenderedTitle,
         for button: NSStatusBarButton,
         statusItem: NSStatusItem)
     {
-        // A leading icon token is surfaced as the status item image so AppKit applies the
-        // system's inactive-display tinting to it, matching how other menu bar icons behave.
-        // Text tokens keep rendering through the attributed title.
-        if let icon = rendered.leadingIcon {
-            if button.image !== icon {
-                button.image = icon
-            }
-            let position: NSControl.ImagePosition = rendered.attributedTitle.length > 0 ? .imageLeft : .imageOnly
-            if button.imagePosition != position {
-                button.imagePosition = position
-            }
-        } else {
-            if button.image != nil {
-                button.image = nil
-            }
-            if button.imagePosition != .noImage {
-                button.imagePosition = .noImage
-            }
+        statusItem.length = Self.applyMenuBarLayoutContent(rendered, for: button, gap: self.settings.menuBarLayoutGap)
+    }
+
+    static func applyMenuBarLayoutContent(
+        _ rendered: MenuBarLayoutRenderedTitle,
+        for button: NSButton,
+        gap: MenuBarLayoutGap) -> CGFloat
+    {
+        // Ordinary single-line text uses a cached template. Rich content retains native title rendering.
+        let title = rendered.statusImage == nil ? rendered.attributedTitle : NSAttributedString()
+        if !button.attributedTitle.isEqual(to: title) {
+            button.attributedTitle = title
         }
-        if !button.attributedTitle.isEqual(to: rendered.attributedTitle) {
-            button.attributedTitle = rendered.attributedTitle
+        let image = rendered.statusImage ?? rendered.leadingIcon
+        if button.image !== image {
+            button.image = image
+        }
+        let position: NSControl.ImagePosition = image == nil ? .noImage : (title.length > 0 ? .imageLeft : .imageOnly)
+        if button.imagePosition != position {
+            button.imagePosition = position
         }
         if button.accessibilityTitle() != rendered.accessibilityLabel {
             button.setAccessibilityTitle(rendered.accessibilityLabel)
@@ -291,13 +424,6 @@ extension StatusItemController {
 
         // AppKit exposes no content-inset API on NSStatusBarButton. Explicit item length is the actual
         // status-item padding mechanism: tight removes most edge space; regular keeps the native breathing room.
-        var bounds = rendered.attributedTitle.boundingRect(
-            with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading])
-        if let icon = rendered.leadingIcon {
-            bounds.size.width += icon.size.width
-        }
-        let horizontalPadding: CGFloat = self.settings.menuBarLayoutGap == .tight ? 3 : 10
-        statusItem.length = max(18, ceil(bounds.width) + horizontalPadding)
+        return rendered.statusItemWidth(gap: gap)
     }
 }

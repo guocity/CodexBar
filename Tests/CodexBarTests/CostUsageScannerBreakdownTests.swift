@@ -245,7 +245,7 @@ struct CostUsageScannerBreakdownTests {
     }
 
     @Test
-    func `codex project breakdowns group by cwd and preserve daily totals`() throws {
+    func `codex project breakdowns group by cwd and preserve daily totals`() async throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }
 
@@ -260,7 +260,7 @@ struct CostUsageScannerBreakdownTests {
             .appendingPathComponent(".codex/worktrees/abcd/client-a", isDirectory: true)
             .path
 
-        try self.makeGitRepositoryWithWorktree(projectPath: projectA, worktreePath: projectAWorktree)
+        try await self.makeGitRepositoryWithWorktree(projectPath: projectA, worktreePath: projectAWorktree)
 
         func sessionMeta(id: String, cwd: String?) -> [String: Any] {
             var payload: [String: Any] = ["id": id]
@@ -387,43 +387,43 @@ struct CostUsageScannerBreakdownTests {
         #expect(projects.first(where: { $0.path == projectA })?.totalTokens == 52)
     }
 
-    private func makeGitRepositoryWithWorktree(projectPath: String, worktreePath: String) throws {
+    @Test
+    func `git fixtures drain output larger than pipe buffers`() async throws {
+        try await self.runGit([
+            "-c",
+            "alias.codexbar-fixture-output=!printf '%131072s' x; printf '%131072s' x >&2",
+            "codexbar-fixture-output",
+        ])
+    }
+
+    private func makeGitRepositoryWithWorktree(projectPath: String, worktreePath: String) async throws {
         try FileManager.default.createDirectory(
             at: URL(fileURLWithPath: projectPath, isDirectory: true),
             withIntermediateDirectories: true)
-        try self.runGit(["init", projectPath])
-        try self.runGit(["-C", projectPath, "config", "user.email", "codexbar-test@example.com"])
-        try self.runGit(["-C", projectPath, "config", "user.name", "CodexBar Test"])
-        try self.runGit(["-C", projectPath, "config", "commit.gpgsign", "false"])
+        try await self.runGit(["init", projectPath])
+        try await self.runGit(["-C", projectPath, "config", "user.email", "codexbar-test@example.com"])
+        try await self.runGit(["-C", projectPath, "config", "user.name", "CodexBar Test"])
+        try await self.runGit(["-C", projectPath, "config", "commit.gpgsign", "false"])
         try "test\n".write(
             to: URL(fileURLWithPath: projectPath).appendingPathComponent("README.md"),
             atomically: false,
             encoding: .utf8)
-        try self.runGit(["-C", projectPath, "add", "README.md"])
-        try self.runGit(["-C", projectPath, "commit", "-m", "init"])
+        try await self.runGit(["-C", projectPath, "add", "README.md"])
+        try await self.runGit(["-C", projectPath, "commit", "-m", "init"])
         try FileManager.default.createDirectory(
             at: URL(fileURLWithPath: worktreePath).deletingLastPathComponent(),
             withIntermediateDirectories: true)
-        try self.runGit(["-C", projectPath, "worktree", "add", "-b", "codex-test", worktreePath])
+        try await self.runGit(["-C", projectPath, "worktree", "add", "-b", "codex-test", worktreePath])
     }
 
-    private func runGit(_ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git"] + arguments
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-        try process.run()
-        process.waitUntilExit()
-        if process.terminationStatus != 0 {
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            let message = String(data: data, encoding: .utf8) ?? ""
-            throw NSError(
-                domain: "CodexBarTests.Git",
-                code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: message])
-        }
+    private func runGit(_ arguments: [String]) async throws {
+        _ = try await SubprocessRunner.run(
+            binary: "/usr/bin/env",
+            arguments: ["git"] + arguments,
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 15,
+            maxOutputBytes: 1024 * 1024,
+            label: "git fixture")
     }
 
     @Test
@@ -749,14 +749,18 @@ struct CostUsageScannerBreakdownTests {
             "payload": ["session_id": "legacy-cost-session"],
         ]
         let turnContext = self.codexTurnContext(timestamp: iso0, model: model)
+        let olderTokenCount = self.codexTokenCount(
+            timestamp: env.isoString(for: olderDay),
+            model: model,
+            total: (input: 20, cached: 0, output: 0))
         let firstTokenCount = self.codexTokenCount(
             timestamp: iso1,
             model: model,
-            total: (input: 10, cached: 0, output: 0))
+            total: (input: 30, cached: 0, output: 0))
         let fileURL = try env.writeCodexSessionFile(
             day: day,
             filename: "session.jsonl",
-            contents: env.jsonl([sessionMeta, turnContext, firstTokenCount]))
+            contents: env.jsonl([sessionMeta, turnContext, olderTokenCount, firstTokenCount]))
 
         var options = CostUsageScanner.Options(
             codexSessionsRoot: env.codexSessionsRoot,
@@ -776,7 +780,7 @@ struct CostUsageScannerBreakdownTests {
         let path = try #require(cache.files.keys.first)
         var cachedUsage = try #require(cache.files[path])
         #expect(cachedUsage.sessionId == "legacy-cost-session")
-        #expect(cachedUsage.lastCountedTotals?.input == 10)
+        #expect(cachedUsage.lastCountedTotals?.input == 30)
         cachedUsage.codexCostNanos = nil
         cachedUsage.codexRows = [
             CostUsageScanner.CodexUsageRow(
@@ -804,7 +808,7 @@ struct CostUsageScannerBreakdownTests {
         let secondTokenCount = self.codexTokenCount(
             timestamp: iso2,
             model: model,
-            total: (input: 15, cached: 0, output: 0))
+            total: (input: 35, cached: 0, output: 0))
         let appended = try "\n" + env.jsonl([secondTokenCount])
         let handle = try FileHandle(forWritingTo: fileURL)
         try handle.seekToEnd()
@@ -1010,13 +1014,13 @@ struct CostUsageScannerBreakdownTests {
     }
 
     @Test
-    func `codex narrow full rescan preserves cached days outside scan window`() throws {
+    func `codex narrow full rescan replaces pricing rows and preserves outside days`() throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }
 
         let olderDay = try env.makeLocalNoon(year: 2026, month: 5, day: 10)
         let day = try env.makeLocalNoon(year: 2026, month: 5, day: 18)
-        let model = "gpt-5.4"
+        let model = "gpt-5.6-sol"
         let fileURL = try env.writeCodexSessionFile(
             day: day,
             filename: "multi-day-session.jsonl",
@@ -1029,7 +1033,11 @@ struct CostUsageScannerBreakdownTests {
                 self.codexTokenCount(
                     timestamp: env.isoString(for: day.addingTimeInterval(1)),
                     model: model,
-                    last: (input: 10, cached: 0, output: 0)),
+                    last: (input: 220_000, cached: 0, output: 0)),
+                self.codexTokenCount(
+                    timestamp: env.isoString(for: day.addingTimeInterval(2)),
+                    model: model,
+                    last: (input: 240_000, cached: 0, output: 0)),
             ]))
 
         var options = CostUsageScanner.Options(
@@ -1045,7 +1053,7 @@ struct CostUsageScannerBreakdownTests {
             until: day,
             now: day,
             options: options)
-        #expect(wide.summary?.totalTokens == 30)
+        #expect(wide.summary?.totalTokens == 460_020)
 
         try env.jsonl([
             self.codexTurnContext(timestamp: env.isoString(for: olderDay), model: model),
@@ -1056,7 +1064,11 @@ struct CostUsageScannerBreakdownTests {
             self.codexTokenCount(
                 timestamp: env.isoString(for: day.addingTimeInterval(1)),
                 model: model,
-                last: (input: 12, cached: 0, output: 0)),
+                last: (input: 220_000, cached: 0, output: 0)),
+            self.codexTokenCount(
+                timestamp: env.isoString(for: day.addingTimeInterval(2)),
+                model: model,
+                last: (input: 180_000, cached: 0, output: 0)),
         ]).write(to: fileURL, atomically: true, encoding: .utf8)
 
         let narrow = CostUsageScanner.loadDailyReport(
@@ -1065,7 +1077,22 @@ struct CostUsageScannerBreakdownTests {
             until: day,
             now: day.addingTimeInterval(1),
             options: options)
-        #expect(narrow.summary?.totalTokens == 12)
+        #expect(narrow.summary?.totalTokens == 400_000)
+        let warmCost = try #require(narrow.summary?.totalCostUSD)
+        let cachedRows = try #require(CostUsageStoreAccess.read(cacheRoot: env.cacheRoot)
+            .files[fileURL.path]?.codexRows)
+        #expect(cachedRows.map(\.input).sorted() == [20, 180_000, 220_000])
+
+        var coldOptions = options
+        coldOptions.cacheRoot = env.root.appendingPathComponent("cold-cache")
+        let cold = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day.addingTimeInterval(1),
+            options: coldOptions)
+        #expect(cold.summary?.totalTokens == narrow.summary?.totalTokens)
+        #expect(try abs(warmCost - #require(cold.summary?.totalCostUSD)) < 0.000_000_001)
 
         options.refreshMinIntervalSeconds = 60
         let repeatedWide = CostUsageScanner.loadDailyReport(
@@ -1074,7 +1101,8 @@ struct CostUsageScannerBreakdownTests {
             until: day,
             now: day.addingTimeInterval(2),
             options: options)
-        #expect(repeatedWide.summary?.totalTokens == 32)
+        #expect(repeatedWide.summary?.totalTokens == 400_020)
+        #expect(try #require(repeatedWide.summary?.totalCostUSD) > warmCost)
     }
 
     @Test

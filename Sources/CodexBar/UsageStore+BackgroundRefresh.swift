@@ -25,6 +25,7 @@ extension UsageStore {
     /// request already invalidated predecessors, so canceling the current coordinator state here
     /// would make it cancel itself before its waiters can drain.
     func clearProviderRuntimeState(_ provider: UsageProvider) {
+        self.invalidateGenericWidgetUsage(for: provider)
         self.providerCleanupRevisions[provider.instanceID, default: 0] &+= 1
         self.refreshingProviders.remove(provider.instanceID)
         self.snapshots.removeValue(forKey: provider.instanceID)
@@ -42,6 +43,9 @@ extension UsageStore {
         self.lastSourceLabels.removeValue(forKey: provider.instanceID)
         self.lastFetchAttempts.removeValue(forKey: provider.instanceID)
         self.accountSnapshots.removeValue(forKey: provider.instanceID)
+        if self.widgetVerifiedTokenSnapshots.removeValue(forKey: provider) != nil {
+            self.widgetAccountSnapshotStore?.save(self.widgetVerifiedTokenSnapshots)
+        }
         self.tokenAccountLiveStateProviders.remove(provider.instanceID)
         if provider == .codex {
             self.codexAccountSnapshots = []
@@ -68,19 +72,12 @@ extension UsageStore {
         self.quotaWarningState = self.quotaWarningState.filter { $0.key.provider != provider }
         self.lastTokenFetchAt.removeValue(forKey: provider.instanceID)
         self.lastTokenFetchScope.removeValue(forKey: provider.instanceID)
-    }
-
-    func providerCleanupRevision(for provider: UsageProvider) -> UInt64 {
-        self.providerCleanupRevisions[provider.instanceID, default: 0]
-    }
-
-    func providerCleanupRevisionIsCurrent(_ revision: UInt64, for provider: UsageProvider) -> Bool {
-        self.providerCleanupRevision(for: provider) == revision
+        self.tokenFetchFailureCooldowns.removeValue(forKey: provider.instanceID)
     }
 
     func providerPublicationRevision(for provider: UsageProvider) -> ProviderPublicationRevision {
         ProviderPublicationRevision(
-            cleanupRevision: self.providerCleanupRevision(for: provider),
+            cleanupRevision: self.providerCleanupRevisions[provider.instanceID, default: 0],
             enablementRevision: self.settings.providerEnablementRevision(for: provider))
     }
 
@@ -88,23 +85,25 @@ extension UsageStore {
         _ revision: ProviderPublicationRevision,
         for provider: UsageProvider) -> Bool
     {
-        self.providerCleanupRevisionIsCurrent(revision.cleanupRevision, for: provider) &&
-            revision.enablementRevision == self.settings.providerEnablementRevision(for: provider)
+        self.providerPublicationRevision(for: provider) == revision
     }
 
     func clearDisabledProviderState(enabledProviders: Set<ProviderInstanceID>) {
         for provider in UsageProvider.allCases where !enabledProviders.contains(provider.instanceID) {
+            self.retireCredentialNotifications(provider: provider)
             if self.currentProviderRefreshAllowsDisabledPublication(provider) {
                 self.clearProviderRuntimeState(provider)
             } else {
                 self.clearProviderState(provider)
             }
         }
-        let dynamicIDs = Set(self.snapshots.keys).union(self.errors.keys).filter { $0.firstPartyProvider == nil }
+        let dynamicIDs = Set(self.snapshots.keys)
+            .union(self.errors.keys)
+            .union(self.lastSourceLabels.keys)
+            .union(self.refreshingProviders)
+            .filter { $0.firstPartyProvider == nil }
         for instanceID in dynamicIDs where !enabledProviders.contains(instanceID) {
-            self.snapshots.removeValue(forKey: instanceID)
-            self.errors.removeValue(forKey: instanceID)
-            self.lastSourceLabels.removeValue(forKey: instanceID)
+            self.clearUserPluginState(instanceID)
         }
     }
 

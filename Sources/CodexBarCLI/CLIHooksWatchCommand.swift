@@ -87,15 +87,18 @@ extension CodexBarCLI {
 
                 let dispatches = detector.evaluate(observation: observation, config: hooks)
                 for dispatch in dispatches {
-                    Self.reportHookEvent(dispatch.event, output: output)
                     // `rules` narrows dispatch to the specific rule(s) whose edge this
                     // poll observed (currently only set for quota_low); nil means every
                     // enabled rule for the event, matched the normal way.
                     let dispatchConfig = dispatch.rules.map { HooksConfig(enabled: true, events: $0) } ?? hooks
-                    await HookRunner.dispatch(
+                    let outcome = await HookRunner.dispatch(
                         event: dispatch.event,
                         config: dispatchConfig,
-                        rateLimiter: rateLimiter)
+                        rateLimiter: rateLimiter,
+                        rateLimitAccountDiscriminator: dispatch.accountDiscriminator)
+                    if outcome == .attempted {
+                        Self.reportHookEvent(dispatch.event, output: output)
+                    }
                 }
             }
 
@@ -180,11 +183,20 @@ extension CodexBarCLI {
         switch outcome.result {
         case let .success(result):
             let usage = result.usage.scoped(to: provider)
+            let hidesPersonalInfo = Self.hidePersonalInfoFromDefaults()
+            let accountDiscriminator = account?.id.uuidString ?? usage.accountEmail(for: provider)
             return HookProviderObservation(
                 provider: provider.rawValue,
-                lanes: Self.hooksWatchLanes(provider: provider, usage: usage, config: config),
+                lanes: Self.hooksWatchLanes(
+                    provider: provider,
+                    usage: usage,
+                    config: config,
+                    accountDiscriminator: accountDiscriminator,
+                    hidesPersonalInfo: hidesPersonalInfo),
                 status: status,
-                accountDisplayName: usage.accountEmail(for: provider))
+                accountDisplayName: hidesPersonalInfo ? nil : usage.accountEmail(for: provider),
+                successfulUsage: usage,
+                accountDiscriminator: accountDiscriminator)
         case let .failure(error):
             return HookProviderObservation(
                 provider: provider.rawValue,
@@ -196,7 +208,9 @@ extension CodexBarCLI {
     static func hooksWatchLanes(
         provider: UsageProvider,
         usage: UsageSnapshot,
-        config: CodexBarConfig) -> [HookQuotaLaneObservation]
+        config: CodexBarConfig,
+        accountDiscriminator: String? = nil,
+        hidesPersonalInfo: Bool = false) -> [HookQuotaLaneObservation]
     {
         let account = usage.accountEmail(for: provider)
         let warnings = config.providerConfig(for: provider.instanceID)?.quotaWarnings
@@ -206,7 +220,7 @@ extension CodexBarCLI {
         ]
 
         return lanes.compactMap { window, rateWindow in
-            guard let rateWindow else { return nil }
+            guard let rateWindow, !rateWindow.isSyntheticPlaceholder else { return nil }
             let thresholds = warnings?
                 .thresholds(for: window, global: QuotaWarningThresholds.defaults)
                 ?? QuotaWarningThresholds.defaults
@@ -214,18 +228,18 @@ extension CodexBarCLI {
                 key: HookQuotaLaneKey(
                     provider: provider.rawValue,
                     window: window,
-                    accountDiscriminator: account),
+                    accountDiscriminator: accountDiscriminator ?? account),
                 label: window.displayName,
                 rateWindow: rateWindow,
                 // Stored thresholds are *remaining* percentages; the crossing math
                 // works on used fractions, matching the app's conversion.
                 fallbackThresholds: thresholds.map { (100.0 - Double($0)) / 100.0 },
-                accountDisplayName: account)
+                accountDisplayName: hidesPersonalInfo ? nil : account)
         }
     }
 
     static func hookProviderStatus(
-        _ indicator: ProviderStatusPayload.ProviderStatusIndicator?) -> HookProviderStatus
+        _ indicator: ProviderStatusIndicator?) -> HookProviderStatus
     {
         guard let indicator else { return .unknown }
         return HookProviderStatus(rawValue: indicator.rawValue) ?? .unknown
@@ -263,11 +277,15 @@ extension CodexBarCLI {
     /// end. `CLITerminationSignalMonitor` only flips a flag — it does not cancel the
     /// running task — so a single long `Task.sleep` would leave `hooks watch`
     /// appearing hung on SIGINT/SIGTERM/SIGHUP until the full interval elapsed.
-    static func sleepInterruptibly(interval: TimeInterval, stop: HooksWatchStopSignal) async {
+    static func sleepInterruptibly(
+        interval: TimeInterval,
+        stop: HooksWatchStopSignal,
+        sleep: (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }) async
+    {
         var remainingNanoseconds = UInt64((max(0, interval) * 1_000_000_000).rounded())
         while remainingNanoseconds > 0, !stop.isRequested {
             let sleepNanoseconds = min(remainingNanoseconds, Self.hooksWatchSleepTickNanoseconds)
-            try? await Task.sleep(nanoseconds: sleepNanoseconds)
+            try? await sleep(sleepNanoseconds)
             remainingNanoseconds -= sleepNanoseconds
         }
     }
@@ -314,7 +332,7 @@ extension CodexBarCLI {
         return parsed
     }
 
-    /// Validates explicit `--provider` names without consulting the config.
+    /// Validates explicit `--provider` names and `both`/`all` selections without consulting the config.
     ///
     /// Returns nil when no `--provider` was given, meaning the caller should fall
     /// back to the configured enabled providers. Kept config-free so argument errors
@@ -328,10 +346,10 @@ extension CodexBarCLI {
 
         var selected: [UsageProvider] = []
         for name in raw {
-            guard let provider = ProviderDescriptorRegistry.cliNameMap[name.lowercased()] else {
+            guard let selection = ProviderSelection(argument: name) else {
                 return .failure(CLIArgumentError("Unknown provider: \(name)"))
             }
-            if !selected.contains(provider) {
+            for provider in selection.asList where !selected.contains(provider) {
                 selected.append(provider)
             }
         }
@@ -358,15 +376,11 @@ final class HooksWatchStopSignal: @unchecked Sendable {
     private var requested = false
 
     func request() {
-        self.lock.lock()
-        self.requested = true
-        self.lock.unlock()
+        self.lock.withLock { self.requested = true }
     }
 
     var isRequested: Bool {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        return self.requested
+        self.lock.withLock { self.requested }
     }
 }
 
@@ -380,15 +394,6 @@ struct HooksWatchOptions: CommanderParsable {
     @Flag(name: .long("verbose"), help: "Print fetch diagnostics")
     var verbose: Bool = false
 
-    @Option(name: .long("format"), help: "Output format: text | json")
-    var format: OutputFormat?
-
-    @Flag(name: .long("json"), help: "Emit JSON")
-    var jsonShortcut: Bool = false
-
-    @Flag(name: .long("json-only"), help: "Emit JSON only (suppress non-JSON output)")
-    var jsonOnly: Bool = false
-
-    @Flag(name: .long("pretty"), help: "Pretty-print JSON output")
-    var pretty: Bool = false
+    @OptionGroup
+    var output: HooksOptions
 }

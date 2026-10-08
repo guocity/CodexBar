@@ -49,7 +49,7 @@ defineProvider({
       throw new Error(`z.ai quota API error: ${root && root.msg ? root.msg : "invalid response"}`);
     }
     if (!root.data || typeof root.data !== "object" || !Array.isArray(root.data.limits)) {
-      throw new Error("Failed to parse z.ai quota data");
+      throw new Error("Unsupported z.ai quota format. Check Usage Dashboard for plan usage.");
     }
 
     function optionalInteger(value, field) {
@@ -58,6 +58,8 @@ defineProvider({
       return value;
     }
     function parseLimit(raw) {
+      if (raw && typeof raw.type === "string" && !["TOKENS_LIMIT", "TIME_LIMIT", "CREDIT_LIMIT"].includes(raw.type))
+        return null;
       if (
         !raw ||
         typeof raw !== "object" ||
@@ -67,9 +69,8 @@ defineProvider({
         !Number.isInteger(raw.number) ||
         !Number.isInteger(raw.percentage)
       ) {
-        throw new Error("Failed to parse z.ai limit entry");
+        throw new Error("Unsupported z.ai quota entry. Check Usage Dashboard for plan usage.");
       }
-      if (raw.type !== "TOKENS_LIMIT" && raw.type !== "TIME_LIMIT" && raw.type !== "CREDIT_LIMIT") return null;
       const usage = optionalInteger(raw.usage, "limit.usage");
       const current = optionalInteger(raw.currentValue, "limit.currentValue");
       const remaining = optionalInteger(raw.remaining, "limit.remaining");
@@ -97,7 +98,10 @@ defineProvider({
       } else if (limit.windowMinutes !== null) {
         result.windowMinutes = limit.windowMinutes;
       }
-      if (limit.reset !== null) result.resetsAt = ctx.date.unixMillis(limit.reset);
+      // A five-hour Coding Plan reset cannot be ten hours away; never guess a timezone correction.
+      const isFiveHourPlan = limit.raw.type !== "TIME_LIMIT" && limit.windowMinutes === 300;
+      const resetIsPlausible = !isFiveHourPlan || limit.reset <= ctx.date.nowMillis() + (5 * 3600 + 60) * 1000;
+      if (limit.reset !== null && resetIsPlausible) result.resetsAt = ctx.date.unixMillis(limit.reset);
       if (limit.raw.type === "TIME_LIMIT") result.resetDescription = "MCP";
       else if (limit.windowMinutes === 300) result.resetDescription = "5-hour";
       else if (limit.windowMinutes !== null) {
@@ -167,29 +171,35 @@ defineProvider({
       .sort((a, b) => (a.windowMinutes || Number.MAX_SAFE_INTEGER) - (b.windowMinutes || Number.MAX_SAFE_INTEGER));
     const timeLimit = limits.filter((item) => item.raw.type === "TIME_LIMIT").pop() || null;
     const tokenLimit = tokenLimits.length ? tokenLimits[tokenLimits.length - 1] : null;
-    const sessionLimit = tokenLimits.length >= 2 ? tokenLimits[0] : null;
-    const primaryLimit = sessionLimit || tokenLimit || timeLimit;
+    const primaryLimit = tokenLimits[0] || timeLimit;
     const result = {
-      primary: primaryLimit ? window(primaryLimit) : { usedPercent: 0 },
+      primary: primaryLimit ? window(primaryLimit) : null,
       identity: {},
       details: [{ title: "Quota details", rows: [] }],
     };
-    if (sessionLimit && tokenLimit) result.secondary = window(tokenLimit);
-    if ((tokenLimit || sessionLimit) && timeLimit) {
+    if (!limits.length || limits.length < root.data.limits.length) {
+      result.details[0].rows.push({
+        label: tokenLimits.length ? "Additional quota" : "Coding Plan usage",
+        value: "Unavailable",
+        secondaryValue: "Check Usage Dashboard for complete plan usage.",
+      });
+    }
+    if (tokenLimits.length >= 2) result.secondary = window(tokenLimit);
+    if (tokenLimit && timeLimit) {
       result.extraWindows = [{ id: "zai-mcp", title: "MCP", window: window(timeLimit) }];
     }
     if (tokenLimit)
       result.details[0].rows.push(
         limitRow(tokenLimit.raw.type === "CREDIT_LIMIT" ? "Credit quota" : "Token quota", tokenLimit),
       );
-    if (sessionLimit)
+    if (tokenLimits.length >= 2)
       result.details[0].rows.push(
         limitRow(
-          sessionLimit.raw.type === "CREDIT_LIMIT" ? "Session credit quota" : "Session token quota",
-          sessionLimit,
+          primaryLimit.raw.type === "CREDIT_LIMIT" ? "Session credit quota" : "Session token quota",
+          primaryLimit,
         ),
       );
-    const hasCreditLimit = [tokenLimit, sessionLimit].some((item) => item && item.raw.type === "CREDIT_LIMIT");
+    const hasCreditLimit = [tokenLimit, primaryLimit].some((item) => item && item.raw.type === "CREDIT_LIMIT");
     if (hasCreditLimit) result.details[0].rows.push(quotaRateRow());
     if (timeLimit) {
       result.details[0].rows.push(limitRow("MCP quota", timeLimit));
@@ -244,6 +254,15 @@ defineProvider({
       } catch {}
     }
 
+    function compactTokenCount(value) {
+      const divisor = value >= 1_000_000_000 ? 1_000_000_000 : value >= 1_000_000 ? 1_000_000 : null;
+      if (divisor === null) return String(value);
+      const suffix = divisor === 1_000_000_000 ? "B" : "M";
+      const digits = value >= divisor * 100 ? 0 : value >= divisor * 10 ? 1 : 2;
+      const scaled = (value / divisor).toFixed(digits);
+      return `${scaled.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")}${suffix}`;
+    }
+
     async function modelUsage(daysBack) {
       const end = ctx.date.now();
       const start = new Date(end);
@@ -266,27 +285,30 @@ defineProvider({
       if (!body || body.success !== true || body.code !== 200) throw new Error("invalid model usage response");
       const data = body.data || {};
       const labels = Array.isArray(data.x_time) ? data.x_time : [];
-      const models = Array.isArray(data.modelDataList) ? data.modelDataList : [];
+      const models = (Array.isArray(data.modelDataList) ? data.modelDataList : []).map((model) => ({
+        name: model && typeof model.modelName === "string" ? model.modelName : "Unknown",
+        tokens:
+          model && Array.isArray(model.tokensUsage)
+            ? model.tokensUsage.map((value) => (Number.isInteger(value) && value > 0 ? value : 0))
+            : [],
+      }));
       const points = labels
-        .map((label, index) => {
-          let total = 0;
-          for (const model of models) {
-            const value = model && Array.isArray(model.tokensUsage) ? model.tokensUsage[index] : null;
-            if (Number.isInteger(value) && value > 0) total += value;
-          }
-          return { label: String(label), value: total };
-        })
+        .map((label, index) => ({
+          label: String(label),
+          value: models.reduce((sum, model) => sum + (model.tokens[index] || 0), 0),
+        }))
         .filter((point) => point.value > 0);
       const totals = models
-        .map((model) => ({
-          name: model && typeof model.modelName === "string" ? model.modelName : "Unknown",
-          tokens:
-            model && Array.isArray(model.tokensUsage)
-              ? model.tokensUsage.reduce((sum, value) => sum + (Number.isInteger(value) && value > 0 ? value : 0), 0)
-              : 0,
-        }))
+        .map((model) => ({ name: model.name, tokens: model.tokens.reduce((sum, value) => sum + value, 0) }))
         .filter((item) => item.tokens > 0)
         .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
+      if (
+        points.length > 120 ||
+        points.some((point) => !Number.isFinite(point.value) || !ctx.isDetailLabel(point.label)) ||
+        totals.slice(0, 20).some((item) => !Number.isFinite(item.tokens) || !ctx.isDetailLabel(item.name))
+      ) {
+        throw new Error("model usage exceeds display bounds");
+      }
       return { points, totals };
     }
 
@@ -299,7 +321,10 @@ defineProvider({
         if (usage.points.length) {
           result.details.push({
             title,
-            rows: usage.totals.slice(0, 20).map((item) => ({ label: item.name, value: String(item.tokens) })),
+            rows: usage.totals.slice(0, 20).map((item) => ({
+              label: item.name,
+              value: compactTokenCount(item.tokens),
+            })),
             chart: { kind: "bars", title, unit: "tokens", points: usage.points },
           });
         }

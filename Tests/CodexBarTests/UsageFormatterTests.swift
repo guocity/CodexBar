@@ -167,6 +167,16 @@ struct UsageFormatterTests {
     }
 
     @Test
+    func `formatted remaining value uses localized left template`() {
+        UsageFormatter.setLocalizationProvider { key in
+            key == "%@ left" ? "%@ übrig" : key
+        }
+        defer { UsageFormatter.clearLocalizationProvider() }
+
+        #expect(UsageFormatter.remainingString(from: "€24.99") == "€24.99 übrig")
+    }
+
+    @Test
     func `tomorrow reset description uses localized format`() throws {
         UsageFormatter.setLocalizationProvider { key in
             key == "reset_tomorrow_format" ? "明日 %@" : key
@@ -208,67 +218,25 @@ struct UsageFormatterTests {
         #expect(!text.contains("ago"))
     }
 
-    @Test
-    func `reset countdown minutes`() {
+    @Test(arguments: [
+        ("reset countdown minutes", 10 * 60 + 1, "in 11m"),
+        ("reset countdown hours and minutes", 3 * 3600 + 31 * 60, "in 3h 31m"),
+        ("reset countdown caps days with hours at two units", (26 * 3600) + (1 * 60), "in 1d 2h"),
+        ("reset countdown days and exact hours", 26 * 3600, "in 1d 2h"),
+        ("reset countdown days and minutes without whole hours", (24 * 3600) + (5 * 60), "in 1d 5m"),
+        ("reset countdown exact days", 2 * 24 * 3600, "in 2d"),
+        ("reset countdown rounds the last minute into a day", (24 * 3600) - 59, "in 1d"),
+        ("reset countdown exact hour", 60 * 60, "in 1h"),
+        ("reset countdown past date", -10, "now"),
+    ] as [(String, TimeInterval, String)])
+    func `reset countdown rounds and limits displayed units`(
+        scenario: String,
+        interval: TimeInterval,
+        expected: String)
+    {
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval(10 * 60 + 1)
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 11m")
-    }
-
-    @Test
-    func `reset countdown hours and minutes`() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval(3 * 3600 + 31 * 60)
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 3h 31m")
-    }
-
-    @Test
-    func `reset countdown caps days with hours at two units`() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval((26 * 3600) + (1 * 60))
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 1d 2h")
-    }
-
-    @Test
-    func `reset countdown days and exact hours`() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval(26 * 3600)
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 1d 2h")
-    }
-
-    @Test
-    func `reset countdown days and minutes without whole hours`() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval((24 * 3600) + (5 * 60))
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 1d 5m")
-    }
-
-    @Test
-    func `reset countdown exact days`() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval(2 * 24 * 3600)
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 2d")
-    }
-
-    @Test
-    func `reset countdown rounds the last minute into a day`() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval((24 * 3600) - 59)
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 1d")
-    }
-
-    @Test
-    func `reset countdown exact hour`() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval(60 * 60)
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 1h")
-    }
-
-    @Test
-    func `reset countdown past date`() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval(-10)
-        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "now")
+        let reset = now.addingTimeInterval(interval)
+        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == expected, "\(scenario)")
     }
 
     @Test
@@ -291,6 +259,71 @@ struct UsageFormatterTests {
         let absolute = UsageFormatter.resetLine(for: window, style: .absolute)
         #expect(countdown == "Resets at 23:30 (UTC)")
         #expect(absolute == "Resets at 23:30 (UTC)")
+    }
+
+    @Test(arguments: [
+        ("Reset Jul 10 at 2:59am (Europe/Prague)", "Resets Jul 10 at 2:59am (Europe/Prague)"),
+        ("Resets Jul 10 at 2:59am (Europe/Prague)", "Resets Jul 10 at 2:59am (Europe/Prague)"),
+        ("Reset in 11m", "Resets in 11m"),
+        ("Resets in 11m", "Resets in 11m"),
+        (" \nReSeT at 23:30 (UTC)\t", "Resets at 23:30 (UTC)"),
+        ("  rEsEt In 2h 5m \n", "Resets in 2h 5m"),
+        ("Reset demain à 23:30", "Resets demain à 23:30"),
+        ("at 23:30 (UTC)", "Resets at 23:30 (UTC)"),
+        ("Resetting soon", "Resets Resetting soon"),
+    ])
+    func `reset description normalizes singular and plural labels`(_ description: String, expected: String) {
+        UsageFormatter.clearLocalizationProvider()
+        UsageFormatter.clearLocaleProvider()
+        let window = RateWindow(
+            usedPercent: 68,
+            windowMinutes: 10080,
+            resetsAt: nil,
+            resetDescription: description)
+        for style in [ResetTimeDisplayStyle.countdown, .absolute] {
+            #expect(UsageFormatter.resetLine(for: window, style: style) == expected)
+        }
+    }
+
+    @Test
+    func `normalized reset descriptions retain localization keys`() {
+        UsageFormatter.setLocalizationProvider { key in
+            switch key {
+            case "Resets %@": "Date: %@"
+            case "Resets in %@": "Countdown: %@"
+            default: key
+            }
+        }
+        defer { UsageFormatter.clearLocalizationProvider() }
+
+        for prefix in ["Reset", "Resets"] {
+            for (suffix, expected) in [("in 11m", "Countdown: 11m"), ("at 23:30", "Date: at 23:30")] {
+                let window = RateWindow(
+                    usedPercent: 68,
+                    windowMinutes: nil,
+                    resetsAt: nil,
+                    resetDescription: "\(prefix) \(suffix)")
+                for style in [ResetTimeDisplayStyle.countdown, .absolute] {
+                    #expect(UsageFormatter.resetLine(for: window, style: style) == expected)
+                }
+            }
+        }
+    }
+
+    @Test
+    func `parsed reset date takes precedence over singular description`() {
+        UsageFormatter.clearLocalizationProvider()
+        UsageFormatter.clearLocaleProvider()
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let reset = now.addingTimeInterval(601)
+        let window = RateWindow(
+            usedPercent: 68,
+            windowMinutes: nil,
+            resetsAt: reset,
+            resetDescription: "Reset in 99h")
+        #expect(UsageFormatter.resetLine(for: window, style: .countdown, now: now) == "Resets in 11m")
+        #expect(UsageFormatter.resetLine(for: window, style: .absolute, now: now)
+            == "Resets \(UsageFormatter.resetDescription(from: reset, now: now))")
     }
 
     @Test
@@ -333,45 +366,47 @@ struct UsageFormatterTests {
     }
 
     @Test
+    func `token count string promotes rounded unit boundaries`() {
+        #expect(UsageFormatter.tokenCountString(999_499) == "999K")
+        #expect(UsageFormatter.tokenCountString(999_500) == "1M")
+        #expect(UsageFormatter.tokenCountString(999_999) == "1M")
+        #expect(UsageFormatter.tokenCountString(999_499_999) == "999M")
+        #expect(UsageFormatter.tokenCountString(999_500_000) == "1B")
+        #expect(UsageFormatter.tokenCountString(999_999_999) == "1B")
+        #expect(UsageFormatter.tokenCountString(-999_499) == "-999K")
+        #expect(UsageFormatter.tokenCountString(-999_500) == "-1M")
+        #expect(UsageFormatter.tokenCountString(-999_999) == "-1M")
+        #expect(UsageFormatter.tokenCountString(-999_499_999) == "-999M")
+        #expect(UsageFormatter.tokenCountString(-999_500_000) == "-1B")
+        #expect(UsageFormatter.tokenCountString(-999_999_999) == "-1B")
+    }
+
+    @Test
+    func `token count string handles integer limits`() {
+        #expect(UsageFormatter.tokenCountString(Int.max) == "9223372037B")
+        #expect(UsageFormatter.tokenCountString(Int.min) == "-9223372037B")
+    }
+
+    @Test
     func `clean plan maps O auth to ollama`() {
         #expect(UsageFormatter.cleanPlanName("oauth") == "Ollama")
     }
 
     // MARK: - Currency Formatting
 
-    @Test
-    func `currency string formats USD correctly`() {
-        // Should produce "$54.72" without space after symbol
-        let result = UsageFormatter.currencyString(54.72, currencyCode: "USD")
-        #expect(result == "$54.72")
-        #expect(!result.contains("$ ")) // No space after symbol
-    }
-
-    @Test
-    func `currency string handles large values`() {
-        let result = UsageFormatter.currencyString(1234.56, currencyCode: "USD")
-        // For USD, we use direct string formatting with thousand separators
-        #expect(result == "$1,234.56")
-        #expect(!result.contains("$ ")) // No space after symbol
-    }
-
-    @Test
-    func `currency string handles very large values`() {
-        let result = UsageFormatter.currencyString(1_234_567.89, currencyCode: "USD")
-        #expect(result == "$1,234,567.89")
-    }
-
-    @Test
-    func `currency string handles negative values`() {
-        // Negative sign should come before the dollar sign: -$54.72 (not $-54.72)
-        let result = UsageFormatter.currencyString(-54.72, currencyCode: "USD")
-        #expect(result == "-$54.72")
-    }
-
-    @Test
-    func `currency string handles negative large values`() {
-        let result = UsageFormatter.currencyString(-1234.56, currencyCode: "USD")
-        #expect(result == "-$1,234.56")
+    @Test(arguments: [
+        (54.72, "USD", "$54.72"),
+        (54.72, "NZD", "NZ$54.72"),
+        (1234.56, "USD", "$1,234.56"),
+        (1_234_567.89, "USD", "$1,234,567.89"),
+        (-54.72, "USD", "-$54.72"),
+        (-1234.56, "USD", "-$1,234.56"),
+        (0, "USD", "$0.00"),
+    ])
+    func `currency string preserves sign grouping and symbol`(value: Double, currency: String, expected: String) {
+        let result = UsageFormatter.currencyString(value, currencyCode: currency)
+        #expect(result == expected)
+        #expect(!result.contains("$ "))
     }
 
     @Test
@@ -380,12 +415,6 @@ struct UsageFormatterTests {
         #expect(UsageFormatter.usdString(54.72) == UsageFormatter.currencyString(54.72, currencyCode: "USD"))
         #expect(UsageFormatter.usdString(-1234.56) == UsageFormatter.currencyString(-1234.56, currencyCode: "USD"))
         #expect(UsageFormatter.usdString(0) == UsageFormatter.currencyString(0, currencyCode: "USD"))
-    }
-
-    @Test
-    func `currency string handles zero`() {
-        let result = UsageFormatter.currencyString(0, currencyCode: "USD")
-        #expect(result == "$0.00")
     }
 
     @Test(arguments: [
@@ -533,6 +562,43 @@ struct UsageFormatterTests {
         #expect(explicitAED.hasPrefix("AED"))
         #expect(explicitAED.range(of: #"\.\d{2}$"#, options: .regularExpression) != nil)
 
+        let tryRate = try #require(exchange.rate(for: "TRY"))
+        #expect(abs((exchange.convert(usdAmount: 10.0, to: "TRY") ?? 0) - 10.0 * tryRate) < epsilon)
+        #expect(abs((exchange.convert(amount: 10.0, from: "TRY", to: "USD") ?? 0) - 10.0 / tryRate) < epsilon)
+        #expect(abs((exchange.convert(amount: 10.0, from: "GBP", to: "TRY") ?? 0) - 10.0 / gbpRate * tryRate) < epsilon)
+        let explicitTRY = UsageFormatter.convertedCostString(10.0, preferredCurrency: "TRY", providerCurrency: "USD")
+        #expect(explicitTRY == UsageFormatter.currencyString(10.0 * tryRate, currencyCode: "TRY"))
+        #expect(explicitTRY.hasPrefix("TRY"))
+        #expect(explicitTRY.range(of: #"\.\d{2}$"#, options: .regularExpression) != nil)
+
+        // Each added currency converts both ways through the USD pivot and renders
+        // in its own code with Foundation's display digits (IDR and VND display without decimals).
+        let addedCurrencies: [(code: String, prefix: String, fractionDigits: Int)] = [
+            ("NZD", "NZ$", 2), ("SEK", "SEK", 2), ("NOK", "NOK", 2), ("DKK", "DKK", 2),
+            ("PLN", "PLN", 2), ("BRL", "R$", 2), ("MXN", "MX$", 2), ("ZAR", "ZAR", 2),
+            ("THB", "THB", 2), ("IDR", "IDR", 0), ("VND", "₫", 0), ("UAH", "UAH", 2),
+        ]
+        for currency in addedCurrencies {
+            let rate = try #require(exchange.rate(for: currency.code))
+            #expect(rate > 0)
+            #expect(abs((exchange.convert(usdAmount: 10.0, to: currency.code) ?? 0) - 10.0 * rate) < epsilon)
+            #expect(abs((exchange.convert(amount: 10.0, from: currency.code, to: "USD") ?? 0) - 10.0 / rate)
+                < epsilon)
+            #expect(abs((exchange.convert(amount: 10.0, from: "GBP", to: currency.code) ?? 0)
+                    - 10.0 / gbpRate * rate) < epsilon)
+            let explicit = UsageFormatter.convertedCostString(
+                10.0,
+                preferredCurrency: currency.code,
+                providerCurrency: "USD")
+            #expect(explicit == UsageFormatter.currencyString(10.0 * rate, currencyCode: currency.code))
+            #expect(explicit.hasPrefix(currency.prefix))
+            let fractionPattern = currency.fractionDigits == 0 ? #"\d$"# : #"\.\d{2}$"#
+            #expect(explicit.range(of: fractionPattern, options: .regularExpression) != nil)
+            if currency.fractionDigits == 0 {
+                #expect(!explicit.contains("."))
+            }
+        }
+
         // CHF is supported: conversion through the USD pivot works both ways.
         let chfRate = exchange.rate(for: "CHF") ?? 0.80
         #expect(abs((exchange.convert(usdAmount: 10.0, to: "CHF") ?? 0) - 10.0 * chfRate) < epsilon)
@@ -562,6 +628,49 @@ struct UsageFormatterTests {
         #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: "CZK"))
         #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: "AED"))
         #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: " aed "))
+        #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: "TRY"))
+        #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: " try "))
+        #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: "NZD"))
+        #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: " nzd "))
+        for code in ["SEK", "NOK", "DKK", "PLN", "BRL", "MXN", "ZAR", "THB", "IDR", "VND", "UAH"] {
+            #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: code))
+            #expect(CurrencyExchange.requiresLiveRates(preferredCurrencyCode: " \(code.lowercased()) "))
+        }
+    }
+
+    @Test
+    func `offline currency conversion preserves fallbacks and normalized identity`() {
+        let exchange = CurrencyExchange(defaults: InMemoryUserDefaults())
+        #expect(exchange.rate(for: "TRY") == 48.5)
+        #expect(exchange.convert(usdAmount: 10, to: " try ") == 485)
+        #expect(exchange.convert(usdAmount: 10, to: " usd ") == 10)
+        #expect(exchange.convert(usdAmount: 10, to: "  ") == 10)
+        #expect(exchange.convert(usdAmount: 10, to: "XYZ") == nil)
+    }
+
+    @Test(arguments: ["NZD", "SEK", "NOK", "DKK", "PLN", "BRL", "MXN", "ZAR", "THB", "IDR", "VND", "UAH"])
+    func `additional currencies have offline rates and normalized conversions`(_ code: String) throws {
+        let exchange = CurrencyExchange(defaults: InMemoryUserDefaults())
+        #expect(CurrencyExchange.supportedCurrencies.contains(code))
+        let rate = try #require(exchange.rate(for: code))
+        #expect(rate.isFinite && rate > 0)
+        #expect(exchange.convert(usdAmount: 10, to: " \(code.lowercased()) ") == 10 * rate)
+        #expect(try abs(#require(exchange.convert(amount: 10 * rate, from: code, to: "USD")) - 10) < 1e-9)
+    }
+
+    @Test
+    func `cached currency rates override only supplied fallbacks and keep the USD pivot`() {
+        let defaults = InMemoryUserDefaults()
+        defaults.set(["TRY": 60.0, "USD": 42.0, "NZD": 2.0], forKey: "CodexBar.CurrencyExchangeRates")
+        let exchange = CurrencyExchange(defaults: defaults)
+        #expect(exchange.rate(for: " try ") == 60)
+        #expect(exchange.rate(for: "EUR") == 0.92)
+        #expect(exchange.convert(usdAmount: 10, to: "TRY") == 600)
+        #expect(exchange.convert(amount: 600, from: "TRY", to: "USD") == 10)
+        #expect(exchange.convert(usdAmount: 10, to: "USD") == 10)
+        #expect(exchange.convert(usdAmount: 10, to: "NZD") == 20)
+        #expect(exchange.convert(amount: 20, from: "NZD", to: "USD") == 10)
+        #expect(exchange.rate(for: "UAH") == 44.86)
     }
 
     @Test

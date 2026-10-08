@@ -54,6 +54,7 @@ public enum BinaryLocator {
     /// Test-only override so parallel Gemini suites can point at fake binaries
     /// without mutating process-wide `GEMINI_CLI_PATH`.
     @TaskLocal public static var geminiBinaryPathOverrideForTesting: String?
+    @TaskLocal static var codexBinaryResolverOverrideForTesting: (@Sendable ([String: String]) -> String?)?
 
     public static func resolveClaudeBinary(
         env: [String: String] = ProcessInfo.processInfo.environment,
@@ -126,7 +127,12 @@ public enum BinaryLocator {
         fileManager: FileManager = .default,
         home: String = NSHomeDirectory()) -> String?
     {
-        self.resolveBinary(
+        // Background refreshes must not discover and launch another agy when
+        // an explicit override disables the configured CLI source.
+        if let override = env["ANTIGRAVITY_CLI_PATH"] {
+            return fileManager.isExecutableFile(atPath: override) ? override : nil
+        }
+        return self.resolveBinary(
             name: "agy",
             overrideKey: "ANTIGRAVITY_CLI_PATH",
             env: env,
@@ -148,12 +154,15 @@ public enum BinaryLocator {
         commandV: (String, String?, TimeInterval, FileManager) -> String? = ShellCommandLocator.commandV,
         aliasResolver: (String, String?, TimeInterval, FileManager, String) -> String? = ShellCommandLocator
             .resolveAlias,
-        launchCandidateFilter: (String, FileManager) -> Bool = CodexLaunchPreflight.isLaunchCandidateAllowed,
+        launchCandidateFilter: ((String, FileManager) -> Bool)? = nil,
         fileManager: FileManager = .default,
         home: String = NSHomeDirectory()) -> String?
     {
+        if let resolver = self.codexBinaryResolverOverrideForTesting { return resolver(env) }
         // Provider-specific by design: This named resolver supplies Codex's actual CLI executable name.
-        self.resolveBinary(
+        var launchEnvironment = env
+        launchEnvironment["PATH"] = PathBuilder.effectivePATH(purposes: [.nodeTooling], env: env, loginPATH: loginPATH)
+        return self.resolveBinary(
             name: "codex",
             overrideKey: "CODEX_CLI_PATH",
             env: env,
@@ -161,7 +170,10 @@ public enum BinaryLocator {
             commandV: commandV,
             aliasResolver: aliasResolver,
             wellKnownPaths: self.codexWellKnownPaths(home: home),
-            launchCandidateFilter: launchCandidateFilter,
+            launchCandidateFilter: launchCandidateFilter ?? { path, manager in
+                CodexLaunchPreflight.isLaunchCandidateAllowed(
+                    path: path, fileManager: manager, environment: launchEnvironment)
+            },
             fileManager: fileManager,
             home: home)
     }
@@ -172,8 +184,10 @@ public enum BinaryLocator {
         #if os(macOS)
         [
             "\(home)/Applications/ChatGPT.app/Contents/Resources/codex",
+            "\(home)/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
             "\(home)/Applications/Codex.app/Contents/Resources/codex",
             "/Applications/ChatGPT.app/Contents/Resources/codex",
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
             "/Applications/Codex.app/Contents/Resources/codex",
         ]
         #else
@@ -349,7 +363,7 @@ public enum BinaryLocator {
     }
 
     // swiftlint:disable function_parameter_count
-    private static func resolveBinary(
+    static func resolveBinary(
         name: String,
         overrideKey: String,
         env: [String: String],
@@ -407,6 +421,7 @@ public enum BinaryLocator {
 
         // 5b) Alias fallback (login shell); only attempt after all standard lookups fail.
         if let aliasHit = aliasResolver(name, env["SHELL"], 2.0, fileManager, home),
+           aliasHit.hasPrefix("/"),
            fileManager.isExecutableFile(atPath: aliasHit),
            launchCandidateFilter(aliasHit, fileManager)
         {
@@ -414,26 +429,26 @@ public enum BinaryLocator {
         }
 
         // 6) Minimal fallback
-        let fallback = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-        if let pathHit = self.find(
+        return self.find(
             name,
-            in: fallback,
+            in: ["/usr/bin", "/bin", "/usr/sbin", "/sbin"],
             fileManager: fileManager,
             launchCandidateFilter: launchCandidateFilter)
-        {
-            return pathHit
-        }
-
-        return nil
     }
 
-    private static func find(
+    static func find(
         _ binary: String,
         in paths: [String],
         fileManager: FileManager,
         launchCandidateFilter: (String, FileManager) -> Bool = { _, _ in true }) -> String?
     {
-        for path in paths where !path.isEmpty {
+        if binary.contains("/") {
+            let path = URL(fileURLWithPath: binary).standardizedFileURL.path
+            return fileManager.isExecutableFile(atPath: path) && launchCandidateFilter(path, fileManager)
+                ? path : nil
+        }
+        guard !binary.isEmpty else { return nil }
+        for path in PathBuilder.searchDirectories(paths) {
             let candidate = "\(path.hasSuffix("/") ? String(path.dropLast()) : path)/\(binary)"
             if fileManager.isExecutableFile(atPath: candidate), launchCandidateFilter(candidate, fileManager) {
                 return candidate
@@ -449,15 +464,24 @@ public enum CodexLaunchPreflight {
         let exitStatus: Int32
     }
 
-    public static func isLaunchCandidateAllowed(path: String, fileManager: FileManager = .default) -> Bool {
+    public static func isLaunchCandidateAllowed(
+        path: String,
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool
+    {
         #if os(macOS)
         self.isLaunchCandidateAllowed(
             path: path,
             fileManager: fileManager,
             hasExtendedAttribute: self.hasExtendedAttribute,
-            spctlAssessment: { self.spctlAssessment(path: $0) },
+            spctlAssessment: { self.memoizedSpctlAssessment(path: $0) },
             appSignatureIsTrusted: self.isExpectedOpenAIAppSignature,
-            isMachOExecutable: self.isMachOExecutable)
+            isMachOExecutable: self.isMachOExecutable,
+            npmExecutableResolver: { path, manager in
+                self.npmNativeExecutable(for: path, fileManager: manager) { wrapper in
+                    self.nodePackageResolution(wrapper: wrapper, environment: environment, fileManager: manager)
+                }
+            })
         #else
         _ = path
         _ = fileManager
@@ -474,7 +498,8 @@ public enum CodexLaunchPreflight {
         hasExtendedAttribute: (String, String) -> Bool,
         spctlAssessment: (String) -> GatekeeperAssessment?,
         appSignatureIsTrusted: (String) -> Bool,
-        isMachOExecutable: (String) -> Bool) -> Bool
+        isMachOExecutable: (String) -> Bool,
+        npmExecutableResolver: (String, FileManager) -> String? = { _, _ in nil }) -> Bool
     {
         let realPath = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         let sourceAppBundlePath = self.containingAppBundlePath(for: path)
@@ -488,10 +513,16 @@ public enum CodexLaunchPreflight {
             appBundlePath = resolvedAppBundlePath
         }
         let appBundlePaths = [sourceAppBundlePath, appBundlePath].compactMap(\.self)
-        let pathsToCheck = [path, realPath] + appBundlePaths + self
-            .nativeCodexExecutableCandidates(
-                for: realPath,
-                fileManager: fileManager)
+        let isNPMLauncher = realPath.hasSuffix("/node_modules/@openai/codex/bin/codex.js")
+        let nativeCandidates = isNPMLauncher ? npmExecutableResolver(realPath, fileManager).map { [$0] } ?? [] : []
+        // An npm launcher can remain executable after its native payload has disappeared.
+        // Do not let that broken installation shadow a working bundled CLI.
+        if isNPMLauncher, nativeCandidates.isEmpty {
+            CodexBarLog.logger(LogCategories.subprocess).warning(
+                "Skipping npm Codex launcher: native payload unavailable. Reinstall @openai/codex to repair it.")
+            return false
+        }
+        let pathsToCheck = [path, realPath] + appBundlePaths + nativeCandidates
 
         for candidate in Set(pathsToCheck) where hasExtendedAttribute(candidate, "com.apple.malware") {
             return false
@@ -522,7 +553,7 @@ public enum CodexLaunchPreflight {
         return !self.isExplicitlyBlockedAssessment(assessment.output, path: native)
     }
 
-    private static func containingAppBundlePath(for path: String) -> String? {
+    static func containingAppBundlePath(for path: String) -> String? {
         var candidate = URL(fileURLWithPath: path).standardizedFileURL
         while candidate.path != "/" {
             if candidate.pathExtension.caseInsensitiveCompare("app") == .orderedSame {
@@ -535,42 +566,74 @@ public enum CodexLaunchPreflight {
         return nil
     }
 
-    private static func nativeCodexExecutableCandidates(for path: String, fileManager: FileManager) -> [String] {
-        let url = URL(fileURLWithPath: path)
-        guard url.lastPathComponent == "codex.js" else { return [] }
-
-        let packageRoot = url.deletingLastPathComponent().deletingLastPathComponent()
-        return self.npmNativeCodexCandidates(packageRoot: packageRoot)
-            .map(\.path)
-            .filter { fileManager.isExecutableFile(atPath: $0) }
+    struct NodePackageResolution: Decodable {
+        let architecture: String
+        let packageRoot: String?
     }
 
-    private static func npmNativeCodexCandidates(packageRoot: URL) -> [URL] {
-        guard let target = self.darwinCodexTarget else { return [] }
-        let optionalPackage = packageRoot
-            .appendingPathComponent("node_modules")
-            .appendingPathComponent("@openai")
-            .appendingPathComponent(target.packageName)
+    /// Resolve metadata with the same Node interpreter as the launcher, without evaluating codex.js.
+    static func nodePackageResolution(
+        wrapper: String,
+        environment: [String: String],
+        fileManager: FileManager) -> NodePackageResolution?
+    {
+        // The shared finder matches the child's absolute-only PATH; reject preload hooks before starting Node.
+        let paths = (environment["PATH"] ?? "/usr/bin:/bin")
+            .split(separator: ":").map(String.init)
+        guard environment["NODE_OPTIONS", default: ""].isEmpty,
+              let node = BinaryLocator.find("node", in: paths, fileManager: fileManager)
+        else { return nil }
+        let script = #"""
+        const {createRequire} = require('node:module');
+        const path = require('node:path');
+        const architecture = process.arch;
+        if (!['arm64', 'x64'].includes(architecture)) process.exit(1);
+        let packageRoot = null;
+        try {
+          packageRoot = path.dirname(createRequire(process.argv[1]).resolve(
+            '@openai/codex-darwin-' + architecture + '/package.json'));
+        } catch {}
+        process.stdout.write(JSON.stringify({architecture, packageRoot}));
+        """#
+        guard let data = ShellCommandLocator.runShellCommand(
+            shell: node, arguments: ["-e", script, wrapper], timeout: 2, environment: environment)
+        else { return nil }
+        return try? JSONDecoder().decode(NodePackageResolution.self, from: data)
+    }
 
-        return [
-            optionalPackage,
-            packageRoot,
-        ].map {
-            $0.appendingPathComponent("vendor")
-                .appendingPathComponent(target.triple)
-                .appendingPathComponent("codex")
-                .appendingPathComponent("codex")
+    static func npmNativeExecutable(
+        for wrapper: String,
+        fileManager: FileManager,
+        resolveNode: (String) -> NodePackageResolution?) -> String?
+    {
+        guard let data = fileManager.contents(atPath: wrapper), data.count <= 128 * 1024,
+              let source = String(data: data, encoding: .utf8),
+              let node = resolveNode(wrapper)
+        else { return nil }
+        let triple: String
+        switch node.architecture {
+        case "arm64": triple = "aarch64-apple-darwin"
+        case "x64": triple = "x86_64-apple-darwin"
+        default: return nil
         }
-    }
-
-    private static var darwinCodexTarget: (packageName: String, triple: String)? {
-        #if arch(arm64)
-        ("codex-darwin-arm64", "aarch64-apple-darwin")
-        #elseif arch(x86_64)
-        ("codex-darwin-x64", "x86_64-apple-darwin")
-        #else
-        nil
-        #endif
+        let legacyDirectory = "codex"
+        let directories: [String]
+        if source.range(of: #"targetTriple,\s*["']bin["']"#, options: .regularExpression) != nil {
+            directories = source.contains("const legacyPath = legacyBinaryPath(vendorRoot);")
+                ? ["bin", legacyDirectory] : ["bin"]
+        } else if source.range(of: #"path\.join\(archRoot,\s*["']codex["']"#, options: .regularExpression) != nil {
+            directories = [legacyDirectory]
+        } else {
+            // An unknown launcher layout is not evidence that another payload will be executed.
+            return nil
+        }
+        let root = node.packageRoot.map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: wrapper).deletingLastPathComponent().deletingLastPathComponent()
+        // npm selects by existence, so an unusable current payload must not fall through to a legacy copy.
+        guard let native = directories.lazy.map({ root.appendingPathComponent("vendor/\(triple)/\($0)/codex").path })
+            .first(where: { fileManager.fileExists(atPath: $0) })
+        else { return nil }
+        return fileManager.isExecutableFile(atPath: native) ? native : nil
     }
 
     private static func hasExtendedAttribute(path: String, name: String) -> Bool {
@@ -595,7 +658,19 @@ public enum CodexLaunchPreflight {
             bytes == [0xCA, 0xFE, 0xBA, 0xBF]
     }
 
+    /// The launch environment selects the npm payload on every lookup; spctl receives only that file.
+    /// Cache its identity, never the wrapper's environment-dependent launch decision.
+    private static func memoizedSpctlAssessment(path: String) -> GatekeeperAssessment? {
+        AssessmentMemo.shared.assessment(
+            path: path,
+            isDefinitive: { self.isDefinitiveAssessment($0.output, path: path) },
+            assess: { self.spctlAssessment(path: $0) })
+    }
+
+    @TaskLocal static var spctlAssessmentOverrideForTesting: (@Sendable (String) -> GatekeeperAssessment?)?
+
     private static func spctlAssessment(path: String, timeout: TimeInterval = 5.0) -> GatekeeperAssessment? {
+        if let assess = self.spctlAssessmentOverrideForTesting { return assess(path) }
         let spctlPath = "/usr/sbin/spctl"
         guard FileManager.default.isExecutableFile(atPath: spctlPath) else { return nil }
 
@@ -660,6 +735,17 @@ public enum CodexLaunchPreflight {
             .first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .localizedCaseInsensitiveCompare("accepted") == .orderedSame
+    }
+
+    /// A verdict worth remembering; `spctl` errors (for example `syspolicyd` unavailable) are neither.
+    static func isDefinitiveAssessment(_ assessment: String, path: String) -> Bool {
+        guard let verdict = self.assessmentDiagnosticText(assessment, path: path)
+            .split(whereSeparator: \.isNewline)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        else { return false }
+        return verdict.hasPrefix("accepted") || verdict.hasPrefix("rejected")
     }
 
     private static func isExplicitlyBlockedAssessment(_ assessment: String, path: String) -> Bool {
@@ -770,42 +856,6 @@ public enum ShellCommandLocator {
         return nil
     }
 
-    /// Thread-safe buffer for collecting pipe output from a readability handler.
-    private final class CapturedData: @unchecked Sendable {
-        private let lock = NSLock()
-        private var data = Data()
-
-        func append(_ other: Data) {
-            self.lock.lock()
-            self.data.append(other)
-            self.lock.unlock()
-        }
-
-        func drain() -> Data {
-            self.lock.lock()
-            let result = self.data
-            self.lock.unlock()
-            return result
-        }
-    }
-
-    /// Idempotent one-shot flag — `fire()` returns true exactly once.
-    /// Used to make `DispatchGroup.leave()` safe to attempt from multiple paths.
-    private final class OnceFlag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var fired = false
-
-        func fire() -> Bool {
-            self.lock.lock()
-            defer { self.lock.unlock() }
-            if self.fired {
-                return false
-            }
-            self.fired = true
-            return true
-        }
-    }
-
     private static func makeCloseOnExecPipe() -> (read: Int32, write: Int32)? {
         var fds: (read: Int32, write: Int32) = (-1, -1)
         #if os(Linux)
@@ -830,7 +880,6 @@ public enum ShellCommandLocator {
         return fds
     }
 
-    // swiftlint:disable cyclomatic_complexity
     /// Runs a shell command, draining both stdout and stderr concurrently so that
     /// verbose shell init scripts (oh-my-zsh, nvm, pyenv, etc.) cannot deadlock on
     /// a full pipe buffer.  The child is launched via `posix_spawn` with
@@ -840,7 +889,8 @@ public enum ShellCommandLocator {
     fileprivate static func runShellCommand(
         shell: String,
         arguments: [String],
-        timeout: TimeInterval) -> Data?
+        timeout: TimeInterval,
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> Data?
     {
         // Darwin needs a lock around raw descriptor creation, close-on-exec flagging,
         // and spawn. Linux creates close-on-exec descriptors atomically with pipe2.
@@ -923,7 +973,9 @@ public enum ShellCommandLocator {
         // Inherit the parent environment.  Build a NULL-terminated `KEY=VALUE`
         // array since `extern char **environ` isn't directly visible from Swift.
         var cEnv: [UnsafeMutablePointer<CChar>?] = []
-        for (key, value) in ProcessInfo.processInfo.environment {
+        var environment = environment
+        environment["PATH"] = PathBuilder.effectivePATH(purposes: [.tty], env: environment, loginPATH: nil)
+        for (key, value) in environment {
             cEnv.append(strdup("\(key)=\(value)"))
         }
         cEnv.append(nil)
@@ -952,45 +1004,26 @@ public enum ShellCommandLocator {
             return nil
         }
 
-        // Track EOF on each pipe so we can wait for full drain instead of sleeping.
-        // The readability handler fires with empty data when every writer end is
-        // closed (i.e. the child *and* any inheriting background helpers are gone).
-        let drainGroup = DispatchGroup()
-        drainGroup.enter()
-        drainGroup.enter()
-        let stdoutDone = OnceFlag()
-        let stderrDone = OnceFlag()
+        // Retain one overflow byte so discovery rejects oversized output instead of parsing a truncated path.
+        let maxOutputBytes = ProcessPipeCapture.defaultMaxBytes
+        let stdoutCapture = ProcessPipeCapture(
+            handle: FileHandle(fileDescriptor: stdoutFds.read, closeOnDealloc: true),
+            maxBytes: maxOutputBytes + 1)
+        let stderrCapture = ProcessPipeCapture(
+            handle: FileHandle(fileDescriptor: stderrFds.read, closeOnDealloc: true),
+            maxBytes: 0)
 
-        let stdoutCollector = CapturedData()
-        let stdoutHandle = FileHandle(fileDescriptor: stdoutFds.read, closeOnDealloc: true)
-        stdoutHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                if stdoutDone.fire() {
-                    drainGroup.leave()
-                }
-            } else {
-                stdoutCollector.append(data)
-            }
-        }
-
-        let stderrHandle = FileHandle(fileDescriptor: stderrFds.read, closeOnDealloc: true)
-        stderrHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                if stderrDone.fire() {
-                    drainGroup.leave()
-                }
-            }
-        }
-
-        // Adopt the already-spawned session so cleanup can also discover helpers
-        // that escape into a new process group while retaining our output pipes.
+        // Snapshot pipe identities before the readers can reach EOF and close their descriptors.
         let process = SpawnedProcessGroup.adopt(
             pid: pid,
             outputFileDescriptors: [stdoutFds.read, stderrFds.read])
+        stdoutCapture.start()
+        stderrCapture.start()
+        defer {
+            stdoutCapture.stop()
+            stderrCapture.stop()
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
         while process.isRunning, Date() < deadline {
             usleep(10000)
@@ -998,14 +1031,6 @@ public enum ShellCommandLocator {
 
         if process.isRunning {
             process.terminateSynchronously()
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            if stdoutDone.fire() {
-                drainGroup.leave()
-            }
-            if stderrDone.fire() {
-                drainGroup.leave()
-            }
             return nil
         }
 
@@ -1013,25 +1038,10 @@ public enum ShellCommandLocator {
         // including session-escaped helpers that still hold our output pipes open.
         process.terminateSynchronously()
 
-        // Wait for both pipes to deliver EOF so no buffered bytes are lost.
-        // Bounded so a stuck handler can't hang the caller indefinitely.
-        if drainGroup.wait(timeout: .now() + 0.4) != .success {
-            process.terminateSynchronously(grace: 0)
-        }
-        if drainGroup.wait(timeout: .now() + 0.6) != .success {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            if stdoutDone.fire() {
-                drainGroup.leave()
-            }
-            if stderrDone.fire() {
-                drainGroup.leave()
-            }
-        }
-        return stdoutCollector.drain()
+        let data = stdoutCapture.finishSynchronously(timeout: 1)
+        guard stdoutCapture.reachedEOF, data.count <= maxOutputBytes else { return nil }
+        return data
     }
-
-    // swiftlint:enable cyclomatic_complexity
 
     private static func runShellCapture(_ shell: String?, _ timeout: TimeInterval, _ command: String) -> String? {
         let shellPath = (shell?.isEmpty == false) ? shell! : "/bin/zsh"
@@ -1107,6 +1117,11 @@ public enum ShellCommandLocator {
 }
 
 public enum PathBuilder {
+    /// Relative and empty PATH entries depend on an untrusted invocation directory.
+    static func searchDirectories(_ paths: [String]) -> [String] {
+        paths.filter { $0.hasPrefix("/") }
+    }
+
     public static func effectivePATH(
         purposes _: Set<PathPurpose>,
         env: [String: String] = ProcessInfo.processInfo.environment,
@@ -1123,20 +1138,13 @@ public enum PathBuilder {
             parts.append(contentsOf: existing.split(separator: ":").map(String.init))
         }
 
+        parts = self.searchDirectories(parts)
         if parts.isEmpty {
             parts.append(contentsOf: ["/usr/bin", "/bin", "/usr/sbin", "/sbin"])
         }
 
         var seen = Set<String>()
-        let deduped = parts.compactMap { part -> String? in
-            guard !part.isEmpty else { return nil }
-            if seen.insert(part).inserted {
-                return part
-            }
-            return nil
-        }
-
-        return deduped.joined(separator: ":")
+        return parts.filter { seen.insert($0).inserted }.joined(separator: ":")
     }
 
     public static func debugSnapshot(
@@ -1307,5 +1315,39 @@ public final class LoginShellPathCache: @unchecked Sendable {
 
         callbacks.forEach { $0(result) }
         return result
+    }
+}
+
+/// Resolves bundle ownership from the executable, never argv[0] or the invocation directory.
+enum ExecutableLocation {
+    static func appBundleURL(containing executableURL: URL) -> URL? {
+        let directory = executableURL.resolvingSymlinksInPath().deletingLastPathComponent()
+        let contents = directory.deletingLastPathComponent()
+        let app = contents.deletingLastPathComponent()
+        guard ["MacOS", "Helpers"].contains(directory.lastPathComponent),
+              contents.lastPathComponent == "Contents", app.pathExtension == "app" else { return nil }
+        return app
+    }
+
+    static func runningURL(bundle: Bundle) -> URL? {
+        if let executableURL = bundle.executableURL {
+            return executableURL
+        }
+
+        #if canImport(Darwin)
+        var size: UInt32 = 0
+        guard _NSGetExecutablePath(nil, &size) != 0 else { return nil }
+        var buffer = [Int8](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buffer, &size) == 0 else { return nil }
+        let pathBytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        guard let path = String(bytes: pathBytes, encoding: .utf8) else { return nil }
+        return URL(fileURLWithPath: path)
+        #elseif os(Linux)
+        let path = "/proc/self/exe"
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+        #else
+        return nil
+        #endif
     }
 }

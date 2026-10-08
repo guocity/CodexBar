@@ -17,17 +17,31 @@ public enum ClaudeProviderDescriptor {
         probeWorkingDirectory: { ClaudeStatusProbe.preparedProbeWorkingDirectoryURL() })
     private static let cli = ProviderCLIConfig(
         name: "claude",
-        binaryLocator: { BinaryLocator.resolveClaudeBinary() },
+        binaryLocator: { BinaryLocator.resolveClaudeBinary(env: $0) },
         versionDetector: { browserDetection in
             ClaudeUsageFetcher(browserDetection: browserDetection).detectVersion()
         },
         supportsCostCommand: true,
         prefersBinaryLocatorForWhich: true,
         ttyLaunch: Self.ttyLaunch,
-        browserSupportExemption: { sourceMode, _, _ in sourceMode == .auto })
+        browserSupportExemption: { sourceMode, _, settings in
+            if sourceMode == .auto { return true }
+            // Linux has no browser cookie import, but an explicitly configured
+            // manual sessionKey cookie makes the web source usable there.
+            guard sourceMode == .web,
+                  let claude = settings?.claude,
+                  claude.cookieSource == .manual
+            else { return false }
+            return ClaudeWebAPIFetcher.hasSessionKey(cookieHeader: claude.manualCookieHeader)
+        })
     private static let credentials = ProviderCredentialAdapter(
         supportsAPIKeyOverride: true,
-        environmentProjections: [.apiKey(ClaudeAdminAPISettingsReader.adminAPIKeyEnvironmentKey)],
+        environmentProjections: [
+            .apiKey(ClaudeAdminAPISettingsReader.adminAPIKeyEnvironmentKey),
+            ProviderCredentialEnvironmentProjection(
+                key: ClaudeAdminAPISettingsReader.workspaceSpendEnvironmentKey,
+                value: { $0.claudeWorkspaceSpendEnabled.map(String.init) }),
+        ],
         tokenResolver: { kind, environment, _ in
             guard kind == .primary,
                   let token = ClaudeAdminAPISettingsReader.apiKey(environment: environment)
@@ -211,8 +225,10 @@ public enum ClaudeProviderDescriptor {
                     costVisibilityResolver: { context in
                         context.showOptionalUsage || context.snapshot?.loginMethod(for: .claude) == "Admin API"
                     },
-                    supportsInlineTokenCostDashboard: true),
+                    supportsInlineTokenCostDashboard: true,
+                    showsQuotaWeekCost: true),
                 optionalDetails: ProviderOptionalDetailsPresentation(
+                    hiddenTitlesWithoutOptionalUsage: [ClaudeCloudCreditsSnapshot.detailTitle],
                     costSummaryTitles: ["Usage summary", "Cost items"])),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .api, .web, .cli, .oauth],
@@ -224,18 +240,13 @@ public enum ClaudeProviderDescriptor {
         context: ProviderMenuBarWindowContext) -> ProviderMenuBarWindowResolution
     {
         guard context.metric == .automatic || context.metric == .primaryAndSecondary,
-              let cost = context.snapshot.providerCost,
-              cost.limit > 0,
               context.snapshot.secondary == nil,
               context.snapshot.tertiary == nil,
               context.snapshot.primary == nil || context.snapshot.primary?.isSyntheticPlaceholder == true
         else { return .unhandled }
-        let usedPercent = max(0, min(100, (cost.used / cost.limit) * 100))
-        return .resolved(RateWindow(
-            usedPercent: usedPercent,
-            windowMinutes: nil,
-            resetsAt: cost.resetsAt,
-            resetDescription: nil))
+        let window = context.snapshot.claudeScopedWeeklyWindow?.window
+            ?? context.snapshot.providerCost.flatMap { $0.limit > 0 ? $0.spendLimitWindow : nil }
+        return .resolved(window)
     }
 
     private static func resolveStrategies(context: ProviderFetchContext) async -> [any ProviderFetchStrategy] {
@@ -350,7 +361,9 @@ public enum ClaudeProviderDescriptor {
             break
         }
 
-        guard ClaudeWebFetchStrategy.isSupportedOnCurrentPlatform else { return false }
+        guard ClaudeWebFetchStrategy.isSupportedOnCurrentPlatform
+            || context.settings?.claude?.cookieSource == .manual
+        else { return false }
 
         switch context.settings?.claude?.cookieSource {
         case .off?:
@@ -494,12 +507,13 @@ private struct ClaudePlannedFetchStrategy: ProviderFetchStrategy {
 struct ClaudeAdminAPIFetchStrategy: ProviderFetchStrategy {
     let id: String = "claude.admin-api"
     let kind: ProviderFetchKind = .apiToken
-    let usageFetcher: @Sendable (String) async throws -> ClaudeAdminAPIUsageSnapshot
+    let usageFetcher: @Sendable (String, Bool) async throws -> ClaudeAdminAPIUsageSnapshot
 
     init(
-        usageFetcher: @escaping @Sendable (String) async throws -> ClaudeAdminAPIUsageSnapshot = { apiKey in
-            try await ClaudeAdminAPIUsageFetcher.fetchUsage(apiKey: apiKey)
-        })
+        usageFetcher: @escaping @Sendable (String, Bool) async throws
+            -> ClaudeAdminAPIUsageSnapshot = { apiKey, enabled in
+                try await ClaudeAdminAPIUsageFetcher.fetchUsage(apiKey: apiKey, workspaceSpendEnabled: enabled)
+            })
     {
         self.usageFetcher = usageFetcher
     }
@@ -517,7 +531,8 @@ struct ClaudeAdminAPIFetchStrategy: ProviderFetchStrategy {
         guard let apiKey = Self.resolveToken(environment: context.env) else {
             throw ClaudeAdminAPISettingsError.missingToken
         }
-        let usage = try await self.usageFetcher(apiKey)
+        let usage = try await self.usageFetcher(
+            apiKey, context.env[ClaudeAdminAPISettingsReader.workspaceSpendEnvironmentKey] == "true")
         return self.makeResult(
             usage: usage.toUsageSnapshot(),
             sourceLabel: "admin-api")
@@ -695,10 +710,12 @@ struct ClaudeOAuthFetchStrategy: ProviderFetchStrategy {
             manualCookieHeader: webEnrichmentAccess.manualCookieHeader,
             webOrganizationID: context.settings?.claude?.organizationID,
             webExtrasTimeout: context.webTimeout,
-            includePrepaidBalance: includePrepaidBalance)
+            includePrepaidBalance: includePrepaidBalance,
+            includeAccountIdentity: context.includeAccountIdentity,
+            includeSubscriptionMetadata: webEnrichmentAccess.isAvailable)
         let usage = try await fetcher.loadLatestUsage(model: "sonnet")
         return ProviderFetchResult(
-            usage: Self.snapshot(from: usage),
+            usage: Self.snapshot(from: usage, includeOptionalUsage: context.includeOptionalUsage),
             credits: nil,
             dashboard: nil,
             sourceLabel: "oauth",
@@ -739,30 +756,40 @@ struct ClaudeOAuthFetchStrategy: ProviderFetchStrategy {
 
     fileprivate static func snapshot(
         from usage: ClaudeUsageSnapshot,
-        dataConfidence: UsageDataConfidence = .unknown) -> UsageSnapshot
+        dataConfidence: UsageDataConfidence = .unknown,
+        includeOptionalUsage: Bool = true) -> UsageSnapshot
     {
         let identity = ProviderIdentitySnapshot(
             providerID: .claude,
             accountEmail: usage.accountEmail,
             accountOrganization: usage.accountOrganization,
-            loginMethod: usage.loginMethod)
+            loginMethod: usage.loginMethod,
+            widgetAccountOwnerID: usage.accountID)
         let primary = usage.primaryWindowKind == .spendLimit ? nil : usage.primary
-        return UsageSnapshot(
+        var details = usage.resetCredits?.detailSections(now: usage.updatedAt) ?? []
+        if includeOptionalUsage {
+            details += usage.cloudCredits?.detailSections(now: usage.updatedAt) ?? []
+        }
+        let snapshot = UsageSnapshot(
             primary: primary,
             secondary: usage.secondary,
             tertiary: usage.opus,
             extraRateWindows: usage.extraRateWindows.isEmpty ? nil : usage.extraRateWindows,
             providerCost: usage.providerCost,
+            details: details,
+            claudeResetCredits: usage.resetCredits,
             updatedAt: usage.updatedAt,
             identity: identity,
             dataConfidence: dataConfidence)
+        return usage.subscriptionMetadata?.applying(to: snapshot) ?? snapshot
     }
 
     static func _snapshotForTesting(
         from usage: ClaudeUsageSnapshot,
-        dataConfidence: UsageDataConfidence = .unknown) -> UsageSnapshot
+        dataConfidence: UsageDataConfidence = .unknown,
+        includeOptionalUsage: Bool = true) -> UsageSnapshot
     {
-        self.snapshot(from: usage, dataConfidence: dataConfidence)
+        self.snapshot(from: usage, dataConfidence: dataConfidence, includeOptionalUsage: includeOptionalUsage)
     }
 }
 
@@ -846,8 +873,19 @@ struct ClaudeWebFetchStrategy: ProviderFetchStrategy {
 
     func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
         let usage = try await self.loadUsage(before: context.webTimeout, context: context)
+        var snapshot = ClaudeOAuthFetchStrategy.snapshot(
+            from: usage,
+            includeOptionalUsage: context.includeOptionalUsage)
+        let access = ClaudeProviderDescriptor.webEnrichmentAccess(context: context)
+        if access.isAvailable, let cookie = access.manualCookieHeader,
+           case let .available(metadata) = await ClaudeSubscriptionMetadataFetcher.fetch(
+               cookieHeader: cookie, expectedOwnerID: usage.accountID)
+        {
+            snapshot = metadata.applying(to: snapshot)
+        }
+        try Task.checkCancellation()
         return self.makeResult(
-            usage: ClaudeOAuthFetchStrategy.snapshot(from: usage),
+            usage: snapshot,
             sourceLabel: "web")
     }
 
@@ -924,7 +962,9 @@ struct ClaudeWebFetchStrategy: ProviderFetchStrategy {
                 useWebExtras: false,
                 manualCookieHeader: Self.manualCookieHeader(from: context),
                 webOrganizationID: context.settings?.claude?.organizationID,
-                includePrepaidBalance: context.includeOptionalUsage)
+                includePrepaidBalance: context.includeOptionalUsage,
+                // Billing uses the owner already present in the authenticated web response.
+                includeAccountIdentity: true)
             return try await fetcher.loadLatestUsage(model: "sonnet")
         }
         let race = BoundedTaskJoin(sourceTask: sourceTask)
@@ -1059,6 +1099,12 @@ struct ClaudeCLIFetchStrategy: ProviderFetchStrategy {
             if Task.isCancelled || ClaudeOAuthFetchError.isCancellation(error) {
                 throw error
             }
+            // A transient probe failure does not revoke this account's established CLI availability.
+            if ClaudeUsageFetcher.isRetryableCLIProbeError(error),
+               ClaudeCLIBackgroundAvailability.isEstablished(backgroundAvailabilityMarker)
+            {
+                throw error
+            }
             if let backgroundAvailabilityMarker {
                 ClaudeCLIBackgroundAvailability.revoke(backgroundAvailabilityMarker)
             }
@@ -1073,7 +1119,8 @@ struct ClaudeCLIFetchStrategy: ProviderFetchStrategy {
         let result = self.makeResult(
             // The PTY /usage panel exposes rendered percentages only, so CLI-sourced data carries an
             // explicit degraded-fidelity marker that the card surfaces as "via Claude CLI".
-            usage: ClaudeOAuthFetchStrategy.snapshot(from: usage, dataConfidence: .percentOnly),
+            usage: ClaudeOAuthFetchStrategy.snapshot(
+                from: usage, dataConfidence: .percentOnly, includeOptionalUsage: context.includeOptionalUsage),
             sourceLabel: "claude")
         if let throttleKey {
             ClaudeCLIUsageSpawnThrottle.record(result, for: throttleKey)
@@ -1144,8 +1191,11 @@ enum ClaudeCLIBackgroundAvailability {
     }
 
     static func isEstablished(binary: String, environment: [String: String]) -> Bool {
-        guard let marker = self.captureMarker(binary: binary, environment: environment) else { return false }
-        return self.store.contains(marker)
+        self.isEstablished(self.captureMarker(binary: binary, environment: environment))
+    }
+
+    static func isEstablished(_ marker: Marker?) -> Bool {
+        marker.map { self.store.contains($0) } ?? false
     }
 
     static func allowsOpaqueChildExecution(binary: String, environment: [String: String]) -> Bool {

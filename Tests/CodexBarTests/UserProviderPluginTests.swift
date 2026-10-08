@@ -1,4 +1,5 @@
 #if canImport(JavaScriptCore)
+import AppKit
 import Foundation
 import Testing
 @testable import CodexBar
@@ -24,6 +25,7 @@ struct UserProviderPluginTests {
         #expect(plugin.manifest.id.rawValue == "acme-meter")
         #expect(plugin.manifest.icon.monogram == "AM")
         #expect(plugin.manifest.icon.tint == "#336699")
+        #expect(plugin.manifest.topLevel)
 
         let binding = try plugin.approvalBinding(settings: [:])
         await #expect(throws: UserProviderPluginError.self) {
@@ -45,6 +47,334 @@ struct UserProviderPluginTests {
         #expect(transport.requestCount == 1)
         #expect(transport.lastRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-secret")
         #expect(transport.lastRequest?.value(forHTTPHeaderField: "Accept-Encoding") == "identity")
+    }
+
+    @MainActor
+    @Test
+    func `top level plugin becomes a stable provider switcher segment`() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let source = """
+        defineProvider({
+          id: "proxy-meter",
+          name: "Proxy Meter",
+          icon: { monogram: "PM", tint: "#336699" },
+          endpoints: ["https://proxy.example"],
+          settings: [],
+          fetchUsage() { return { primary: { usedPercent: 12 } }; },
+        });
+        """
+        _ = try fixture.write(name: "proxy.js", source: source)
+        let plugin = try #require(UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}"))).first?.plugin)
+        var selected: ProviderSwitcherSelection?
+        let view = ProviderSwitcherView(
+            providers: [.codex],
+            pluginProviders: [plugin],
+            selected: .provider(.codex),
+            includesOverview: false,
+            width: 240,
+            showsIcons: true,
+            iconProvider: { _ in NSImage(size: NSSize(width: 16, height: 16)) },
+            pluginIconProvider: { _ in NSImage(size: NSSize(width: 16, height: 16)) },
+            weeklyRemainingProvider: { _ in nil },
+            onSelect: { selected = $0 })
+
+        #expect(plugin.manifest.topLevel)
+        #expect(view._test_segmentTitles() == ["Codex", "Proxy Meter"])
+        #expect(view._test_simulateRuntimeClick(buttonTag: 1))
+        #expect(selected == .provider(plugin.manifest.id))
+
+        #expect(StatusItemController.userPluginsForMenu(
+            [plugin],
+            isEnabled: { _ in true },
+            topLevelSwitcherVisible: true,
+            selectedPluginID: nil).isEmpty)
+        #expect(StatusItemController.userPluginsForMenu(
+            [plugin],
+            isEnabled: { _ in true },
+            topLevelSwitcherVisible: true,
+            selectedPluginID: plugin.manifest.id).map(\.manifest.id) == [plugin.manifest.id])
+        #expect(StatusItemController.isUserPluginSelection(.provider(plugin.manifest.id)))
+        #expect(!StatusItemController.isUserPluginSelection(.provider(.codex)))
+        #expect(ProviderSwitcherSelection.provider(plugin.manifest.id).provider == nil)
+        #expect(ProviderSwitcherSelection.provider(.codex).provider == .codex)
+        #expect(StatusItemController.resolvedSwitcherProviderID(
+            providerIDs: [plugin.manifest.id],
+            selectedProviderID: nil,
+            fallbackProviderID: .codex) == plugin.manifest.id)
+
+        let previousMenuCardRendering = StatusItemController.menuCardRenderingEnabled
+        let previousMenuRefresh = StatusItemController.menuRefreshEnabled
+        StatusItemController.menuCardRenderingEnabled = false
+        StatusItemController.setMenuRefreshEnabledForTesting(false)
+        defer {
+            StatusItemController.menuCardRenderingEnabled = previousMenuCardRendering
+            StatusItemController.setMenuRefreshEnabledForTesting(previousMenuRefresh)
+        }
+        let (controller, _, _) = Self.makePluginMenuController(
+            suiteName: "UserProviderPluginTests.topLevelMenuCards",
+            selectedPluginID: plugin.manifest.id,
+            enabledPluginIDs: [plugin.manifest.id],
+            approvalStore: fixture.approvals)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let emptyMenu = NSMenu()
+        controller.addUserPluginMenuCards(to: emptyMenu, width: 240, selectedPluginID: plugin.manifest.id)
+        #expect(emptyMenu.items.first?.isSeparatorItem == false)
+        #expect(emptyMenu.items.first?.representedObject as? String == "pluginCard:proxy-meter")
+
+        let menuAfterSeparator = NSMenu()
+        menuAfterSeparator.addItem(.separator())
+        controller.addUserPluginMenuCards(to: menuAfterSeparator, width: 240, selectedPluginID: plugin.manifest.id)
+        let emptyIDs = emptyMenu.items.map { $0.representedObject as? String }
+        let separatedIDs = menuAfterSeparator.items.dropFirst().map { $0.representedObject as? String }
+        #expect(emptyIDs == separatedIDs)
+    }
+
+    @MainActor
+    @Test
+    func `sole top level plugin renders independently without a switcher`() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            name: "solo.js",
+            source: Self.menuPlugin(id: "solo-meter", name: "Solo Meter"))
+        let plugin = try #require(UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}"))).first?.plugin)
+        let (controller, store, settings) = Self.makePluginMenuController(
+            suiteName: "UserProviderPluginTests.soleTopLevel",
+            selectedPluginID: plugin.manifest.id,
+            enabledPluginIDs: [plugin.manifest.id],
+            approvalStore: fixture.approvals)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let menu = try #require(controller.statusItem.menu)
+        controller.populateMenu(menu, provider: nil)
+
+        #expect(store.enabledFirstPartyProvidersForDisplay().isEmpty)
+        #expect(controller.shouldMergeIcons)
+        #expect(controller.statusItem.isVisible)
+        #expect(menu === controller.mergedMenu)
+        #expect(!(menu.items.first?.view is ProviderSwitcherView))
+        #expect(Self.pluginCardIDs(in: menu) == ["pluginCard:solo-meter"])
+        #expect(settings.selectedMenuProvider == plugin.manifest.id)
+        #expect(controller.manualRefreshProvider(for: menu) == plugin.manifest.id)
+    }
+
+    @MainActor
+    @Test
+    func `top level plugin tabs retain legacy plugin cards without built in providers`() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            name: "first.js",
+            source: Self.menuPlugin(id: "first-meter", name: "First Meter"))
+        _ = try fixture.write(
+            name: "second.js",
+            source: Self.menuPlugin(id: "second-meter", name: "Second Meter"))
+        _ = try fixture.write(
+            name: "legacy.js",
+            source: Self.menuPlugin(id: "legacy-meter", name: "Legacy Meter", topLevel: false))
+        let plugins = UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}"))).compactMap(\.plugin)
+        let firstID = try #require(ProviderInstanceID(rawValue: "first-meter"))
+        let secondID = try #require(ProviderInstanceID(rawValue: "second-meter"))
+        let (controller, store, settings) = Self.makePluginMenuController(
+            suiteName: "UserProviderPluginTests.legacyCards",
+            selectedPluginID: firstID,
+            enabledPluginIDs: plugins.map(\.manifest.id),
+            approvalStore: fixture.approvals)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let menu = controller.makeMenu()
+        controller.populateMenu(menu, provider: nil)
+        #expect(store.enabledFirstPartyProvidersForDisplay().isEmpty)
+        #expect(menu.items.first?.view is ProviderSwitcherView)
+        #expect(Self.pluginCardIDs(in: menu) == ["pluginCard:first-meter", "pluginCard:legacy-meter"])
+
+        let wideDescriptor = MenuDescriptor(sections: [
+            MenuDescriptor.Section(entries: [
+                .action(String(repeating: "W", count: 60), .dashboard),
+            ]),
+        ])
+        let measuredWidth = controller.measuredStandardMenuWidth(
+            for: wideDescriptor.sections,
+            baseWidth: StatusItemController.menuCardBaseWidth)
+        #expect(measuredWidth > StatusItemController.menuCardBaseWidth)
+        #expect(controller.menuCardWidth(
+            for: [],
+            selectedProvider: nil,
+            descriptor: wideDescriptor) == measuredWidth)
+
+        settings.selectedMenuProvider = secondID
+        controller.populateMenu(menu, provider: nil)
+        #expect(Self.pluginCardIDs(in: menu) == ["pluginCard:second-meter", "pluginCard:legacy-meter"])
+    }
+
+    @MainActor
+    @Test
+    func `top level plugin cache signature distinguishes delimiter containing metadata`() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let source: (String, String) -> String = { name, monogram in
+            """
+            defineProvider({
+              id: "collision-meter",
+              name: "\(name)",
+              icon: { monogram: "\(monogram)", tint: "#336699" },
+              endpoints: ["https://collision.example"],
+              settings: [],
+              fetchUsage() { return { primary: { usedPercent: 12 } }; },
+            });
+            """
+        }
+        let url = try fixture.write(name: "collision.js", source: source("A:B", "C"))
+        let firstPlugin = try #require(UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}"))).first?.plugin)
+        let (controller, _, _) = Self.makePluginMenuController(
+            suiteName: "UserProviderPluginTests.cacheSignature",
+            selectedPluginID: firstPlugin.manifest.id,
+            enabledPluginIDs: [firstPlugin.manifest.id],
+            approvalStore: fixture.approvals)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let firstSignature = controller.menuLocalizationSignature()
+        try Data(source("A", "B:C").utf8).write(to: url, options: .atomic)
+        _ = UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}")))
+
+        #expect(controller.menuLocalizationSignature() != firstSignature)
+    }
+
+    @MainActor
+    @Test
+    func `opening a selected top level plugin does not schedule Codex dashboard refresh`() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            name: "selected.js",
+            source: Self.menuPlugin(id: "selected-meter", name: "Selected Meter"))
+        let plugin = try #require(UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}"))).first?.plugin)
+        let (controller, _, settings) = Self.makePluginMenuController(
+            suiteName: "UserProviderPluginTests.menuOpenOwnership",
+            selectedPluginID: plugin.manifest.id,
+            enabledPluginIDs: [plugin.manifest.id],
+            approvalStore: fixture.approvals)
+        defer { controller.releaseStatusItemsForTesting() }
+        try settings.setProviderEnabled(
+            provider: .codex,
+            metadata: #require(ProviderRegistry.shared.metadata[.codex]),
+            enabled: true)
+        controller.menuRefreshEnabledOverrideForTesting = true
+
+        let menu = controller.makeMenu()
+        controller.menuWillOpen(menu)
+
+        #expect(controller.lastMenuProvider == plugin.manifest.id)
+        #expect(controller.deferredOpenAIDashboardRefreshReason == nil)
+    }
+
+    @MainActor
+    @Test(arguments: [false, true])
+    func `persistent refresh targets the selected user plugin`(keyboard: Bool) async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            name: "first.js",
+            source: Self.menuPlugin(id: "first-meter", name: "First Meter"))
+        _ = try fixture.write(
+            name: "second.js",
+            source: Self.menuPlugin(id: "second-meter", name: "Second Meter"))
+        let plugins = UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}"))).compactMap(\.plugin)
+        let selectedID = try #require(ProviderInstanceID(rawValue: "second-meter"))
+        let selectedPlugin = try #require(plugins.first { $0.manifest.id == selectedID })
+        try fixture.approvals.record(selectedPlugin.approvalBinding(settings: [:]))
+        let (controller, store, settings) = Self.makePluginMenuController(
+            suiteName: "UserProviderPluginTests.selectedRefresh",
+            selectedPluginID: selectedID,
+            enabledPluginIDs: plugins.map(\.manifest.id),
+            approvalStore: fixture.approvals)
+        defer {
+            controller.manualRefreshTasks.values.forEach { $0.cancel() }
+            controller.releaseStatusItemsForTesting()
+        }
+
+        controller.menuRefreshEnabledOverrideForTesting = true
+        let menu = try #require(controller.statusItem.menu as? StatusItemMenu)
+        controller.menuWillOpen(menu)
+        #expect(controller.manualRefreshProvider(for: menu) == selectedID)
+        try settings.setProviderEnabled(
+            provider: .codex,
+            metadata: #require(ProviderRegistry.shared.metadata[.codex]),
+            enabled: true)
+        settings.mergedMenuLastSelectedWasOverview = true
+        #expect(!controller.isMergedOverviewSelected(in: menu))
+        store.refreshingProviders.insert(plugins[0].manifest.id)
+        #expect(!controller.isRefreshActionInFlight(for: menu))
+        store.refreshingProviders.remove(plugins[0].manifest.id)
+        if keyboard {
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "r",
+                charactersIgnoringModifiers: "r",
+                isARepeat: false,
+                keyCode: 15))
+            #expect(menu.performKeyEquivalent(with: event))
+            for _ in 0..<20 where controller.manualRefreshTasks[.provider(selectedID)] == nil {
+                await Task.yield()
+            }
+        } else {
+            controller.refreshMenuProviderNow(in: menu)
+        }
+
+        #expect(controller.manualRefreshTasks[.provider(selectedID)] != nil)
+        #expect(controller.manualRefreshTasks[.global] == nil)
+        #expect(controller.manualRefreshTasks[.provider(.codex)] == nil)
+        #expect(controller.isRefreshActionInFlight(for: menu))
+
+        await controller.manualRefreshTasks[.provider(selectedID)]?.value
+        #expect(store.snapshots[selectedID]?.primary?.usedPercent == 12)
+        let menuID = ObjectIdentifier(menu)
+        for _ in 0..<20 where controller.menuNeedsRefresh(menu) {
+            if let rebuild = controller.openMenuRebuildTasks[menuID] {
+                await rebuild.value
+            } else {
+                await Task.yield()
+            }
+        }
+        #expect(!controller.menuSession.isParentRebuildDeferred(menuID))
+        let menuIsFresh = !controller.menuNeedsRefresh(menu)
+        #expect(menuIsFresh)
+        #expect(controller.manualRefreshProvider(for: menu) == selectedID)
+    }
+
+    @Test
+    func `top level manifest field rejects non boolean values`() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let source = """
+        defineProvider({
+          id: "proxy-meter",
+          name: "Proxy Meter",
+          topLevel: "yes",
+          endpoints: ["https://proxy.example"],
+          settings: [],
+          fetchUsage() { return { primary: { usedPercent: 12 } }; },
+        });
+        """
+
+        #expect(throws: ProviderPluginError.self) {
+            try fixture.loader(transport: RecordingTransport(responseJSON: "{}"))
+                .load(fileURL: fixture.write(name: "invalid-top-level.js", source: source))
+        }
     }
 
     @Test
@@ -166,8 +496,8 @@ struct UserProviderPluginTests {
         #expect(await access.calls == 0)
     }
 
-    @Test
-    func `delete removes source cache approval secrets config and history`() throws {
+    @Test(arguments: [false, true])
+    func `delete removes source cache approval secrets config and history`(unavailableAtLoad: Bool) throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let plugin = try fixture.loader(transport: RecordingTransport(responseJSON: "{}"))
@@ -181,6 +511,11 @@ struct UserProviderPluginTests {
                 pluginSettings: ["REGION": "west"],
                 pluginSecrets: ["TOKEN": "fixture-secret"]),
         ])
+        if unavailableAtLoad {
+            config = try JSONDecoder().decode(CodexBarConfig.self, from: JSONEncoder().encode(config))
+            #expect(config.providers.isEmpty)
+            #expect(config.unavailableProviders.count == 1)
+        }
         try FileManager.default.createDirectory(at: fixture.history, withIntermediateDirectories: true)
         let historyURL = fixture.history.appendingPathComponent("delete-me.json")
         try Data("history".utf8).write(to: historyURL)
@@ -199,6 +534,7 @@ struct UserProviderPluginTests {
         #expect(!FileManager.default.fileExists(atPath: staleCacheURL.path))
         #expect(!fixture.approvals.isApproved(binding))
         #expect(config.providers.isEmpty)
+        #expect(config.unavailableProviders.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: historyURL.path))
     }
 
@@ -532,6 +868,226 @@ struct UserProviderPluginTests {
     }
 }
 
+extension UserProviderPluginTests {
+    @MainActor
+    @Test(arguments: [nil, true, false] as [Bool?])
+    func `plugin placement respects default explicit override and unmerged menus`(topLevel: Bool?) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            name: "placement.js",
+            source: Self.menuPlugin(id: "placement-meter", name: "Placement Meter", topLevel: topLevel))
+        let plugin = try #require(UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}"))).first?.plugin)
+        #expect(plugin.manifest.topLevel == (topLevel ?? true))
+        let (controller, _, settings) = Self.makePluginMenuController(
+            suiteName: "UserProviderPluginTests.placement",
+            selectedPluginID: .codex,
+            enabledPluginIDs: [plugin.manifest.id],
+            approvalStore: fixture.approvals)
+        defer { controller.releaseStatusItemsForTesting() }
+        for provider in [UsageProvider.codex, .claude] {
+            try settings.setProviderEnabled(
+                provider: provider,
+                metadata: #require(ProviderRegistry.shared.metadata[provider]),
+                enabled: true)
+        }
+        let expectedCards = topLevel == false ? ["pluginCard:placement-meter"] : []
+        for overview in [false, true] {
+            settings.mergedMenuLastSelectedWasOverview = overview
+            let menu = controller.makeMenu()
+            controller.populateMenu(menu, provider: nil)
+            #expect(Self.pluginCardIDs(in: menu) == expectedCards)
+            let switcher = try #require(menu.items.first?.view as? ProviderSwitcherView)
+            #expect(switcher._test_segmentTitles().contains("Placement Meter") == (topLevel != false))
+            controller.warmMergedSwitcherSiblingContent(in: menu)
+            let caches = controller.mergedSwitcherContentCaches[ObjectIdentifier(menu)] ?? [:]
+            let cachedPlugin = caches[.provider(plugin.manifest.id)]
+            #expect((cachedPlugin != nil) == (topLevel != false))
+        }
+        settings.mergeIcons = false
+        settings.mergedMenuLastSelectedWasOverview = false
+        let unmerged = controller.makeMenu()
+        controller.populateMenu(unmerged, provider: .codex)
+        #expect(!controller.shouldMergeIcons)
+        #expect(!(unmerged.items.first?.view is ProviderSwitcherView))
+        #expect(Self.pluginCardIDs(in: unmerged) == ["pluginCard:placement-meter"])
+        settings.setPluginEnabled(plugin.manifest.id, enabled: false)
+        controller.populateMenu(unmerged, provider: .codex)
+        #expect(Self.pluginCardIDs(in: unmerged).isEmpty)
+        #expect(controller.topLevelUserProviderPlugins().isEmpty)
+    }
+
+    @MainActor
+    @Test
+    func `render default plugin placement with synthetic production menus`() throws {
+        guard let path = ProcessInfo.processInfo.environment["CODEXBAR_PLUGIN_DEFAULT_PROOF_DIR"] else { return }
+        try #require(ProcessInfo.processInfo.environment["CODEXBAR_SUPPRESS_TEST_KEYCHAIN_ACCESS"] == "1")
+        try #require(ProcessInfo.processInfo.environment["CODEXBAR_TEST_CODEX_FILE_ISOLATION"] == "1")
+        try #require(ProcessInfo.processInfo.environment["CODEXBAR_TEST_SESSION_FILE_ISOLATION"] == "1")
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            name: "github-ratelimit.js",
+            source: Self.menuPlugin(id: "github-ratelimit", name: "GitHub Rate Limit"))
+        let plugin = try #require(UserProviderPluginRegistry.refresh(
+            loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}"))).first?.plugin)
+        let previousRendering = StatusItemController.menuCardRenderingEnabled
+        StatusItemController.menuCardRenderingEnabled = true
+        defer { StatusItemController.menuCardRenderingEnabled = previousRendering }
+        let (controller, store, settings) = Self.makePluginMenuController(
+            suiteName: "UserProviderPluginTests.renderDefault",
+            selectedPluginID: .codex,
+            enabledPluginIDs: [plugin.manifest.id],
+            approvalStore: fixture.approvals)
+        defer { controller.releaseStatusItemsForTesting() }
+        settings.costUsageEnabled = false
+        settings.hidePersonalInfo = true
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 25, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
+            secondary: nil,
+            updatedAt: Date())
+        for provider in [UsageProvider.codex, .claude] {
+            try settings.setProviderEnabled(
+                provider: provider,
+                metadata: #require(ProviderRegistry.shared.metadata[provider]),
+                enabled: true)
+            store._setSnapshotForTesting(snapshot, provider: provider)
+        }
+        store.snapshots[plugin.manifest.id] = snapshot
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stage = plugin.manifest.topLevel ? "after" : "before"
+        var receipt: [String: [String]] = [:]
+        for selection in ["codex", "overview", "plugin"] {
+            if selection == "plugin", !plugin.manifest.topLevel { continue }
+            settings.selectedMenuProvider = selection == "plugin" ? plugin.manifest.id : .codex
+            settings.mergedMenuLastSelectedWasOverview = selection == "overview"
+            let menu = controller.makeMenu()
+            controller.populateMenu(menu, provider: nil)
+            receipt[selection + "Cards"] = Self.pluginCardIDs(in: menu)
+            receipt[selection + "Tabs"] = (menu.items.first?.view as? ProviderSwitcherView)?
+                ._test_segmentTitles() ?? []
+            // Use the actual menu's production views; no desktop capture or real provider data.
+            let rows = menu.items.compactMap(\.view)
+            let canvas = PluginMenuProofCanvas(frame: NSRect(
+                x: 0,
+                y: 0,
+                width: (rows.map(\.frame.width).max() ?? 310) + 16,
+                height: rows.reduce(16) { $0 + $1.frame.height + 4 }))
+            canvas.appearance = NSAppearance(named: .aqua)
+            canvas.wantsLayer = true
+            canvas.layer?.backgroundColor = NSColor.white.cgColor
+            var y: CGFloat = 8
+            for row in rows {
+                let wrapper = NSView(frame: NSRect(origin: NSPoint(x: 8, y: y), size: row.frame.size))
+                row.setFrameOrigin(.zero)
+                wrapper.addSubview(row)
+                canvas.addSubview(wrapper)
+                y += row.frame.height + 4
+            }
+            let png = try #require(MenuLayoutScreenshotRenderTests.pngDataWithWindow(hosting: canvas))
+            try png.write(to: directory.appendingPathComponent("\(stage)-\(selection).png"))
+        }
+        try JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys, .prettyPrinted])
+            .write(to: directory.appendingPathComponent("\(stage)-menus.json"))
+    }
+
+    private static func menuPlugin(id: String, name: String, topLevel: Bool? = nil) -> String {
+        """
+        defineProvider({
+          id: "\(id)",
+          name: "\(name)",
+          \(topLevel.map { "topLevel: \($0)," } ?? "")
+          endpoints: ["https://\(id).example"],
+          settings: [],
+          fetchUsage() { return { primary: { usedPercent: 12 } }; },
+        });
+        """
+    }
+
+    @MainActor
+    private static func makePluginMenuController(
+        suiteName: String,
+        selectedPluginID: ProviderInstanceID,
+        enabledPluginIDs: [ProviderInstanceID],
+        approvalStore: ProviderPluginApprovalStore)
+        -> (StatusItemController, UsageStore, SettingsStore)
+    {
+        let settings = testSettingsStore(
+            suiteName: suiteName,
+            userDefaults: InMemoryUserDefaults(),
+            tokenAccountStore: InMemoryTokenAccountStore())
+        settings.providerDetectionCompleted = true
+        settings.statusChecksEnabled = false
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = true
+        settings.selectedMenuProvider = selectedPluginID
+        for provider in UsageProvider.allCases {
+            guard let metadata = ProviderRegistry.shared.metadata[provider] else { continue }
+            settings.setProviderEnabled(provider: provider, metadata: metadata, enabled: false)
+        }
+        for pluginID in enabledPluginIDs {
+            settings.setPluginEnabled(pluginID, enabled: true)
+        }
+        let fetcher = UsageFetcher()
+        let store = UsageStore(
+            fetcher: fetcher,
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            pluginApprovalStore: approvalStore)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: AccountInfo(email: nil, plan: nil),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: testStatusBar())
+        return (controller, store, settings)
+    }
+
+    @MainActor
+    private static func pluginCardIDs(in menu: NSMenu) -> [String] {
+        menu.items.compactMap { $0.representedObject as? String }.filter { $0.hasPrefix("pluginCard:") }
+    }
+}
+
+extension UserProviderPluginTests {
+    @Test(arguments: [false, true])
+    func `recovered plugin settings retain secrets without duplicating the opaque record`(opaqueNumber: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let id = try #require(ProviderInstanceID(rawValue: "recovered-fixture"))
+        let raw = #"""
+        {"version":1,"providers":[{"id":"recovered-fixture","enabled":true,
+         "pluginSettings":{"REGION":"west"},"pluginSecrets":{"TOKEN":"fixture-secret"}}]}
+        """#
+        let input = opaqueNumber ? raw.replacingOccurrences(
+            of: "\"enabled\":true", with: "\"enabled\":true,\"future\":1.0000000000000000000000000001") : raw
+        // Use a distinct ID for each argument so registry state cannot pre-load the next fixture.
+        let fixtureID = opaqueNumber ? "recovered-numeric-fixture" : id.rawValue
+        var config = try CodexBarConfig.decode(from: Data(input.replacingOccurrences(
+            of: id.rawValue, with: fixtureID).utf8))
+        #expect(config.unavailableProviders.count == 1)
+        _ = try fixture.write(name: "recover.js", source: Self.javaScriptPlugin(id: fixtureID))
+        UserProviderPluginRegistry.refresh(loader: fixture.loader(transport: RecordingTransport(responseJSON: "{}")))
+        let recoveredID = try #require(ProviderInstanceID(rawValue: fixtureID))
+        var provider = try #require(config.providerConfig(for: recoveredID))
+        provider.enabled = false
+        config.setProviderConfig(provider)
+        let saved = try config.encodedData()
+        if opaqueNumber {
+            let text = try #require(String(data: saved, encoding: .utf8))
+            #expect(text.contains("1.0000000000000000000000000001"))
+        }
+        let reloaded = try CodexBarConfig.decode(from: saved)
+        #expect(reloaded.providers.count == (opaqueNumber ? 0 : 1))
+        #expect(reloaded.providerConfig(for: recoveredID)?.enabled == opaqueNumber)
+        #expect(reloaded.providerConfig(for: recoveredID)?.pluginSecrets == ["TOKEN": "fixture-secret"])
+        #expect(reloaded.providerConfig(for: recoveredID)?.pluginSettings == ["REGION": "west"])
+    }
+}
+
 private final class RecordingTransport: ProviderHTTPTransport, @unchecked Sendable {
     private let lock = NSLock()
     private let responseJSON: String
@@ -600,6 +1156,17 @@ private actor SequenceResponseTransport: ProviderHTTPTransport {
     }
 }
 
+@MainActor
+private final class PluginMenuProofCanvas: NSView {
+    override var isFlipped: Bool {
+        true
+    }
+
+    override var fittingSize: NSSize {
+        self.frame.size
+    }
+}
+
 private struct Fixture {
     let root: URL
     let providers: URL
@@ -631,6 +1198,9 @@ private struct Fixture {
     }
 
     func remove() {
+        UserProviderPluginRegistry.refresh(loader: UserProviderPluginLoader(
+            providersDirectory: self.root.appendingPathComponent("empty"),
+            cacheDirectory: self.cache))
         try? FileManager.default.removeItem(at: self.root)
     }
 }

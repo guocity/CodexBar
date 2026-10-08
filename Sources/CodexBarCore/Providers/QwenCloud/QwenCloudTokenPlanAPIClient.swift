@@ -16,7 +16,7 @@ struct QwenCloudTokenPlanAPIClient: Sendable {
     struct Context: Sendable {
         let secToken: String
         let secTokenSource: String
-        let environment: [String: String]
+        @ProcessEnvironment private(set) var environment: [String: String]
         let apiCookieHeader: String
         let dashboardURL: URL
     }
@@ -120,16 +120,14 @@ struct QwenCloudTokenPlanAPIClient: Sendable {
             request.setValue(csrf, forHTTPHeaderField: "x-csrf-token")
         }
 
-        var body = URLComponents()
-        body.queryItems = [
-            URLQueryItem(name: "product", value: QwenCloudUsageFetcher.consoleProduct),
-            URLQueryItem(name: "action", value: QwenCloudUsageFetcher.consoleAction),
-            URLQueryItem(name: "sec_token", value: context.secToken),
-            URLQueryItem(name: "region", value: QwenCloudUsageFetcher.region),
-            URLQueryItem(name: "language", value: QwenCloudUsageFetcher.language),
-            URLQueryItem(name: "params", value: paramsJSON),
-        ]
-        request.httpBody = Data((body.percentEncodedQuery ?? "").utf8)
+        request.httpBody = FormURLEncoding.body([
+            ("product", QwenCloudUsageFetcher.consoleProduct),
+            ("action", QwenCloudUsageFetcher.consoleAction),
+            ("sec_token", context.secToken),
+            ("region", QwenCloudUsageFetcher.region),
+            ("language", QwenCloudUsageFetcher.language),
+            ("params", paramsJSON),
+        ])
         return request
     }
 

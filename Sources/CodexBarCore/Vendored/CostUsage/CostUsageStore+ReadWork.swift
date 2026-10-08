@@ -8,9 +8,12 @@ import CSQLite3
 
 struct CostUsageStoreReadWorkMetrics: Codable, Equatable, Sendable {
     var fullSnapshotReads = 0
+    var scannerSnapshotReads = 0
     var fileRows = 0
     var tokenSnapshotRows = 0
     var usageRows = 0
+    var materializedUsageRows = 0
+    var reportBuilds = 0
     var bufferedLines = 0
     var usagePayloadBytes = 0
     var bufferedPayloadBytes = 0
@@ -46,6 +49,10 @@ final class CostUsageStoreReadWorkRecorder: @unchecked Sendable {
         self.lock.withLock { self.metrics.fullSnapshotReads += 1 }
     }
 
+    func recordScannerSnapshot() {
+        self.lock.withLock { self.metrics.scannerSnapshotReads += 1 }
+    }
+
     func recordFile() {
         self.lock.withLock { self.metrics.fileRows += 1 }
     }
@@ -59,6 +66,14 @@ final class CostUsageStoreReadWorkRecorder: @unchecked Sendable {
             self.metrics.usageRows += 1
             self.metrics.usagePayloadBytes += payloadBytes
         }
+    }
+
+    func recordReportBuild() {
+        self.lock.withLock { self.metrics.reportBuilds += 1 }
+    }
+
+    func recordMaterializedUsageRows(count: Int) {
+        self.lock.withLock { self.metrics.materializedUsageRows += count }
     }
 
     func recordBufferedLine(payloadBytes: Int) {
@@ -104,17 +119,13 @@ final class CostUsageStoreReadWorkRecorder: @unchecked Sendable {
 }
 
 extension CostUsageStore {
-    private nonisolated static let readWorkRecorderLock = NSLock()
-    private nonisolated(unsafe) static var installedReadWorkRecorder: CostUsageStoreReadWorkRecorder?
-
-    nonisolated static var readWorkRecorderForTesting: CostUsageStoreReadWorkRecorder? {
-        get { self.readWorkRecorderLock.withLock { self.installedReadWorkRecorder } }
-        set { self.readWorkRecorderLock.withLock { self.installedReadWorkRecorder = newValue } }
-    }
-
     var scopedReadWorkRecorderForTesting: CostUsageStoreReadWorkRecorder? {
-        guard let recorder = Self.readWorkRecorderForTesting,
+        #if DEBUG
+        guard let recorder = CostUsageStoreTestHooks.current.readWorkRecorder,
               recorder.databaseURL == self.databaseURL else { return nil }
         return recorder
+        #else
+        return nil
+        #endif
     }
 }

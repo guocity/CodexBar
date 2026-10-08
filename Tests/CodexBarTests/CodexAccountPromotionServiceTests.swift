@@ -7,6 +7,34 @@ import Testing
 @MainActor
 struct CodexAccountPromotionServiceTests {
     @Test
+    func `external auth change during preservation prevents swap`() async throws {
+        let container = try CodexAccountPromotionTestContainer(
+            suiteName: "CodexAccountPromotionServiceTests-external-change")
+        defer { container.tearDown() }
+        let target = try container.createManagedAccount(
+            persistedEmail: "target@example.com", authAccountID: "acct-target")
+        try container.persistAccounts([target])
+        let externalData = try container.writeLiveOAuthAuthFile(
+            email: "external@example.com", accountID: "acct-external")
+        let originalData = try container.writeLiveOAuthAuthFile(
+            email: "original@example.com", accountID: "acct-original")
+        let liveAuthURL = container.liveHomeURL.appendingPathComponent("auth.json")
+        let store = RecordingManagedCodexAccountStore(base: container.fileStore, onStore: { _ in
+            try externalData.write(to: liveAuthURL, options: .atomic)
+        })
+        let swapper = RecordingCodexLiveAuthSwapper()
+
+        await #expect(throws: CodexAccountPromotionError.liveAuthChangedDuringPromotion) {
+            try await container.makeService(store: store, liveAuthSwapper: swapper)
+                .promoteManagedAccount(id: target.id)
+        }
+        #expect(swapper.swapCallCount == 0)
+        #expect(try container.liveAuthData() == externalData)
+        let preserved = try #require(container.loadAccounts().accounts.first { $0.email == "original@example.com" })
+        #expect(try container.managedAuthData(for: preserved) == originalData)
+    }
+
+    @Test
     func `happy path promotion swaps target auth into live home`() async throws {
         let container = try CodexAccountPromotionTestContainer(
             suiteName: "CodexAccountPromotionServiceTests-happy-path")
@@ -243,6 +271,112 @@ struct CodexAccountPromotionServiceTests {
     }
 
     @Test
+    func `promotion rejects a selected workspace that differs from the saved auth default`() async throws {
+        let container = try CodexAccountPromotionTestContainer(
+            suiteName: "CodexAccountPromotionServiceTests-selected-workspace-auth-default")
+        defer { container.tearDown() }
+
+        let target = try container.createManagedAccount(
+            persistedEmail: "member@example.com",
+            authAccountID: "auth-default",
+            persistedProviderAccountID: "selected-workspace",
+            workspaceLabel: "Selected",
+            workspaceAccountID: "selected-workspace")
+        try container.persistAccounts([target])
+        container.settings.codexActiveSource = .managedAccount(id: target.id)
+        let liveAuthData = try container.writeLiveOAuthAuthFile(
+            email: "member@example.com",
+            accountID: "auth-default")
+        let targetAuthData = try container.managedAuthData(for: target)
+        let swapper = RecordingCodexLiveAuthSwapper()
+
+        await #expect(throws: CodexAccountPromotionError.targetManagedAccountWorkspaceDiffersFromAuthDefault) {
+            try await container.makeService(liveAuthSwapper: swapper).promoteManagedAccount(id: target.id)
+        }
+
+        let persisted = try #require(try container.loadAccounts().account(id: target.id))
+        #expect(swapper.swapCallCount == 0)
+        #expect(try container.liveAuthData() == liveAuthData)
+        #expect(try container.managedAuthData(for: persisted) == targetAuthData)
+        #expect(persisted.providerAccountID == "selected-workspace")
+        #expect(persisted.workspaceAccountID == "selected-workspace")
+        #expect(container.settings.codexActiveSource == .managedAccount(id: target.id))
+    }
+
+    @Test
+    func `already live selected workspace converges across mixed case auth identity`() async throws {
+        let container = try CodexAccountPromotionTestContainer(
+            suiteName: "CodexAccountPromotionServiceTests-selected-workspace-already-live")
+        defer { container.tearDown() }
+
+        let target = try container.createManagedAccount(
+            persistedEmail: "member@example.com",
+            authAccountID: "SELECTED-WORKSPACE",
+            persistedProviderAccountID: "selected-workspace",
+            workspaceLabel: "Selected",
+            workspaceAccountID: "selected-workspace")
+        try container.persistAccounts([target])
+        container.settings.codexActiveSource = .managedAccount(id: target.id)
+        let targetAuthData = try container.managedAuthData(for: target)
+        let liveAuthData = try container.writeLiveOAuthAuthFile(
+            email: "member@example.com",
+            accountID: "selected-workspace")
+        let swapper = RecordingCodexLiveAuthSwapper()
+
+        let result = try await container.makeService(liveAuthSwapper: swapper).promoteManagedAccount(id: target.id)
+
+        #expect(result.outcome == .convergedNoOp)
+        #expect(result.didMutateLiveAuth == false)
+        #expect(swapper.swapCallCount == 0)
+        #expect(try container.liveAuthData() == liveAuthData)
+        #expect(try container.managedAuthData(for: target) == targetAuthData)
+        #expect(container.settings.codexActiveSource == .liveSystem)
+    }
+
+    @Test
+    func `displaced auth default does not overwrite an explicit workspace only managed account`() async throws {
+        let container = try CodexAccountPromotionTestContainer(
+            suiteName: "CodexAccountPromotionServiceTests-preserve-selected-workspace")
+        defer { container.tearDown() }
+
+        let target = try container.createManagedAccount(
+            persistedEmail: "target@example.com",
+            authAccountID: "target-workspace")
+        let selected = try container.createManagedAccount(
+            persistedEmail: "member@example.com",
+            authAccountID: "auth-default",
+            useAuthAccountIDAsPersistedProviderAccountID: false,
+            workspaceLabel: "Selected",
+            workspaceAccountID: "selected-workspace")
+        try container.persistAccounts([target, selected])
+        let selectedAuthData = try container.managedAuthData(for: selected)
+        let displacedLiveAuthData = try container.writeLiveOAuthAuthFile(
+            email: "member@example.com",
+            accountID: "auth-default")
+
+        let result = try await container.makeService().promoteManagedAccount(id: target.id)
+        let accounts = try container.loadAccounts().accounts
+        let preservedSelected = try #require(accounts.first { $0.id == selected.id })
+        let importedID: UUID
+        switch result.displacedLiveDisposition {
+        case let .imported(managedAccountID):
+            importedID = managedAccountID
+        case .none, .alreadyManaged:
+            Issue.record("Expected the distinct auth-default workspace to be imported")
+            throw PromotionTestError.unexpectedDisposition
+        }
+        let imported = try #require(accounts.first { $0.id == importedID })
+
+        #expect(preservedSelected.providerAccountID == nil)
+        #expect(preservedSelected.workspaceAccountID == "selected-workspace")
+        #expect(try container.managedAuthData(for: preservedSelected) == selectedAuthData)
+        #expect(imported.providerAccountID == "auth-default")
+        #expect(imported.workspaceAccountID == "auth-default")
+        #expect(try container.managedAuthData(for: imported) == displacedLiveAuthData)
+        #expect(try container.liveAuthData() == container.managedAuthData(for: target))
+    }
+
+    @Test
     func `same email different workspace imports displaced live as a distinct managed account`() async throws {
         let container = try CodexAccountPromotionTestContainer(
             suiteName: "CodexAccountPromotionServiceTests-same-email-different-workspace",
@@ -409,7 +543,6 @@ struct CodexAccountPromotionServiceTests {
         let service = CodexAccountPromotionService(
             store: container.fileStore,
             homeFactory: container.homeFactory,
-            identityReader: container.identityReader,
             workspaceResolver: HomePathWorkspaceResolver(
                 byHomePath: [
                     container.liveHomeURL.path: CodexOpenAIWorkspaceIdentity(
@@ -419,11 +552,11 @@ struct CodexAccountPromotionServiceTests {
                         workspaceAccountID: "acct-alpha",
                         workspaceLabel: "Stale"),
                 ]),
-            snapshotLoader: SettingsStoreCodexAccountReconciliationSnapshotLoader(settingsStore: container.settings),
+            snapshotLoader: container.settings,
             authMaterialReader: DefaultCodexAuthMaterialReader(),
             liveAuthSwapper: DefaultCodexLiveAuthSwapper(),
-            activeSourceWriter: SettingsStoreCodexActiveSourceWriter(settingsStore: container.settings),
-            accountScopedRefresher: UsageStoreCodexAccountScopedRefresher(usageStore: container.usageStore),
+            activeSourceWriter: container.settings,
+            accountScopedRefresher: container.usageStore,
             baseEnvironment: container.baseEnvironment,
             fileManager: .default)
 
@@ -610,7 +743,7 @@ struct CodexAccountPromotionServiceTests {
     }
 
     @Test
-    func `promotion rejects conflicting readable managed home before overwriting auth`() async throws {
+    func `promotion preserves live and managed auth when selected workspace conflicts with saved auth`() async throws {
         let container = try CodexAccountPromotionTestContainer(
             suiteName: "CodexAccountPromotionServiceTests-conflicting-readable-home")
         defer { container.tearDown() }
@@ -620,23 +753,29 @@ struct CodexAccountPromotionServiceTests {
             authAccountID: "acct-beta")
         let conflictingManaged = try container.createManagedAccount(
             persistedEmail: "alpha@example.com",
-            authEmail: "gamma@example.com",
+            authEmail: "alpha@example.com",
             authAccountID: "acct-gamma",
             persistedProviderAccountID: "acct-alpha",
-            useAuthAccountIDAsPersistedProviderAccountID: false)
+            useAuthAccountIDAsPersistedProviderAccountID: false,
+            workspaceAccountID: "acct-alpha")
         try container.persistAccounts([target, conflictingManaged])
         let liveAuthData = try container.writeLiveOAuthAuthFile(email: "alpha@example.com", accountID: "acct-alpha")
         let conflictingAuthData = try container.managedAuthData(for: conflictingManaged)
+        let managedHomePaths = try Set(container.managedHomeURLs().map(\.path))
+        let swapper = RecordingCodexLiveAuthSwapper()
 
         await #expect(throws: CodexAccountPromotionError.displacedLiveManagedAccountConflict) {
-            try await container.makeService().promoteManagedAccount(id: target.id)
+            try await container.makeService(liveAuthSwapper: swapper).promoteManagedAccount(id: target.id)
         }
 
         let accounts = try container.loadAccounts().accounts
         let persistedConflict = try #require(accounts.first(where: { $0.id == conflictingManaged.id }))
         #expect(try container.liveAuthData() == liveAuthData)
         #expect(try container.managedAuthData(for: persistedConflict) == conflictingAuthData)
+        #expect(persistedConflict.effectiveWorkspaceAccountID == "acct-alpha")
         #expect(accounts.count == 2)
+        #expect(swapper.swapCallCount == 0)
+        #expect(try Set(container.managedHomeURLs().map(\.path)) == managedHomePaths)
     }
 
     @Test

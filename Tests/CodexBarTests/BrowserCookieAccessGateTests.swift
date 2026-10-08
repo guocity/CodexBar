@@ -20,10 +20,11 @@ struct BrowserCookieAccessGateTests {
         _ browser: Browser,
         preflight: KeychainAccessPreflight.Outcome,
         interaction: ProviderInteraction,
+        keychainDisabled: Bool = false,
         now: Date = Date()) -> Bool
     {
         var result = false
-        KeychainAccessGate.withTaskOverrideForTesting(false) {
+        KeychainAccessGate.withTaskOverrideForTesting(keychainDisabled) {
             ProviderInteractionContext.$current.withValue(interaction) {
                 KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in preflight } operation: {
                     result = BrowserCookieAccessGate.shouldAttempt(browser, now: now)
@@ -31,6 +32,42 @@ struct BrowserCookieAccessGateTests {
             }
         }
         return result
+    }
+
+    @Test
+    func `the gate reports suppression without changing its access decision`() {
+        let failures = LockIsolated<[Browser]>([])
+        BrowserCookieAccessGate.withAccessFailureObserver { browser in
+            failures.setValue(failures.value + [browser])
+        } operation: {
+            BrowserCookieAccessGate.withShouldAttemptOverrideForTesting(false) {
+                #expect(!BrowserCookieAccessGate.shouldAttempt(.chrome))
+            }
+            BrowserCookieAccessGate.withShouldAttemptOverrideForTesting(true) {
+                #expect(BrowserCookieAccessGate.shouldAttempt(.chrome))
+            }
+        }
+        #expect(failures.value == [.chrome])
+    }
+
+    @Test
+    func `explicit retry permits only one denied Chromium read and keeps background suppressed`() {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+        BrowserCookieAccessGate.recordDenied(for: .chrome)
+        ProviderInteractionContext.$current.withValue(.userInitiated) {
+            KeychainAccessGate.withTaskOverrideForTesting(false) {
+                BrowserCookieAccessGate.withExplicitRetry {
+                    #expect(BrowserCookieAccessGate.shouldAttempt(.chrome))
+                    #expect(BrowserCookieAccessGate.claimExplicitRetryCookieReadIfNeeded(for: .chrome))
+                    #expect(!BrowserCookieAccessGate.shouldAttempt(.chrome))
+                    #expect(!BrowserCookieAccessGate.shouldAttempt(.brave))
+                }
+                #expect(!BrowserCookieAccessGate.shouldAttempt(.chrome))
+            }
+        }
+        #expect(!self.evaluate(.chrome, preflight: .interactionRequired, interaction: .background))
+        #expect(!self.evaluate(.chrome, preflight: .allowed, interaction: .userInitiated, keychainDisabled: true))
     }
 
     @Test
@@ -62,30 +99,74 @@ struct BrowserCookieAccessGateTests {
         #expect(self.evaluate(.chrome, preflight: .failure(-25293), interaction: .background) == false)
     }
 
-    @Test
-    func `an active denial cooldown suppresses background refresh even when the ACL is allowed`() {
+    @Test(arguments: [Browser.chrome, .brave])
+    func `background refresh recovers during browser and family cooldowns when access becomes allowed`(
+        browser: Browser)
+    {
         BrowserCookieAccessGate.resetForTesting()
         defer { BrowserCookieAccessGate.resetForTesting() }
 
         let start = Date(timeIntervalSince1970: 2000)
         BrowserCookieAccessGate.recordDenied(for: .chrome, now: start)
 
-        // Within the six-hour cooldown the background gate stays suppressed regardless of a now-allowed
-        // preflight, matching the suppression the user-initiated path honors.
         #expect(self.evaluate(
-            .chrome,
+            browser,
             preflight: .allowed,
             interaction: .background,
+            now: start.addingTimeInterval(60)))
+
+        // A background success does not clear the interactive path's persisted denial policy.
+        #expect(BrowserCookieAccessGate.hasActiveDenial(for: .chrome, now: start.addingTimeInterval(60)))
+        #expect(self.evaluate(
+            browser,
+            preflight: .allowed,
+            interaction: .userInitiated,
             now: start.addingTimeInterval(60)) == false)
 
-        // Once the six-hour cooldown lapses, an allowed preflight lets the background refresh proceed
-        // again.
         let sixHours: TimeInterval = 6 * 60 * 60
         #expect(self.evaluate(
-            .chrome,
+            browser,
             preflight: .allowed,
             interaction: .background,
             now: start.addingTimeInterval(sixHours + 60)))
+    }
+
+    @Test(arguments: [Browser.chrome, .brave], [
+        KeychainAccessPreflight.Outcome.interactionRequired,
+        .notFound,
+        .failure(-25293),
+    ])
+    func `background recovery still requires explicitly allowed access during a denial cooldown`(
+        browser: Browser,
+        preflight: KeychainAccessPreflight.Outcome)
+    {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+
+        let start = Date(timeIntervalSince1970: 2000)
+        BrowserCookieAccessGate.recordDenied(for: .chrome, now: start)
+
+        #expect(self.evaluate(
+            browser,
+            preflight: preflight,
+            interaction: .background,
+            now: start.addingTimeInterval(60)) == false)
+    }
+
+    @Test
+    func `background recovery cannot override disabled Keychain access`() {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+
+        let start = Date(timeIntervalSince1970: 2000)
+        BrowserCookieAccessGate.recordDenied(for: .chrome, now: start)
+
+        #expect(self.evaluate(
+            .chrome,
+            preflight: .allowed,
+            interaction: .background,
+            keychainDisabled: true,
+            now: start.addingTimeInterval(60)) == false)
     }
 
     @Test
@@ -121,6 +202,34 @@ struct BrowserCookieAccessGateTests {
 
         #expect(backgroundDisallowed)
         #expect(userInitiatedDisallowed == false)
+    }
+
+    @Test
+    func `selected store read obeys the background no prompt gate`() throws {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+
+        let home = URL(fileURLWithPath: "/synthetic/codexbar-browser-test")
+        let store = BrowserCookieStore(
+            browser: .edge,
+            profile: BrowserProfile(id: home.appendingPathComponent("Profile 1").path, name: "Synthetic"),
+            kind: .network,
+            label: "Synthetic Edge",
+            databaseURL: home.appendingPathComponent("Profile 1/Network/Cookies"))
+        let client = BrowserCookieClient(configuration: .init(homeDirectories: [home]))
+        let records = try KeychainAccessGate.withTaskOverrideForTesting(false) {
+            try ProviderInteractionContext.$current.withValue(.background) {
+                try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in
+                    .interactionRequired
+                } operation: {
+                    try client.codexBarRecords(
+                        matching: BrowserCookieQuery(domains: ["langdock.com"], domainMatch: .exact),
+                        in: store)
+                }
+            }
+        }
+
+        #expect(records.isEmpty)
     }
 }
 #endif

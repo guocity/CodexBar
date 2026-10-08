@@ -265,6 +265,7 @@ enum TTYProcessTreeTerminator {
 }
 
 private enum TTYCommandRunnerTestingOverrides {
+    @TaskLocal static var earlyStopSettle: (@Sendable (SpawnedProcessGroup) throws -> Void)?
     @TaskLocal static var postDeadlineDrainDuration: TimeInterval?
     @TaskLocal static var outputLimitBytes: Int?
 }
@@ -280,6 +281,10 @@ enum TTYCommandRunnerDrainReadResult {
 public struct TTYCommandRunner {
     private static let log = CodexBarLog.logger(LogCategories.ttyRunner)
     private static let postExitDrainTimeout: TimeInterval = 1
+
+    @TaskLocal static var allocatePTY: @Sendable (inout Int32, inout Int32, inout winsize) -> Int32 = {
+        openpty(&$0, &$1, nil, nil, &$2)
+    }
 
     public struct Result: Sendable {
         public enum Completion: Sendable, Equatable {
@@ -302,7 +307,7 @@ public struct TTYCommandRunner {
         public var idleTimeout: TimeInterval?
         public var workingDirectory: URL?
         public var extraArgs: [String] = []
-        public var baseEnvironment: [String: String]?
+        @ProcessEnvironment public var baseEnvironment: [String: String]?
         public var initialDelay: TimeInterval = 0.4
         public var sendEnterEvery: TimeInterval?
         public var sendOnSubstrings: [String: String]
@@ -420,60 +425,7 @@ public struct TTYCommandRunner {
         return resolvedTargets
     }
 
-    struct RollingBuffer {
-        private let maxNeedle: Int
-        private var tail = Data()
-
-        init(maxNeedle: Int) {
-            self.maxNeedle = max(0, maxNeedle)
-        }
-
-        mutating func append(_ data: Data) -> Data {
-            guard !data.isEmpty else { return Data() }
-
-            var combined = Data()
-            combined.reserveCapacity(self.tail.count + data.count)
-            combined.append(self.tail)
-            combined.append(data)
-
-            if self.maxNeedle > 1 {
-                if combined.count >= self.maxNeedle - 1 {
-                    self.tail = combined.suffix(self.maxNeedle - 1)
-                } else {
-                    self.tail = combined
-                }
-            } else {
-                self.tail.removeAll(keepingCapacity: true)
-            }
-
-            return combined
-        }
-
-        mutating func reset() {
-            self.tail.removeAll(keepingCapacity: true)
-        }
-    }
-
     typealias DrainReadResult = TTYCommandRunnerDrainReadResult
-
-    static func lowercasedASCII(_ data: Data) -> Data {
-        guard !data.isEmpty else { return data }
-        var out = Data(count: data.count)
-        out.withUnsafeMutableBytes { dest in
-            data.withUnsafeBytes { source in
-                let src = source.bindMemory(to: UInt8.self)
-                let dst = dest.bindMemory(to: UInt8.self)
-                for idx in 0..<src.count {
-                    var byte = src[idx]
-                    if byte >= 65, byte <= 90 {
-                        byte += 32
-                    }
-                    dst[idx] = byte
-                }
-            }
-        }
-        return out
-    }
 
     @discardableResult
     static func drainRemainingOutput(
@@ -499,51 +451,20 @@ public struct TTYCommandRunner {
     }
 
     static func locateBundledHelper(_ name: String) -> String? {
-        let fm = FileManager.default
-
-        func isExecutable(_ path: String) -> Bool {
-            fm.isExecutableFile(atPath: path)
-        }
-
         if let override = ProcessInfo.processInfo.environment["CODEXBAR_HELPER_\(name.uppercased())"],
-           isExecutable(override)
+           FileManager.default.isExecutableFile(atPath: override)
         {
             return override
         }
+        guard let exe = ExecutableLocation.runningURL(bundle: .main) else { return nil }
+        return self.bundledHelperPath(name, executableURL: exe)
+    }
 
-        func candidate(inAppBundleURL appURL: URL) -> String? {
-            let path = appURL
-                .appendingPathComponent("Contents", isDirectory: true)
-                .appendingPathComponent("Helpers", isDirectory: true)
-                .appendingPathComponent(name, isDirectory: false)
-                .path
-            return isExecutable(path) ? path : nil
-        }
-
-        let mainURL = Bundle.main.bundleURL
-        if mainURL.pathExtension == "app", let found = candidate(inAppBundleURL: mainURL) {
-            return found
-        }
-
-        if let argv0 = CommandLine.arguments.first {
-            var url = URL(fileURLWithPath: argv0)
-            if !argv0.hasPrefix("/") {
-                url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(argv0)
-            }
-            var probe = url
-            for _ in 0..<6 {
-                let parent = probe.deletingLastPathComponent()
-                if parent.pathExtension == "app", let found = candidate(inAppBundleURL: parent) {
-                    return found
-                }
-                if parent.path == probe.path {
-                    break
-                }
-                probe = parent
-            }
-        }
-
-        return nil
+    /// Expects the real location to be `<X>.app/Contents/{MacOS,Helpers}/<exe>`, even when launched via a symlink.
+    static func bundledHelperPath(_ name: String, executableURL: URL) -> String? {
+        guard let app = ExecutableLocation.appBundleURL(containing: executableURL) else { return nil }
+        let helper = app.appendingPathComponent("Contents/Helpers/\(name)").path
+        return FileManager.default.isExecutableFile(atPath: helper) ? helper : nil
     }
 
     // swiftlint:disable function_body_length
@@ -554,12 +475,8 @@ public struct TTYCommandRunner {
         options: Options = Options(),
         onURLDetected: (@Sendable () -> Void)? = nil) throws -> Result
     {
-        let resolved: String
-        if FileManager.default.isExecutableFile(atPath: binary) {
-            resolved = binary
-        } else if let hit = Self.which(binary) {
-            resolved = hit
-        } else {
+        let baseEnv = options.baseEnvironment ?? ProcessInfo.processInfo.environment
+        guard let resolved = Self.which(binary, environment: baseEnv) else {
             Self.log.warning("PTY binary not found", metadata: ["binary": binary])
             throw Error.binaryNotFound(binary)
         }
@@ -578,9 +495,11 @@ public struct TTYCommandRunner {
         var primaryFD: Int32 = -1
         var secondaryFD: Int32 = -1
         var win = winsize(ws_row: options.rows, ws_col: options.cols, ws_xpixel: 0, ws_ypixel: 0)
-        guard openpty(&primaryFD, &secondaryFD, nil, nil, &win) == 0 else {
-            Self.log.warning("PTY openpty failed", metadata: ["binary": binaryName])
-            throw Error.launchFailed("openpty failed")
+        guard Self.allocatePTY(&primaryFD, &secondaryFD, &win) == 0 else {
+            let code = errno
+            let details = "openpty failed (errno \(code): \(String(cString: strerror(code))))"
+            Self.log.warning(details, metadata: ["binary": binaryName])
+            throw Error.launchFailed(details)
         }
         // Make primary side non-blocking so read loops don't hang when no data is available.
         _ = fcntl(primaryFD, F_SETFL, O_NONBLOCK)
@@ -625,7 +544,6 @@ public struct TTYCommandRunner {
             }
         }
 
-        let baseEnv = options.baseEnvironment ?? ProcessInfo.processInfo.environment
         let ttyLaunch = Self.providerTTYLaunch(requested: binary, resolved: resolved, environment: baseEnv)
         let executable: String
         let arguments: [String]
@@ -647,16 +565,12 @@ public struct TTYCommandRunner {
             env["PWD"] = workingDirectory.path
         }
 
-        var cleanedUp = false
         var launchedProcess: SpawnedProcessGroup?
         var didExceedOutputLimit = false
         var didTerminateSynchronously = false
         /// Always tear down the PTY child (and its process group) even if we throw early
         /// while bootstrapping the CLI (e.g. when it prompts for login/telemetry).
         func cleanup() {
-            guard !cleanedUp else { return }
-            cleanedUp = true
-
             if !didExceedOutputLimit, let launchedProcess, launchedProcess.isRunning {
                 Self.log.debug("PTY stopping", metadata: ["binary": binaryName])
                 let exitData = Data("/exit\n".utf8)
@@ -829,12 +743,11 @@ public struct TTYCommandRunner {
                 urlNeedles.map(\.count) +
                 [cursorQuery.count]
             let maxNeedle = needleLengths.max() ?? cursorQuery.count
-            var scanBuffer = RollingBuffer(maxNeedle: maxNeedle)
+            var scanBuffer = StreamScanBuffer(maxNeedle: maxNeedle)
             var nextCursorCheckAt = Date(timeIntervalSince1970: 0)
             var lastEnter = Date()
             var stoppedEarly = false
             var urlSeen = false
-            var ptyClosed = false
             var triggeredSends = Set<Data>()
             var recentText = ""
             var lastOutputAt = Date()
@@ -895,16 +808,11 @@ public struct TTYCommandRunner {
 
             while Date() < deadline {
                 try checkCancellation()
-                let readResult = readDrainChunk()
-                let newData: Data
-                switch readResult {
+                let newData: Data = switch readDrainChunk() {
                 case let .data(data):
-                    newData = data
-                case .wouldBlock:
-                    newData = Data()
-                case .closed:
-                    ptyClosed = true
-                    newData = Data()
+                    data
+                case .wouldBlock, .closed:
+                    Data()
                 }
                 try checkOutputLimit()
                 if processNonCodexChunk(newData, allowSends: true, allowStop: true) {
@@ -925,9 +833,6 @@ public struct TTYCommandRunner {
                     lastEnter = Date()
                 }
 
-                if ptyClosed, !process.isRunning {
-                    break
-                }
                 if !process.isRunning {
                     break
                 }
@@ -958,7 +863,9 @@ public struct TTYCommandRunner {
 
             if stoppedEarly {
                 let settle = max(0, min(options.settleAfterStop, deadline.timeIntervalSinceNow))
-                if settle > 0 {
+                if let settleForTesting = TTYCommandRunnerTestingOverrides.earlyStopSettle {
+                    try settleForTesting(process)
+                } else if settle > 0 {
                     let settleDeadline = Date().addingTimeInterval(settle)
                     while Date() < settleDeadline {
                         try checkCancellation()
@@ -1035,20 +942,8 @@ public struct TTYCommandRunner {
         var enterRetries = 0
         var sawCodexStatus = false
         var sawCodexUpdatePrompt = false
-        let statusMarkers = [
-            "Credits:",
-            "5h limit",
-            "5-hour limit",
-            "Weekly limit",
-        ].map { Data($0.utf8) }
-        let updateNeedles = ["Update available!", "Run bun install -g @openai/codex", "0.60.1 ->"]
-        let updateNeedlesLower = updateNeedles.map { Data($0.lowercased().utf8) }
-        let statusNeedleLengths = statusMarkers.map(\.count)
-        let updateNeedleLengths = updateNeedlesLower.map(\.count)
-        let statusMaxNeedle = ([cursorQuery.count] + statusNeedleLengths).max() ?? cursorQuery.count
-        let updateMaxNeedle = updateNeedleLengths.max() ?? 0
-        var statusScanBuffer = RollingBuffer(maxNeedle: statusMaxNeedle)
-        var updateScanBuffer = RollingBuffer(maxNeedle: updateMaxNeedle)
+        var statusScanBuffer = StreamScanBuffer(maxNeedle: max(cursorQuery.count, CodexStatusMarkers.longestStatus))
+        var updateScanBuffer = StreamScanBuffer(maxNeedle: CodexStatusMarkers.longestUpdatePrompt)
         var nextCursorCheckAt = Date(timeIntervalSince1970: 0)
 
         while Date() < deadline {
@@ -1064,16 +959,16 @@ public struct TTYCommandRunner {
                 nextCursorCheckAt = Date().addingTimeInterval(1.0)
             }
             if !scanData.isEmpty, !sawCodexStatus {
-                if statusMarkers.contains(where: { scanData.range(of: $0) != nil }) {
+                if CodexStatusMarkers.status.contains(where: { scanData.range(of: $0) != nil }) {
                     sawCodexStatus = true
                 }
             }
 
             if !skippedCodexUpdate, !sawCodexUpdatePrompt, !newData.isEmpty {
-                let lowerData = Self.lowercasedASCII(newData)
+                let lowerData = StreamScanBuffer.lowercasedASCII(newData)
                 let lowerScan = updateScanBuffer.append(lowerData)
                 if !sawCodexUpdatePrompt {
-                    if updateNeedlesLower.contains(where: { lowerScan.range(of: $0) != nil }) {
+                    if CodexStatusMarkers.updatePrompt.contains(where: { lowerScan.range(of: $0) != nil }) {
                         sawCodexUpdatePrompt = true
                     }
                 }
@@ -1204,6 +1099,13 @@ extension TTYCommandRunner {
         try TTYCommandRunnerActiveProcessRegistry.withIsolatedStateForTesting(operation)
     }
 
+    static func withEarlyStopSettleOverrideForTesting<T>(
+        _ settle: @escaping @Sendable (SpawnedProcessGroup) throws -> Void,
+        operation: () throws -> T) rethrows -> T
+    {
+        try TTYCommandRunnerTestingOverrides.$earlyStopSettle.withValue(settle, operation: operation)
+    }
+
     static func withPostDeadlineDrainDurationOverrideForTesting<T>(
         _ duration: TimeInterval,
         operation: () throws -> T) rethrows -> T
@@ -1218,14 +1120,26 @@ extension TTYCommandRunner {
         try TTYCommandRunnerTestingOverrides.$outputLimitBytes.withValue(maxBytes, operation: operation)
     }
 
-    public static func which(_ tool: String) -> String? {
-        if let cli = ProviderDescriptorRegistry.all.first(where: { $0.cli.name == tool })?.cli,
-           cli.prefersBinaryLocatorForWhich,
-           let located = cli.binaryLocator?()
-        {
-            return located
+    public static func which(
+        _ tool: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> String?
+    {
+        if tool.contains("/") {
+            return BinaryLocator.find(tool, in: [], fileManager: .default)
         }
-        return self.runWhich(tool)
+        if let cli = ProviderDescriptorRegistry.all.first(where: { $0.cli.name == tool })?.cli,
+           cli.prefersBinaryLocatorForWhich
+        {
+            // The provider locator owns fallback discovery and launch preflight.
+            // Do not undo a rejection with an unfiltered system lookup.
+            return cli.binaryLocator?(environment).map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        }
+        let loginPATH = LoginShellPathCache.shared.currentOrCapture(shell: environment["SHELL"])
+        let path = PathBuilder.effectivePATH(
+            purposes: [.tty, .nodeTooling],
+            env: environment,
+            loginPATH: loginPATH)
+        return BinaryLocator.find(tool, in: path.split(separator: ":").map(String.init), fileManager: .default)
     }
 
     private static func providerTTYLaunch(
@@ -1263,29 +1177,6 @@ extension TTYCommandRunner {
             }
         }
         return URL(fileURLWithPath: expanded).standardizedFileURL.path
-    }
-
-    private static func runWhich(_ tool: String) -> String? {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        proc.arguments = [tool]
-        var env = ProcessInfo.processInfo.environment
-        let loginPATH = LoginShellPathCache.shared.currentOrCapture()
-        env["PATH"] = PathBuilder.effectivePATH(
-            purposes: [.tty, .nodeTooling],
-            env: env,
-            loginPATH: loginPATH)
-        proc.environment = env
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        try? proc.run()
-        proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let path = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !path.isEmpty else { return nil }
-        return path
     }
 
     /// Uses login-shell PATH when available so TTY probes match the user's shell configuration.

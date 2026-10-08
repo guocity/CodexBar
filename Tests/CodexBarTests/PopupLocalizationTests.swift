@@ -8,6 +8,59 @@ import Testing
 @Suite(.serialized)
 struct PopupLocalizationTests {
     @Test
+    func `Claude scoped weekly titles localize only the menu label`() throws {
+        let window = RateWindow(usedPercent: 25, windowMinutes: 10080, resetsAt: nil, resetDescription: nil)
+        for (language, expected) in [
+            ("en", "Example Model weekly"),
+            ("zh-Hans", "Example Model 每周"),
+            ("vi", "Example Model hàng tuần"),
+        ] {
+            try CodexBarLocalizationOverride.$appLanguage.withValue(language) {
+                for title in ["Example Model only", "Example Model Only", "Example Model ONLY  ", "Example Model"] {
+                    let scoped = NamedRateWindow(id: "claude-weekly-scoped-example", title: title, window: window)
+                    for showUsed in [true, false] {
+                        let model = try Self.makeClaudeMenuCardModel(
+                            primaryWindowMinutes: 300, extraRateWindows: [scoped], showUsed: showUsed)
+                        let metric = try #require(model.metrics.first { $0.id == scoped.id })
+                        #expect(metric.title == expected)
+                        #expect(metric.percent == (showUsed ? 25 : 75))
+                        #expect(metric.percentStyle == (showUsed ? .used : .left))
+                        #expect(scoped.title == title)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    func `scoped weekly menu labels preserve model names and other windows`() throws {
+        try CodexBarLocalizationOverride.$appLanguage.withValue("en") {
+            let window = RateWindow(usedPercent: 25, windowMinutes: 10080, resetsAt: nil, resetDescription: nil)
+            let windows = [
+                NamedRateWindow(id: "claude-weekly-scoped-only", title: "Example Only only", window: window),
+                NamedRateWindow(id: "claude-weekly-scoped-unknown", title: "Unknown Model only", window: window),
+                NamedRateWindow(id: "claude-daily-routines", title: "Daily Routines", window: window),
+                NamedRateWindow(id: "custom", title: "Custom only", window: window),
+            ]
+            let claude = try Self.makeClaudeMenuCardModel(primaryWindowMinutes: 300, extraRateWindows: windows)
+            #expect(claude.metrics.suffix(windows.count).map(\.title) == [
+                "Example Only weekly", "Unknown Model weekly", "Daily Routines", "Custom only",
+            ])
+            let other = try Self.makeClaudeMenuCardModel(
+                primaryWindowMinutes: 300, extraRateWindows: windows, provider: .synthetic)
+            #expect(other.metrics.suffix(windows.count).map(\.title) == windows.map(\.title))
+        }
+    }
+
+    @Test
+    func `Vietnamese weekly and missing version labels are not swapped`() {
+        CodexBarLocalizationOverride.$appLanguage.withValue("vi") {
+            #expect(L("Weekly") == "Hàng tuần")
+            #expect(L("not detected") == "Không phát hiện được")
+        }
+    }
+
+    @Test
     func `simplified Chinese derives session quota titles from their duration`() throws {
         try CodexBarLocalizationOverride.$appLanguage.withValue("zh-Hans") {
             for (windowMinutes, expectedTitle) in [(60, "1 小时"), (300, "5 小时"), (720, "12 小时")] {
@@ -200,7 +253,6 @@ struct PopupLocalizationTests {
                 keyUsageDaily: 1.25,
                 keyUsageWeekly: 7.5,
                 keyUsageMonthly: 18.75,
-                rateLimit: OpenRouterRateLimit(requests: 100, interval: "10s"),
                 updatedAt: now)
 
             let model = UsageMenuCardView.Model.make(.init(
@@ -209,7 +261,6 @@ struct PopupLocalizationTests {
                 snapshot: usage.toUsageSnapshot(),
                 credits: nil,
                 creditsError: nil,
-                dashboard: nil,
                 dashboardError: nil,
                 tokenSnapshot: nil,
                 tokenError: nil,
@@ -229,40 +280,53 @@ struct PopupLocalizationTests {
             let apiKey = try #require(model.providerDetails.first { $0.title == "API 金鑰" })
             #expect(apiKey.rows.map(\.label) == [
                 "API 金鑰限制", "API key remaining", "API key used", "Reset window",
-                "今天", "本週", "本月", "Rate limit",
+                "今天", "本週", "本月",
             ])
             #expect(apiKey.chart?.points.map(\.label) == ["Today", "This week", "This month"])
-            #expect(apiKey.rows.last?.value == "100 requests / 10s")
+            #expect(apiKey.rows.last?.value == "$18.75")
         }
     }
 
     @Test
-    func `cookie source dynamic subtitles use selected localization`() {
+    func `cookie source dynamic subtitles use selected localization`() throws {
+        let settings = testSettingsStore(
+            suiteName: "PopupLocalizationTests-cookie-subtitles", userDefaults: InMemoryUserDefaults())
+        settings.t3ChatCookieSource = .manual
+        settings.windsurfCookieSource = .manual
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing)
+        let pane = ProvidersPane(provider: .t3chat, settings: settings, store: store)
+        let picker = try #require(pane._test_settingsPickers(for: .t3chat).first)
+        let windsurf = try #require(pane._test_settingsPickers(for: .windsurf)
+            .first { $0.id == "windsurf-cookie-source" })
+        settings.alibabaTokenPlanCookieSource = .manual
+        settings.alibabaTokenPlanAPIRegion = .international
+        let alibaba = try #require(pane._test_settingsPickers(for: .alibabatokenplan)
+            .first { $0.id == "alibaba-token-plan-cookie-source" })
+
         CodexBarLocalizationOverride.$appLanguage.withValue("zh-Hant") {
-            let subtitle = ProviderCookieSourceUI.subtitle(
-                source: .manual,
-                keychainDisabled: false,
-                auto: "Automatically imports browser cookies.",
-                manual: "Paste a Cookie header or cURL capture from T3 Chat settings.",
-                off: "T3 Chat cookies are disabled.")
-            let disabledSubtitle = ProviderCookieSourceUI.subtitle(
-                source: .manual,
-                keychainDisabled: true,
-                auto: "Automatically imports browser cookies.",
-                manual: "Paste a Cookie header or cURL capture from T3 Chat settings.",
-                off: "T3 Chat cookies are disabled.")
-            let jsonBundleSubtitle = ProviderCookieSourceUI.subtitle(
-                source: .manual,
-                keychainDisabled: false,
-                auto: "Automatically imports browser cookies.",
-                manual: "Paste the localStorage JSON bundle from Windsurf session.",
-                off: "Windsurf cookies are disabled.")
+            let subtitle = picker.dynamicSubtitle?() ?? ""
+            let jsonBundleSubtitle = windsurf.dynamicSubtitle?() ?? ""
+            settings.debugDisableKeychainAccess = true
+            let disabledSubtitle = picker.dynamicSubtitle?() ?? ""
 
             #expect(subtitle.contains("貼上"))
             #expect(!subtitle.contains("Paste a Cookie"))
             #expect(disabledSubtitle.contains("鑰匙圈"))
             #expect(!disabledSubtitle.contains("Keychain access"))
-            #expect(jsonBundleSubtitle.contains("來自 Windsurf session 的 localStorage JSON"))
+            #expect(jsonBundleSubtitle.contains("來自 localStorage 的 Windsurf session JSON"))
+            settings.windsurfCookieSource = .off
+            #expect(windsurf.dynamicSubtitle?() == "Windsurf Web API 存取已停用。")
+        }
+        CodexBarLocalizationOverride.$appLanguage.withValue("en") {
+            settings.debugDisableKeychainAccess = false
+            #expect(picker.dynamicSubtitle?() == "Paste a Cookie header or cURL capture from T3 Chat settings.")
+            #expect(alibaba.dynamicSubtitle?() == "Paste a Cookie header from modelstudio.console.alibabacloud.com.")
+            settings.alibabaTokenPlanAPIRegion = .chinaMainlandPersonal
+            #expect(alibaba.dynamicSubtitle?() == "Paste a Cookie header from bailian-cs.console.aliyun.com.")
         }
     }
 
@@ -290,16 +354,6 @@ struct PopupLocalizationTests {
             provider: .kilo,
             settings: settings,
             store: store,
-            boolBinding: { keyPath in
-                Binding(
-                    get: { settings[keyPath: keyPath] },
-                    set: { settings[keyPath: keyPath] = $0 })
-            },
-            stringBinding: { keyPath in
-                Binding(
-                    get: { settings[keyPath: keyPath] },
-                    set: { settings[keyPath: keyPath] = $0 })
-            },
             statusText: { _ in nil },
             setStatusText: { _, _ in },
             lastAppActiveRunAt: { _ in nil },
@@ -333,9 +387,14 @@ struct PopupLocalizationTests {
         }
     }
 
-    private static func makeClaudeMenuCardModel(primaryWindowMinutes: Int) throws -> UsageMenuCardView.Model {
+    private static func makeClaudeMenuCardModel(
+        primaryWindowMinutes: Int,
+        extraRateWindows: [NamedRateWindow] = [],
+        provider: UsageProvider = .claude,
+        showUsed: Bool = false) throws -> UsageMenuCardView.Model
+    {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let metadata = try #require(ProviderDefaults.metadata[.claude])
+        let metadata = try #require(ProviderDefaults.metadata[provider] ?? ProviderDefaults.metadata[.claude])
         let snapshot = UsageSnapshot(
             primary: RateWindow(
                 usedPercent: 10,
@@ -343,21 +402,21 @@ struct PopupLocalizationTests {
                 resetsAt: now.addingTimeInterval(3600),
                 resetDescription: nil),
             secondary: nil,
+            extraRateWindows: extraRateWindows,
             updatedAt: now)
         return UsageMenuCardView.Model.make(.init(
-            provider: .claude,
+            provider: provider,
             metadata: metadata,
             snapshot: snapshot,
             credits: nil,
             creditsError: nil,
-            dashboard: nil,
             dashboardError: nil,
             tokenSnapshot: nil,
             tokenError: nil,
             account: AccountInfo(email: nil, plan: nil),
             isRefreshing: false,
             lastError: nil,
-            usageBarsShowUsed: false,
+            usageBarsShowUsed: showUsed,
             resetTimeDisplayStyle: .countdown,
             tokenCostUsageEnabled: false,
             showOptionalCreditsAndExtraUsage: true,

@@ -5,6 +5,8 @@ import Foundation
 /// Top-level response from `GET https://admin.mistral.ai/api/billing/v2/usage`.
 struct MistralBillingResponse: Codable {
     let completion: MistralModelUsageCategory?
+    let chat: MistralModelUsageCategory?
+    let vibeCode: MistralVibeCodeUsageCategory?
     let ocr: MistralModelUsageCategory?
     let connectors: MistralModelUsageCategory?
     let librariesApi: MistralLibrariesUsageCategory?
@@ -21,7 +23,8 @@ struct MistralBillingResponse: Codable {
     let prices: [MistralPrice]?
 
     enum CodingKeys: String, CodingKey {
-        case completion, ocr, connectors, audio, date, currency, prices
+        case completion, chat, ocr, connectors, audio, date, currency, prices
+        case vibeCode = "vibe_code"
         case librariesApi = "libraries_api"
         case fineTuning = "fine_tuning"
         case vibeUsage = "vibe_usage"
@@ -35,6 +38,10 @@ struct MistralBillingResponse: Codable {
 
 struct MistralModelUsageCategory: Codable {
     let models: [String: MistralModelUsageData]?
+}
+
+struct MistralVibeCodeUsageCategory: Codable {
+    let completion: MistralModelUsageCategory?
 }
 
 struct MistralLibrariesUsageCategory: Codable {
@@ -59,6 +66,8 @@ struct MistralUsageEntry: Codable {
     let billingMetric: String?
     let billingDisplayName: String?
     let billingGroup: String?
+    let apiZone: String?
+    let serviceTier: String?
     let timestamp: String?
     let value: Int?
     let valuePaid: Int?
@@ -70,6 +79,8 @@ struct MistralUsageEntry: Codable {
         case billingMetric = "billing_metric"
         case billingDisplayName = "billing_display_name"
         case billingGroup = "billing_group"
+        case apiZone = "api_zone"
+        case serviceTier = "service_tier"
         case valuePaid = "value_paid"
     }
 }
@@ -78,6 +89,8 @@ struct MistralPrice: Codable {
     let eventType: String?
     let billingMetric: String?
     let billingGroup: String?
+    let apiZone: String?
+    let serviceTier: String?
     let price: String?
 
     enum CodingKeys: String, CodingKey {
@@ -85,6 +98,8 @@ struct MistralPrice: Codable {
         case eventType = "event_type"
         case billingMetric = "billing_metric"
         case billingGroup = "billing_group"
+        case apiZone = "api_zone"
+        case serviceTier = "service_tier"
     }
 }
 
@@ -103,7 +118,14 @@ public struct MistralDailyUsageBucket: Codable, Equatable, Sendable, Identifiabl
         }
 
         public var totalTokens: Int {
-            self.inputTokens + self.cachedTokens + self.outputTokens
+            guard let total = self.checkedTotalTokens else {
+                preconditionFailure("Mistral token count exceeds supported range")
+            }
+            return total
+        }
+
+        package var checkedTotalTokens: Int? {
+            MistralTokenMath.total(input: self.inputTokens, cached: self.cachedTokens, output: self.outputTokens)
         }
 
         public init(name: String, cost: Double, inputTokens: Int, cachedTokens: Int, outputTokens: Int) {
@@ -127,7 +149,14 @@ public struct MistralDailyUsageBucket: Codable, Equatable, Sendable, Identifiabl
     }
 
     public var totalTokens: Int {
-        self.inputTokens + self.cachedTokens + self.outputTokens
+        guard let total = self.checkedTotalTokens else {
+            preconditionFailure("Mistral token count exceeds supported range")
+        }
+        return total
+    }
+
+    package var checkedTotalTokens: Int? {
+        MistralTokenMath.total(input: self.inputTokens, cached: self.cachedTokens, output: self.outputTokens)
     }
 
     public init(
@@ -160,6 +189,11 @@ public struct MistralUsageSnapshot: Codable, Sendable {
     public let startDate: Date?
     public let endDate: Date?
     public let updatedAt: Date
+
+    package var checkedTotalTokens: Int? {
+        MistralTokenMath.total(
+            input: self.totalInputTokens, cached: self.totalCachedTokens, output: self.totalOutputTokens)
+    }
 
     public init(
         totalCost: Double,
@@ -280,7 +314,7 @@ public struct MistralUsageSnapshot: Codable, Sendable {
             ? Self.safeCostSum(displayedCosts.compactMap(\.self))
             : nil
         let totalTokens = windowTokensAreComplete
-            ? Self.safeIntSum(rowTokens.compactMap(\.self))
+            ? CheckedSum.integers(rowTokens.compactMap(\.self))
             : nil
         return CostUsageTokenSnapshot(
             sessionTokens: latestIndex.flatMap { rowTokens[$0] },
@@ -403,12 +437,8 @@ public struct MistralUsageSnapshot: Codable, Sendable {
 
     private func dailyTokensMatchSnapshot() -> Bool {
         guard self.hasNonnegativeTokenCounters(),
-              let snapshotTokens = Self.safeIntSum([
-                  self.totalInputTokens,
-                  self.totalCachedTokens,
-                  self.totalOutputTokens,
-              ]),
-              let dailyTokens = Self.safeIntSum(self.daily.flatMap { bucket in
+              let snapshotTokens = self.checkedTotalTokens,
+              let dailyTokens = CheckedSum.integers(self.daily.flatMap { bucket in
                   [bucket.inputTokens, bucket.cachedTokens, bucket.outputTokens]
               })
         else { return false }
@@ -439,11 +469,7 @@ public struct MistralUsageSnapshot: Codable, Sendable {
     {
         bucket.models.map { model in
             let modelCost = costsAreComplete && model.cost.isFinite && model.cost >= 0 ? model.cost : nil
-            let modelTokens = tokensAreComplete ? Self.safeIntSum([
-                model.inputTokens,
-                model.cachedTokens,
-                model.outputTokens,
-            ]) : nil
+            let modelTokens = tokensAreComplete ? model.checkedTotalTokens : nil
             return CostUsageDailyReport.ModelBreakdown(
                 modelName: model.name,
                 costUSD: modelCost,
@@ -452,7 +478,7 @@ public struct MistralUsageSnapshot: Codable, Sendable {
     }
 
     private static func tokenTotal(for bucket: MistralDailyUsageBucket) -> Int? {
-        self.safeIntSum([bucket.inputTokens, bucket.cachedTokens, bucket.outputTokens])
+        bucket.checkedTotalTokens
     }
 
     private static func safeCostSum(_ values: [Double]) -> Double? {
@@ -461,16 +487,6 @@ public struct MistralUsageSnapshot: Codable, Sendable {
             guard value.isFinite else { return nil }
             total += value
             guard total.isFinite else { return nil }
-        }
-        return total
-    }
-
-    private static func safeIntSum(_ values: [Int]) -> Int? {
-        var total = 0
-        for value in values {
-            let addition = total.addingReportingOverflow(value)
-            guard !addition.overflow else { return nil }
-            total = addition.partialValue
         }
         return total
     }

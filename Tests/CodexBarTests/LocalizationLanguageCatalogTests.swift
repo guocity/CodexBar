@@ -3,6 +3,47 @@ import Testing
 @testable import CodexBar
 
 struct LocalizationLanguageCatalogTests {
+    @Test
+    func `statistics time zone controls are translated in every catalog`() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let resources = root.appendingPathComponent("Sources/CodexBar/Resources")
+        let catalogs = try FileManager.default.contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "lproj" }
+        #expect(catalogs.count == AppLanguage.allCases.count - 1)
+        for url in catalogs {
+            let catalog = try #require(NSDictionary(contentsOf: url.appendingPathComponent("Localizable.strings"))
+                as? [String: String])
+            for key in [
+                "Statistics time zone",
+                "Use Mac's current time zone",
+                "Daily usage uses a fixed time zone. Changing it may move usage to a different day.",
+            ] {
+                let phrase = try #require(catalog[key], "Missing phrase in \(url.lastPathComponent)")
+                #expect(!phrase.isEmpty)
+                if url.lastPathComponent != "en.lproj" { #expect(phrase != key) }
+            }
+        }
+    }
+
+    @Test
+    func `supported browser guidance is translated with one browser list placeholder`() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let resources = root.appendingPathComponent("Sources/CodexBar/Resources")
+        let catalogs = try FileManager.default.contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "lproj" }
+        for url in catalogs {
+            let catalog = try #require(NSDictionary(contentsOf: url.appendingPathComponent("Localizable.strings"))
+                as? [String: String])
+            let key = "Supported browsers: %@. Use Manual for other browsers."
+            let phrase = try #require(catalog[key], "Missing phrase in \(url.lastPathComponent)")
+            #expect(phrase.components(separatedBy: "%@").count == 2)
+            #expect(phrase.count(where: { $0 == "%" }) == 1)
+            if url.lastPathComponent != "en.lproj" { #expect(phrase != key) }
+        }
+    }
+
     private let languageKeys = [
         "language_system",
         "language_english",
@@ -29,6 +70,24 @@ struct LocalizationLanguageCatalogTests {
         "language_thai",
         "language_galician",
     ]
+
+    @Test
+    func `every catalog localizes the complete model weekly phrase with one argument`() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let resources = root.appendingPathComponent("Sources/CodexBar/Resources")
+        let catalogs = try FileManager.default.contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "lproj" }
+        #expect(catalogs.count == AppLanguage.allCases.count - 1)
+        for url in catalogs {
+            let catalog = try #require(NSDictionary(contentsOf: url.appendingPathComponent("Localizable.strings"))
+                as? [String: String])
+            let phrase = try #require(catalog["%@ weekly"], "Missing phrase in \(url.lastPathComponent)")
+            #expect(phrase.components(separatedBy: "%@").count == 2)
+            #expect(phrase.count(where: { $0 == "%" }) == 1)
+            #expect(phrase != "%@")
+        }
+    }
 
     @Test
     func `catalan plugin sidebar uses the same terminology as its pane`() {

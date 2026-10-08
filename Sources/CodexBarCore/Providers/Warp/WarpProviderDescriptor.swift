@@ -32,7 +32,7 @@ public enum WarpProviderDescriptor {
             branding: ProviderBranding(
                 iconStyle: .init(provider: .warp),
                 iconResourceName: "ProviderIcon-warp",
-                color: ProviderColor(red: 147 / 255, green: 139 / 255, blue: 180 / 255),
+                color: ProviderColor(hex: 0x938BB4),
                 confettiPalette: [
                     ProviderColor(hex: 0xC7AEFF),
                     ProviderColor(hex: 0x1C1A26),
@@ -44,6 +44,18 @@ public enum WarpProviderDescriptor {
             presentation: ProviderUsagePresentation(
                 iconDecorations: [.warp],
                 treatsExhaustedSecondaryIconWindowAsMissing: true,
+                semanticWindowResolver: { snapshot in
+                    ProviderSemanticWindows(session: snapshot.primary, weekly: snapshot.secondary)
+                },
+                menuBarLayoutSecondaryLabel: "Add-on credits",
+                automaticSelectionPrioritizesExhaustedWindow: false,
+                switcherUsesAutomaticMenuBarWindow: true,
+                menuBarWindowResolver: { context in
+                    guard context.metric == .automatic else { return .unhandled }
+                    // Warp consumes monthly credits first, then available add-on credits.
+                    let windows = [context.snapshot.primary, context.snapshot.secondary].compactMap(\.self)
+                    return .resolved(windows.first { $0.remainingPercent > 0 } ?? windows.first)
+                },
                 menuCard: ProviderMenuCardPresentation(
                     showsPrimaryBalanceDescription: true,
                     hidesPrimaryResetWithoutDate: true),

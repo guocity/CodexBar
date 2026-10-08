@@ -66,17 +66,16 @@ struct CodexWeeklyResetConfirmation: Sendable {
         let confirmationIsExactOAuth: Bool
     }
 
-    private struct AvailableCreditIdentity: Equatable {
+    private struct AvailableCreditIdentity: Hashable {
         let id: String
         let resetType: String
-        let status: String
         let expiresAt: Date?
     }
 
     private enum ResetCreditEvidence: Equatable {
         case none
         case consumed
-        case noAvailableCredits
+        case noInventoryToPreserve
     }
 
     private static let resetEquivalenceToleranceSeconds: TimeInterval = 2 * 60
@@ -90,19 +89,10 @@ struct CodexWeeklyResetConfirmation: Sendable {
         initial: UsageSnapshot) -> InitialDecision
     {
         guard self.isFinite(initial.updatedAt) else { return .preservePrevious }
-        guard let previous else {
-            guard let initialWeekly = CodexConsumerProjection.sourceRateWindow(
-                for: .weekly,
-                snapshot: initial)
-            else {
-                return .publishInitial
+        if let previous {
+            guard self.isFinite(previous.updatedAt), initial.updatedAt > previous.updatedAt else {
+                return .preservePrevious
             }
-            return self.initialDecisionWithoutWeeklyBaseline(
-                initialWeekly: initialWeekly,
-                capturedAt: initial.updatedAt)
-        }
-        guard Self.isFinite(previous.updatedAt), initial.updatedAt > previous.updatedAt else {
-            return .preservePrevious
         }
 
         guard let previousWeekly = CodexConsumerProjection.sourceRateWindow(
@@ -115,9 +105,13 @@ struct CodexWeeklyResetConfirmation: Sendable {
             else {
                 return .publishInitial
             }
-            return self.initialDecisionWithoutWeeklyBaseline(
-                initialWeekly: initialWeekly,
-                capturedAt: initial.updatedAt)
+            guard initialWeekly.usedPercent.isFinite else { return .preservePrevious }
+            let boundary = Self.validResetBoundary(initialWeekly, capturedAt: initial.updatedAt)
+            if initialWeekly.resetsAt != nil, boundary == nil {
+                return .preservePrevious
+            }
+            guard initialWeekly.usedPercent <= Self.resetThreshold else { return .publishInitial }
+            return boundary == nil ? .preservePrevious : .requiresConfirmation
         }
         guard previousWeekly.usedPercent.isFinite else {
             return .preservePrevious
@@ -197,7 +191,8 @@ struct CodexWeeklyResetConfirmation: Sendable {
             return .publishConfirmation
         }
 
-        guard initialWeekly.usedPercent <= Self.resetThreshold,
+        guard Self.normalizedPlan(initial) == Self.normalizedPlan(confirmation),
+              initialWeekly.usedPercent <= Self.resetThreshold,
               let initialBoundary = Self.validResetBoundary(initialWeekly, capturedAt: initial.updatedAt),
               let confirmationBoundary = Self.validResetBoundary(
                   confirmationWeekly,
@@ -218,9 +213,9 @@ struct CodexWeeklyResetConfirmation: Sendable {
                 previous: evidencePrevious,
                 initial: initial,
                 confirmation: confirmation)
-            let confirmsManualReset = resetCreditEvidence != .none
+            let permitsEarlyReset = resetCreditEvidence != .none
             if confirmation.updatedAt < previousBoundary.addingTimeInterval(-2 * 60),
-               !confirmsManualReset
+               !permitsEarlyReset
             {
                 return .preservePrevious
             }
@@ -348,7 +343,17 @@ struct CodexWeeklyResetConfirmation: Sendable {
                   capturedAt: candidate.snapshot.updatedAt),
               let currentBoundary = Self.validResetBoundary(currentWeekly, capturedAt: current.updatedAt)
         else { return DelayedEvaluation(decision: .discardCandidate, reason: .invalidResetBoundary) }
-        guard abs(candidateBoundary.timeIntervalSince(currentBoundary)) < Self.resetEquivalenceToleranceSeconds else {
+        // Unused weekly windows roll forward with each observation, including across normal refresh intervals.
+        let unusedWeeklyWindows = zip(
+            [candidateWeekly, currentWeekly],
+            [candidate.snapshot.updatedAt, current.updatedAt]).allSatisfy { window, capturedAt in
+            guard window.usedPercent == 0, window.windowMinutes == 7 * 24 * 60,
+                  let boundary = window.resetsAt else { return false }
+            return abs(boundary.timeIntervalSince(capturedAt) - 604_800) < Self.resetEquivalenceToleranceSeconds
+        }
+        guard abs(candidateBoundary.timeIntervalSince(currentBoundary)) < Self.resetEquivalenceToleranceSeconds ||
+            (unusedWeeklyWindows && currentBoundary >= candidateBoundary)
+        else {
             return DelayedEvaluation(decision: .discardCandidate, reason: .inconsistentResetBoundary)
         }
         guard Self.isSupportedDelayedBoundary(previous: previousBoundary, current: candidateBoundary),
@@ -399,46 +404,44 @@ struct CodexWeeklyResetConfirmation: Sendable {
         return identities.allSatisfy { $0 == first }
     }
 
+    static func normalizedPlan(_ snapshot: UsageSnapshot?) -> String? {
+        let plan = snapshot?.loginMethod(for: .codex)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return plan?.isEmpty == false ? plan : nil
+    }
+
     private static func haveCompatiblePlans(_ snapshots: UsageSnapshot...) -> Bool {
         // Codex exposes the subscription tier through loginMethod, so it is the plan identity here.
-        let plans = snapshots.map { snapshot in
-            snapshot.loginMethod(for: .codex)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-        }
+        let plans = snapshots.map { Self.normalizedPlan($0) }
         guard let first = plans.compactMap(\.self).first else { return false }
         return plans.allSatisfy { $0 == first }
     }
 
-    private static func positiveCreditInventoryRejection(_ snapshots: UsageSnapshot...) -> Reason? {
+    private static func positiveCreditInventoryRejection(
+        _ previous: UsageSnapshot,
+        _ initial: UsageSnapshot,
+        _ confirmation: UsageSnapshot) -> Reason?
+    {
+        let snapshots = previous.codexResetCredits == nil ? [initial, confirmation] : [previous, initial, confirmation]
         let creditSnapshots = snapshots.compactMap(\.codexResetCredits)
         guard creditSnapshots.count == snapshots.count else { return .missingCreditInventory }
         guard creditSnapshots.allSatisfy({ Self.isFinite($0.updatedAt) }) else { return .invalidCreditObservationTime }
+        guard previous.codexResetCredits != nil ||
+            creditSnapshots.allSatisfy({ $0.updatedAt > previous.updatedAt })
+        else {
+            return .nonMonotonicCreditObservationTime
+        }
         guard zip(creditSnapshots, creditSnapshots.dropFirst()).allSatisfy({ pair in
             pair.1.updatedAt >= pair.0.updatedAt
         }) else {
             return .nonMonotonicCreditObservationTime
         }
-        let inventories = creditSnapshots.map { credits -> [AvailableCreditIdentity]? in
+        let inventories = creditSnapshots.map { credits -> [AvailableCreditIdentity: Int]? in
             let available = credits.availableCredits(at: credits.updatedAt)
             guard credits.availableCount > 0, available.count == credits.availableCount else { return nil }
-            return available.map {
-                AvailableCreditIdentity(
-                    id: $0.id,
-                    resetType: $0.resetType,
-                    status: $0.status.rawValue,
-                    expiresAt: $0.expiresAt)
-            }.sorted { lhs, rhs in
-                if lhs.id != rhs.id {
-                    return lhs.id < rhs.id
-                }
-                if lhs.resetType != rhs.resetType {
-                    return lhs.resetType < rhs.resetType
-                }
-                if lhs.status != rhs.status {
-                    return lhs.status < rhs.status
-                }
-                return (lhs.expiresAt ?? .distantPast) < (rhs.expiresAt ?? .distantPast)
+            return available.reduce(into: [:]) { inventory, credit in
+                let identity = AvailableCreditIdentity(
+                    id: credit.id, resetType: credit.resetType, expiresAt: credit.expiresAt)
+                inventory[identity, default: 0] += 1
             }
         }
         guard let firstInventory = inventories.first, let first = firstInventory,
@@ -459,6 +462,15 @@ struct CodexWeeklyResetConfirmation: Sendable {
         initial: UsageSnapshot,
         confirmation: UsageSnapshot) -> ResetCreditEvidence
     {
+        // Missing history cannot prove consumption, but matching fresh inventories can corroborate an advanced reset.
+        if previous.codexResetCredits == nil,
+           initial.dataConfidence == .exact, confirmation.dataConfidence == .exact,
+           self.haveCompatibleAccountIdentities(previous, initial, confirmation),
+           self.haveCompatiblePlans(previous, initial, confirmation),
+           self.positiveCreditInventoryRejection(previous, initial, confirmation) == nil
+        {
+            return .noInventoryToPreserve
+        }
         guard let previousCredits = previous.codexResetCredits,
               let initialCredits = initial.codexResetCredits,
               let confirmationCredits = confirmation.codexResetCredits,
@@ -474,9 +486,8 @@ struct CodexWeeklyResetConfirmation: Sendable {
         // An explicitly observed zero-credit inventory means there was no manual reset credit to
         // consume. Requiring consumption proof here would deadlock: the two consistent observations
         // (initial + confirmation) are the only signal a server-side early reset has, so trust them.
-        // A nil/unknown previous inventory stays conservative and keeps demanding consumption proof.
         guard !previouslyAvailableCredits.isEmpty else {
-            return previousCredits.availableCount == 0 ? .noAvailableCredits : .none
+            return previousCredits.availableCount == 0 ? .noInventoryToPreserve : .none
         }
         let consumed = previouslyAvailableCredits.contains { previousCredit in
             Self.inventoryConfirmsConsumption(
@@ -505,22 +516,6 @@ struct CodexWeeklyResetConfirmation: Sendable {
         // The live provider omits a consumed credit instead of retaining a redeemed row, so the
         // successful inventory's aggregate count must also corroborate the disappearance.
         return current.availableCount < previousAvailableCount
-    }
-
-    private static func initialDecisionWithoutWeeklyBaseline(
-        initialWeekly: RateWindow,
-        capturedAt: Date) -> InitialDecision
-    {
-        guard initialWeekly.usedPercent.isFinite else { return .preservePrevious }
-        if initialWeekly.resetsAt != nil,
-           self.validResetBoundary(initialWeekly, capturedAt: capturedAt) == nil
-        {
-            return .preservePrevious
-        }
-        guard initialWeekly.usedPercent <= self.resetThreshold else { return .publishInitial }
-        return self.validResetBoundary(initialWeekly, capturedAt: capturedAt) == nil
-            ? .preservePrevious
-            : .requiresConfirmation
     }
 
     private static func finiteResetBoundary(_ window: RateWindow) -> Date? {

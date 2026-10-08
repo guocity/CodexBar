@@ -59,6 +59,8 @@ public enum ClaudeOAuthFetchError: LocalizedError, Sendable {
 
 enum ClaudeOAuthUsageFetcher {
     private static let baseURL = "https://api.anthropic.com"
+    private static let usageTransport = ProviderHTTPClient(
+        session: ProviderHTTPClient.redirectGuardedSession(configuration: Self.usageSessionConfiguration()))
     private static let usagePath = "/api/oauth/usage"
     private static let profilePath = "/api/oauth/profile"
     private static let betaHeader = "oauth-2025-04-20"
@@ -68,32 +70,44 @@ enum ClaudeOAuthUsageFetcher {
         accessToken: String,
         detectClaudeVersion: Bool = true,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        transport: any ProviderHTTPTransport = ProviderHTTPClient.shared) async throws -> OAuthUsageResponse
+        transport: any ProviderHTTPTransport = ClaudeOAuthUsageFetcher
+            .usageTransport) async throws -> OAuthUsageResponse
     {
         if let blockedUntil = ClaudeOAuthUsageRateLimitGate.blockedUntil(accessToken: accessToken) {
             throw ClaudeOAuthFetchError.rateLimited(retryAfter: blockedUntil)
         }
 
-        guard let url = URL(string: baseURL + usagePath) else {
+        guard let url = URL(string: baseURL + usagePath + "?cedar_ember=1") else {
             throw ClaudeOAuthFetchError.invalidResponse
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 30
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // OAuth usage endpoint currently requires the beta header.
         request.setValue(Self.betaHeader, forHTTPHeaderField: "anthropic-beta")
+        let userAgent = Self.claudeCodeUserAgent(
+            detectClaudeVersion: detectClaudeVersion,
+            versionDetector: { ProviderVersionDetector.claudeVersion(environment: environment) })
         request.setValue(
-            Self.claudeCodeUserAgent(
-                detectClaudeVersion: detectClaudeVersion,
-                versionDetector: { ProviderVersionDetector.claudeVersion(environment: environment) }),
+            userAgent.replacingOccurrences(of: "claude-code/", with: "claude-cli/") + " (external, cli)",
             forHTTPHeaderField: "User-Agent")
 
         do {
-            let response = try await transport.response(for: request)
+            var response = try await transport.response(for: request)
+            if response.statusCode == 400 || (response.statusCode == 403
+                && !(String(data: response.data, encoding: .utf8)?.contains("user:profile") ?? false))
+            {
+                // Retry only the optional inventory rejection, keeping the same credential and version.
+                try Task.checkCancellation()
+                request.url = URL(string: self.baseURL + self.usagePath)
+                request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+                response = try await transport.response(for: request)
+            }
             let data = response.data
             switch response.statusCode {
             case 200:
@@ -110,9 +124,6 @@ enum ClaudeOAuthUsageFetcher {
                 throw ClaudeOAuthFetchError.rateLimited(
                     retryAfter: ClaudeOAuthUsageRateLimitGate
                         .currentBlockedUntil(accessToken: accessToken) ?? retryAfter)
-            case 403:
-                let body = String(data: data, encoding: .utf8)
-                throw ClaudeOAuthFetchError.serverError(response.statusCode, body)
             default:
                 let body = String(data: data, encoding: .utf8)
                 throw ClaudeOAuthFetchError.serverError(response.statusCode, body)
@@ -124,6 +135,15 @@ enum ClaudeOAuthUsageFetcher {
         } catch {
             throw ClaudeOAuthFetchError.networkError(error)
         }
+    }
+
+    static func usageSessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForResource = 90
+        // Grant identifiers in the raw response must never enter the URL cache.
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
     }
 
     static func fetchProfile(
@@ -160,17 +180,6 @@ enum ClaudeOAuthUsageFetcher {
     static func decodeUsageResponse(_ data: Data) throws -> OAuthUsageResponse {
         let decoder = JSONDecoder()
         return try decoder.decode(OAuthUsageResponse.self, from: data)
-    }
-
-    static func parseISO8601Date(_ string: String?) -> Date? {
-        guard let string, !string.isEmpty else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: string) {
-            return date
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: string)
     }
 
     private static func retryAfterDate(from response: HTTPURLResponse, now: Date = Date()) -> Date? {
@@ -213,6 +222,7 @@ enum ClaudeOAuthUsageFetcher {
 }
 
 struct OAuthProfileResponse: Decodable, Sendable {
+    let accountUuid: String?
     let emailAddress: String?
     let organizationUuid: String?
 
@@ -220,6 +230,8 @@ struct OAuthProfileResponse: Decodable, Sendable {
         let container = try decoder.container(keyedBy: DynamicCodingKey.self)
         let account = try Self.decodeNestedContainer(in: container, key: "account")
         let organization = try Self.decodeNestedContainer(in: container, key: "organization")
+        self.accountUuid = account.flatMap { Self.decodeString(in: $0, keys: ["uuid"]) }
+            ?? Self.decodeString(in: container, keys: ["accountUuid", "account_uuid"])
         self.emailAddress =
             account.flatMap { Self.decodeString(in: $0, keys: ["emailAddress", "email_address", "email"]) }
                 ?? Self.decodeString(in: container, keys: ["emailAddress", "email_address", "email"])
@@ -228,7 +240,8 @@ struct OAuthProfileResponse: Decodable, Sendable {
                 ?? Self.decodeString(in: container, keys: ["organizationUuid", "organization_uuid"])
     }
 
-    init(emailAddress: String?, organizationUuid: String?) {
+    init(emailAddress: String?, organizationUuid: String?, accountUuid: String? = nil) {
+        self.accountUuid = accountUuid
         self.emailAddress = emailAddress
         self.organizationUuid = organizationUuid
     }
@@ -273,8 +286,9 @@ struct OAuthUsageResponse: Decodable {
     let sevenDaySonnet: OAuthUsageWindow?
     let sevenDayRoutines: OAuthUsageWindow?
     let sevenDayRoutinesSourceKey: String?
-    let iguanaNecktie: OAuthUsageWindow?
+    let cloudCredits: ClaudeCloudCreditsSnapshot?
     let extraUsage: OAuthExtraUsage?
+    let resetStatus: ClaudeLimitResetStatusResponse?
     /// Newer shape (superseding the flat `seven_day_*` fields above for scoped weekly
     /// windows): a flat list of limit entries, each optionally naming the model it scopes
     /// to via `scope.model.display_name` (e.g. "Fable" during a promotional access window).
@@ -298,9 +312,10 @@ struct OAuthUsageResponse: Decodable {
         ])
         self.sevenDayRoutines = routines.window
         self.sevenDayRoutinesSourceKey = routines.sourceKey
-        self.iguanaNecktie = Self.decodeWindow(in: container, keys: ["iguana_necktie"])
+        self.cloudCredits = Self.decodeValue(in: container, keys: ["iguana_necktie"])
         self.extraUsage = Self.decodeValue(in: container, keys: ["extra_usage"])
         self.limits = Self.decodeValue(in: container, keys: ["limits"])
+        self.resetStatus = Self.decodeValue(in: container, keys: ["cedar_ember"])
     }
 
     private static func decodeWindow(

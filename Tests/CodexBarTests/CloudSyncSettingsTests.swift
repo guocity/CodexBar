@@ -98,19 +98,185 @@ struct CloudSyncSettingsTests {
         try original.write(to: url, options: .atomic)
         let changes = LockedCounter()
         let watcher = ConfigFileWatcher(fileURL: url) { changes.increment() }
+        defer { watcher.stop() }
         watcher.start()
         try await Task.sleep(for: .milliseconds(150))
 
         let ownWrite = Data("{\"value\":2}".utf8)
-        watcher.noteAppWrite(data: ownWrite)
-        try ownWrite.write(to: url, options: .atomic)
+        try ConfigFileWatcher.withAppWrite(ownWrite, watcher: watcher) {
+            try ownWrite.write(to: url, options: .atomic)
+        }
         try await Task.sleep(for: .milliseconds(350))
         #expect(changes.value == 0)
 
         try Data("{\"value\":3}".utf8).write(to: url, options: .atomic)
-        try await Task.sleep(for: .milliseconds(500))
-        watcher.stop()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while changes.value == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(changes.value >= 1)
+    }
+
+    @Test
+    func `app writes still execute without an active watcher and failed writes remain observable`() async throws {
+        enum Failure: Error { case write }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("config.json")
+        let original = Data("original".utf8)
+        let replacement = Data("replacement".utf8)
+        try ConfigFileWatcher.withAppWrite(original, watcher: nil) { try original.write(to: url) }
+        let values = WatchedConfigValues()
+        let watcher = ConfigFileWatcher(fileURL: url) {
+            if let data = try? Data(contentsOf: url) {
+                values.append(data)
+            }
+        }
+        defer { watcher.stop() }
+        #expect(throws: Failure.self) {
+            try ConfigFileWatcher.withAppWrite(replacement, watcher: watcher) { throw Failure.write }
+        }
+        try replacement.write(to: url, options: .atomic)
+        watcher.start()
+        for _ in 0..<100 where !values.snapshot.contains(replacement) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(values.snapshot.contains(replacement))
+        watcher.stop()
+        try ConfigFileWatcher.withAppWrite(original, watcher: watcher) { try original.write(to: url) }
+        #expect(try Data(contentsOf: url) == original)
+    }
+
+    @Test
+    func `external config edits can restore contents previously written by the app`() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("config.json")
+        let original = Data("a".utf8)
+        let external = Data("b".utf8)
+        try original.write(to: url, options: .atomic)
+        let values = WatchedConfigValues()
+        let watcher = ConfigFileWatcher(fileURL: url) {
+            if let data = try? Data(contentsOf: url) {
+                values.append(data)
+            }
+        }
+        defer { watcher.stop() }
+        try ConfigFileWatcher.withAppWrite(original, watcher: watcher) {
+            try original.write(to: url, options: .atomic)
+        }
+        watcher.start()
+        for _ in 0..<100 where !values.snapshot.contains(external) {
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.write(contentsOf: external)
+            try handle.close()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(values.snapshot.contains(external))
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.write(contentsOf: original)
+        try handle.close()
+        for _ in 0..<100 where !values.snapshot.contains(original) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(values.snapshot.contains(original))
+    }
+
+    @Test(arguments: [false, true])
+    func `atomic replacement during a watcher callback is observed after rearming`(
+        fileInitiallyExists: Bool) async throws
+    {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("config.json")
+        if fileInitiallyExists { try Data("initial".utf8).write(to: url, options: .atomic) }
+        let first = Data("first".utf8)
+        let second = Data("second".utf8)
+        let values = WatchedConfigValues()
+        let writes = WatchedConfigValues()
+        let watcher = ConfigFileWatcher(fileURL: url) {
+            guard let data = try? Data(contentsOf: url) else { return }
+            values.append(data)
+            if data == first {
+                do {
+                    try second.write(to: url, options: .atomic)
+                    writes.append(second)
+                } catch {
+                    writes.append(Data(error.localizedDescription.utf8))
+                }
+            }
+        }
+        defer { watcher.stop() }
+        watcher.start()
+        try first.write(to: url, options: .atomic)
+        for _ in 0..<100 where writes.snapshot.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(!writes.snapshot.isEmpty)
+        #expect(writes.snapshot.allSatisfy { $0 == second })
+        #expect(values.snapshot.contains(first))
+        for _ in 0..<100 where !values.snapshot.contains(second) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(values.snapshot.contains(second))
+        #expect(try Data(contentsOf: url) == second)
+    }
+
+    @Test
+    func `replacement before watcher registration keeps subsequent in place edits observable`() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("config.json")
+        try Data("initial".utf8).write(to: url, options: .atomic)
+        let first = Data("first".utf8)
+        let second = Data("second".utf8)
+        let third = Data("third!".utf8)
+        let values = WatchedConfigValues()
+        let registrations = WatchedConfigValues()
+        let errors = WatchedConfigValues()
+        let watcher = ConfigFileWatcher(
+            fileURL: url,
+            beforeRegistrationForTesting: {
+                guard registrations.snapshot.isEmpty else { return }
+                registrations.append(first)
+                do {
+                    try first.write(to: url, options: .atomic)
+                } catch {
+                    errors.append(Data(error.localizedDescription.utf8))
+                }
+            },
+            changeHandler: {
+                guard let data = try? Data(contentsOf: url) else { return }
+                values.append(data)
+                if data == first {
+                    do {
+                        try second.write(to: url, options: .atomic)
+                    } catch {
+                        errors.append(Data(error.localizedDescription.utf8))
+                    }
+                }
+            })
+        defer { watcher.stop() }
+        watcher.start()
+        for _ in 0..<100 where !values.snapshot.contains(second) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(errors.snapshot.isEmpty)
+        #expect(values.snapshot.contains(first))
+        try #require(values.snapshot.contains(second))
+
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.write(contentsOf: third)
+        try handle.close()
+        for _ in 0..<100 where !values.snapshot.contains(third) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(values.snapshot.contains(third))
+        #expect(try Data(contentsOf: url) == third)
     }
 
     @Test
@@ -216,6 +382,51 @@ struct CloudSyncSettingsTests {
     }
 
     @Test
+    func `portable imports are local edits while remote preferences do not echo`() async throws {
+        let fixture = try self.makeFixture("portable-preferences")
+        let persistence = self.makePersistence("portable-preferences")
+        let engine = CloudSyncEngine(
+            settings: fixture.store,
+            state: CloudSyncState(),
+            persistence: persistence,
+            initialConfiguration: fixture.store.configSnapshot,
+            initialPreferences: fixture.store.syncedPreferences,
+            initialIncludeSecrets: fixture.store.iCloudSyncIncludeSecrets)
+        var remote = fixture.store.syncedPreferences
+        remote.hidePersonalInfo.toggle()
+        let record = CKRecord(recordType: SyncRecordType.preferences.rawValue, recordID: CKRecord.ID(
+            recordName: PreferencesSyncPayload.recordName, zoneID: CloudSyncEngine.zoneID))
+        record["payload"] = try CanonicalSyncJSON.string(PreferencesSyncPayload(preferences: remote)) as CKRecordValue
+        await engine.applyFetchedRecords([record])
+        await engine.localUserPreferencesDidChange(fixture.store.syncedPreferences)
+        #expect(!persistence.load().preferencesDirty)
+
+        var document = PreferencesDocument()
+        try document.set("hidePersonalInfo", !remote.hidePersonalInfo)
+        try fixture.store.importPreferences(document)
+        await engine.localUserPreferencesDidChange(fixture.store.syncedPreferences)
+        #expect(persistence.load().preferencesDirty)
+    }
+
+    @Test
+    func `queued preferences import at coordinator startup becomes a local edit`() async throws {
+        let fixture = try self.makeFixture("queued-preferences")
+        let persistence = self.makePersistence("queued-preferences")
+        var document = PreferencesDocument()
+        try document.set("hidePersonalInfo", !fixture.store.hidePersonalInfo)
+        try document.queueImport(in: fixture.defaults)
+        let coordinator = CloudSyncCoordinator(settings: fixture.store, persistence: persistence)
+        coordinator.start()
+        defer { coordinator.stop() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !persistence.load().preferencesDirty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(persistence.load().preferencesDirty)
+        #expect(fixture.defaults.data(forKey: PreferencesDocument.pendingImportKey) == nil)
+    }
+
+    @Test
     func `local provider edit queues exactly that provider`() async throws {
         let fixture = try self.makeFixture("dirty-provider")
         let persistence = self.makePersistence("dirty-provider")
@@ -248,18 +459,17 @@ struct CloudSyncSettingsTests {
         let coordinator = CloudSyncCoordinator(settings: fixture.store, persistence: persistence)
         coordinator.start()
         defer { coordinator.stop() }
-        try fixture.store.configStore.save(fixture.store.configSnapshot)
-        try await Task.sleep(for: .milliseconds(500))
-
         var updated = fixture.store.configSnapshot
         var claude = try #require(updated.providerConfig(for: .claude))
         claude.extrasEnabled = !(claude.extrasEnabled ?? false)
         updated.setProviderConfig(claude)
         try fixture.store.configStore.save(updated)
 
-        for _ in 0..<100 where persistence.load().dirtyProviders.isEmpty {
-            try await Task.sleep(for: .milliseconds(10))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while persistence.load().dirtyProviders.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
         }
+        #expect(fixture.store.configSnapshot.providerConfig(for: .claude)?.extrasEnabled == claude.extrasEnabled)
 
         let envelope = persistence.load()
         let recordNames = CloudSyncDirtyState.configurationRecordNamesToQueue(
@@ -413,16 +623,8 @@ struct CloudSyncSettingsTests {
 
     private func makeFixture(_ name: String) throws -> (store: SettingsStore, defaults: UserDefaults) {
         let suite = "CloudSyncSettingsTests-\(name)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(suite, isDirectory: true)
-        try? FileManager.default.removeItem(at: directory)
-        let configStore = CodexBarConfigStore(fileURL: directory.appendingPathComponent("config.json"))
-        let store = SettingsStore(
-            userDefaults: defaults,
-            configStore: configStore,
-            performInitialProviderDetection: false)
+        let defaults = InMemoryUserDefaults()
+        let store = testSettingsStore(suiteName: suite, userDefaults: defaults)
         return (store, defaults)
     }
 
@@ -455,5 +657,18 @@ private actor CloudSyncDelegateEventRecorder {
 
     func append(_ value: Int) {
         self.values.append(value)
+    }
+}
+
+private final class WatchedConfigValues: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Data] = []
+
+    var snapshot: [Data] {
+        self.lock.withLock { self.values }
+    }
+
+    func append(_ data: Data) {
+        self.lock.withLock { self.values.append(data) }
     }
 }

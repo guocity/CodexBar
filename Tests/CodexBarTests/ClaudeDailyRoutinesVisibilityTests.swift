@@ -111,7 +111,6 @@ struct ClaudeDailyRoutinesMenuCardTests {
                 snapshot: snapshot,
                 credits: nil,
                 creditsError: nil,
-                dashboard: nil,
                 dashboardError: nil,
                 tokenSnapshot: nil,
                 tokenError: nil,
@@ -132,14 +131,14 @@ struct ClaudeDailyRoutinesMenuCardTests {
             "Session",
             "Weekly",
             "Sonnet",
-            "Fable only",
+            "Fable weekly",
             "Daily Routines",
         ])
 
         let providerHiddenModel = makeModel(showOptionalUsage: true, routinesVisible: false)
-        #expect(providerHiddenModel.metrics.map(\.title) == ["Session", "Weekly", "Sonnet", "Fable only"])
+        #expect(providerHiddenModel.metrics.map(\.title) == ["Session", "Weekly", "Sonnet", "Fable weekly"])
 
         let globalHiddenModel = makeModel(showOptionalUsage: false, routinesVisible: true)
-        #expect(globalHiddenModel.metrics.map(\.title) == ["Session", "Weekly", "Sonnet", "Fable only"])
+        #expect(globalHiddenModel.metrics.map(\.title) == ["Session", "Weekly", "Sonnet", "Fable weekly"])
     }
 }

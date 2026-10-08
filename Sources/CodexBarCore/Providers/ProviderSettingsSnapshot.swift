@@ -78,9 +78,13 @@ public struct ProviderSettingsSnapshotContribution: Sendable {
 }
 
 public struct ProviderSettingsSectionRegistration: Sendable {
+    public private(set) var selectedProfileBrowser: String?
     public let providerID: ProviderInstanceID
     let sectionTypeID: ObjectIdentifier
     public let defaultContribution: ProviderSettingsSnapshotContribution?
+    /// Preserves the registered section type after the caller resolves runtime-specific cookie policy.
+    public private(set) var cookieContribution: (@Sendable (
+        CookieProviderSettings) -> ProviderSettingsSnapshotContribution)?
     private let cookieSettingsReader: @Sendable (ProviderSettingsSnapshot) -> CookieProviderSettings?
     private let credentialContributionReader: @Sendable (
         ProviderCredentialSettingsContext) -> ProviderSettingsSnapshotContribution?
@@ -91,6 +95,18 @@ public struct ProviderSettingsSectionRegistration: Sendable {
         self.defaultContribution = nil
         self.cookieSettingsReader = { _ in nil }
         self.credentialContributionReader = { _ in nil }
+    }
+
+    public init<Key: ProviderSettingsSectionKey>(_ key: Key.Type, selectedProfileBrowser: String)
+        where Key.Section == CookieProviderSettings
+    {
+        self.init(key, cookieSettings: { $0 }, credentialSettings: { context in
+            var settings = CookieProviderSettings(cookieSource: context.config?.cookieSource ?? .auto)
+            settings.selectedBrowserProfile = ProviderBrowserProfile(
+                browserID: selectedProfileBrowser, profileID: context.config?.browserProfileID ?? "")
+            return settings
+        })
+        self.selectedProfileBrowser = selectedProfileBrowser
     }
 
     public init<Key: ProviderSettingsSectionKey>(
@@ -125,15 +141,25 @@ public struct ProviderSettingsSectionRegistration: Sendable {
             cookieSettings: { settings in
                 CookieProviderSettings(
                     cookieSource: settings.cookieSource,
-                    manualCookieHeader: settings.manualCookieHeader)
+                    manualCookieHeader: settings.manualCookieHeader,
+                    manualCookieOrigin: settings.manualCookieOrigin)
             },
             credentialSettings: { context in
                 guard let provider = key.providerID.firstPartyProvider else { return nil }
                 let settings = context.cookieSettings(for: provider)
                 return Key.Section(
                     cookieSource: settings.cookieSource,
-                    manualCookieHeader: settings.manualCookieHeader)
+                    manualCookieHeader: settings.manualCookieHeader,
+                    manualCookieOrigin: settings.manualCookieOrigin)
             })
+        self.cookieContribution = { settings in
+            ProviderSettingsSnapshotContribution(
+                Key.Section(
+                    cookieSource: settings.cookieSource,
+                    manualCookieHeader: settings.manualCookieHeader,
+                    manualCookieOrigin: settings.manualCookieOrigin),
+                for: key)
+        }
     }
 
     static func empty(for providerID: ProviderInstanceID) -> Self {

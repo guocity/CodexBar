@@ -1,83 +1,40 @@
 import Foundation
 
 public enum ZenMuxProviderDescriptor {
-    public static let descriptor: ProviderDescriptor = Self.makeDescriptor()
-    private static let credentials = ProviderCredentialAdapter.apiKey(
-        environmentKey: ZenMuxSettingsReader.managementAPIKeyEnvironmentKey,
-        resolve: ZenMuxSettingsReader.managementAPIKey)
+    public static let descriptor = Self.spec.makeDescriptor()
+    public static let spec = PluginProviderSpec(
+        id: .zenmux,
+        displayName: "ZenMux",
+        sessionLabel: "5-hour quota",
+        weeklyLabel: "Weekly quota",
+        debugLogUnavailableMessage: "ZenMux debug log not yet implemented",
+        dashboardURL: "https://zenmux.ai/platform/management",
+        color: .init(hex: 0x6C5CE7),
+        confetti: [0x6C5CE7, 0xA29BFE, 0xFFFFFF],
+        noDataMessage: "ZenMux cost history is not exposed by the Management API.",
+        environmentKey: "ZENMUX_MANAGEMENT_API_KEY",
+        presentation: ProviderUsagePresentation(
+            costPresenter: { _ in ProviderCostPresentation(menuCardStyle: .payAsYouGoBalance) },
+            primaryBindingQuotaLanes: [.secondary],
+            menuCard: ProviderMenuCardPresentation(
+                primaryDescriptionPlacement: .detailLeft,
+                hidesPrimaryResetWithoutDate: true)),
+        aliases: ["zen-mux"],
+        timeout: 35,
+        scriptSettings: { context in
+            let includePayg = context.runtime == .app ? context.includeOptionalUsage : context.includeCredits
+            return ["INCLUDE_PAYG": includePayg ? "1" : "0"]
+        },
+        apiKeyField: .init(
+            id: "zenmux-management-api-key",
+            title: "Management API key",
+            subtitle: "Stored in ~/.codexbar/config.json. Standard ZenMux inference API keys are not supported.",
+            placeholder: "ZenMux management key…",
+            action: ("zenmux-open-management", "Open ZenMux Management", "https://zenmux.ai/platform/management")),
+        showsAPIDetail: true,
+        availability: .configuredKey)
 
-    static func makeDescriptor() -> ProviderDescriptor {
-        ProviderDescriptor(
-            id: .zenmux,
-            credentials: self.credentials,
-            metadata: ProviderMetadata(
-                id: .zenmux,
-                displayName: "ZenMux",
-                sessionLabel: "5-hour quota",
-                weeklyLabel: "Weekly quota",
-                opusLabel: nil,
-                supportsOpus: false,
-                supportsCredits: false,
-                creditsHint: "",
-                toggleTitle: "Show ZenMux usage",
-                cliName: "zenmux",
-                defaultEnabled: false,
-                widgetSelectable: false,
-                debugLogUnavailableMessage: "ZenMux debug log not yet implemented",
-                dashboardURL: "https://zenmux.ai/platform/management",
-                statusPageURL: nil),
-            branding: ProviderBranding(
-                iconStyle: .init(provider: .zenmux),
-                iconResourceName: "ProviderIcon-zenmux",
-                color: ProviderColor(red: 108 / 255, green: 92 / 255, blue: 231 / 255),
-                confettiPalette: [
-                    ProviderColor(hex: 0x6C5CE7),
-                    ProviderColor(hex: 0xA29BFE),
-                    ProviderColor(hex: 0xFFFFFF),
-                ]),
-            tokenCost: ProviderTokenCostConfig(
-                supportsTokenCost: false,
-                noDataMessage: { "ZenMux cost history is not exposed by the Management API." }),
-            presentation: ProviderUsagePresentation(
-                costPresenter: { _ in ProviderCostPresentation(menuCardStyle: .payAsYouGoBalance) },
-                primaryBindingQuotaLanes: [.secondary],
-                menuCard: ProviderMenuCardPresentation(
-                    primaryDescriptionPlacement: .detailLeft,
-                    hidesPrimaryResetWithoutDate: true)),
-            fetchPlan: ProviderFetchPlan(
-                sourceModes: [.auto, .api],
-                pipeline: ProviderFetchPipeline(resolveStrategies: { _ in [ZenMuxAPIFetchStrategy()] })),
-            cli: ProviderCLIConfig(
-                name: "zenmux",
-                aliases: ["zen-mux"],
-                versionDetector: nil))
-    }
-}
-
-struct ZenMuxAPIFetchStrategy: ProviderFetchStrategy {
-    let id = "zenmux.api"
-    let kind: ProviderFetchKind = .apiToken
-
-    func isAvailable(_ context: ProviderFetchContext) async -> Bool {
-        ZenMuxSettingsReader.managementAPIKey(environment: context.env) != nil
-    }
-
-    func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
-        guard let credential = ZenMuxSettingsReader.managementAPIKey(environment: context.env) else {
-            throw ZenMuxUsageError.notConfigured
-        }
-        let shouldFetchCredits = context.runtime == .app
-            ? context.includeOptionalUsage
-            : context.includeCredits
-        let result = try await ZenMuxUsageFetcher.fetchUsage(
-            credential,
-            includePaygBalance: shouldFetchCredits)
-        return self.makeResult(
-            usage: result.usage.toUsageSnapshot(paygBalanceUSD: result.paygBalanceUSD),
-            sourceLabel: "api")
-    }
-
-    func shouldFallback(on _: Error, context _: ProviderFetchContext) -> Bool {
-        false
+    static func scriptValues(_ context: ProviderFetchContext) -> ScriptFetchStrategy.Values? {
+        self.spec.scriptValues(context)
     }
 }

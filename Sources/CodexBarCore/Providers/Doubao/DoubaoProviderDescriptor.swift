@@ -13,9 +13,20 @@ public enum DoubaoProviderDescriptor {
             }
             return ProviderTokenResolution(token: token, source: .environment)
         },
+        tokenAccountSupport: TokenAccountSupport(
+            title: "Doubao API-key accounts",
+            subtitle: "Store labeled Ark API keys. AK/SK pairs and arkcli profiles are not supported here.",
+            placeholder: "Ark API key",
+            injection: .environment(key: DoubaoSettingsReader.apiKeyEnvironmentKeys[0]),
+            requiresManualCookieSource: false,
+            cookieName: nil,
+            environmentKeysToScrub: DoubaoSettingsReader.apiKeyEnvironmentKeys
+                + DoubaoSettingsReader.accessKeyIDEnvironmentKeys
+                + DoubaoSettingsReader.secretAccessKeyEnvironmentKeys),
         authDetector: { environment, _ in
             DoubaoSettingsReader.apiKey(environment: environment) == nil ? [] : ["api"]
-        })
+        },
+        selectedAccountSourceModeResolver: { base, account, _ in account == nil ? base : .api })
 
     public static func primaryLabel(window: RateWindow?) -> String? {
         guard window?.windowMinutes == nil,
@@ -52,18 +63,25 @@ public enum DoubaoProviderDescriptor {
             branding: ProviderBranding(
                 iconStyle: .init(provider: .doubao),
                 iconResourceName: "ProviderIcon-doubao",
-                color: ProviderColor(red: 51 / 255, green: 112 / 255, blue: 255 / 255),
+                color: ProviderColor(hex: 0x3370FF),
                 confettiPalette: [
                     ProviderColor(hex: 0x0057FF),
                     ProviderColor(hex: 0xEFC5BA),
                     ProviderColor(hex: 0x493530),
                 ],
-                widgetColor: ProviderColor(red: 45 / 255, green: 136 / 255, blue: 255 / 255)),
+                widgetColor: ProviderColor(hex: 0x2D88FF)),
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "Doubao cost summary is not available." }),
             pace: .calendarMonthResetWindow,
             presentation: ProviderUsagePresentation(
+                iconWindowResolver: { context in
+                    ProviderUsageWindowPair(
+                        primary: context.snapshot.primary ?? context.snapshot.extraRateWindows?
+                            .first(where: { $0.id == "doubao-agent-session" })?.window,
+                        secondary: context.snapshot.secondary ?? context.snapshot.extraRateWindows?
+                            .first(where: { $0.id == "doubao-agent-weekly" })?.window)
+                },
                 primaryBindingQuotaLanes: [.secondary, .tertiary]),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .cli, .api],
@@ -80,6 +98,9 @@ public enum DoubaoProviderDescriptor {
     {
         guard let config else { return base }
         var environment = base
+        if let region = config.sanitizedRegion {
+            environment[DoubaoSettingsReader.regionEnvironmentKeys[0]] = region
+        }
         let apiKey = config.sanitizedAPIKey
         if let apiKey, !apiKey.hasPrefix("AKLT") {
             for key in DoubaoSettingsReader.accessKeyIDEnvironmentKeys
@@ -88,27 +109,18 @@ public enum DoubaoProviderDescriptor {
                 environment.removeValue(forKey: key)
             }
             environment[DoubaoSettingsReader.apiKeyEnvironmentKeys[0]] = apiKey
-            if let region = config.sanitizedRegion {
-                environment[DoubaoSettingsReader.regionEnvironmentKeys[0]] = region
-            }
             return environment
         }
-        let accessKeyID = (apiKey?.hasPrefix("AKLT") == true ? apiKey : nil)
-            ?? DoubaoSettingsReader.accessKeyID(environment: base)
+        let accessKeyID = apiKey ?? DoubaoSettingsReader.accessKeyID(environment: base)
         let secretAccessKey = config.sanitizedSecretKey ?? DoubaoSettingsReader.secretAccessKey(environment: base)
         if let accessKeyID, let secretAccessKey {
             environment[DoubaoSettingsReader.accessKeyIDEnvironmentKeys[0]] = accessKeyID
             environment[DoubaoSettingsReader.secretAccessKeyEnvironmentKeys[0]] = secretAccessKey
-            let region = config.sanitizedRegion ?? DoubaoSettingsReader.regionEnvironmentKeys.lazy
-                .compactMap { DoubaoSettingsReader.cleaned(base[$0]) }
-                .first
+            let region = config.sanitizedRegion
+                ?? SettingsValue.first(in: base, keys: DoubaoSettingsReader.regionEnvironmentKeys)
             if let region {
                 environment[DoubaoSettingsReader.regionEnvironmentKeys[0]] = region
             }
-            return environment
-        }
-        if let region = config.sanitizedRegion {
-            environment[DoubaoSettingsReader.regionEnvironmentKeys[0]] = region
         }
         return environment
     }

@@ -45,6 +45,7 @@
 "hooks_any_provider" = "Будь-який провайдер";
 "hooks_threshold" = "Запускати за використання ≥";
 "hooks_threshold_placeholder" = "90";
+"hooks_executable" = "Виконуваний файл";
 "hooks_executable_placeholder" = "/usr/local/bin/my-command";
 "hooks_arguments_placeholder" = "Аргументи";
 "hooks_argument_placeholder" = "Аргумент";
@@ -99,6 +100,8 @@
 "Average (\\(metadata.sessionLabel) + \\(metadata.weeklyLabel))" = "Середній (\\(metadata.sessionLabel) + \\(metadata.weeklyLabel))";
 "Avoid Keychain prompts" = "Уникайте підказок Keychain";
 "Balance" = "Баланс";
+"Cloud credits" = "Хмарні кредити";
+"Expired" = "Термін дії минув";
 "Battery Saver" = "Економія батареї";
 "Bordered" = "З рамкою";
 "Build" = "Збірка";
@@ -149,6 +152,10 @@
 "Cookie: …" = "Печиво: …";
 "CopilotDeviceFlow" = "CopilotDeviceFlow";
 "Cost" = "Вартість";
+"Token history" = "Історія токенів";
+"Local token history · dollar costs unavailable" = "Локальна історія токенів · вартість у доларах недоступна";
+"Partial local history · recorded token subtotal" = "Неповна локальна історія · проміжна сума записаних токенів";
+"Local token history is unavailable or incomplete." = "Локальна історія токенів недоступна або неповна.";
 "Could not add Codex account" = "Не вдалося додати обліковий запис Codex";
 "Could not open Terminal for Gemini" = "Не вдалося відкрити термінал для Gemini";
 "Could not start claude /login" = "Не вдалося запустити claude /login";
@@ -493,6 +500,7 @@
 "cost_summary_style_inline_help" = "Показує підсумок витрат безпосередньо в головному меню.";
 "cost_summary_style_submenu_help" = "Натомість показує детальне підменю Вартість.";
 "cost_summary_style_both_help" = "Показує підсумок у головному меню та детальне підменю Вартість.";
+"Month to date" = "Від початку місяця";
 "cost_history_window_title" = "Вікно історії";
 "cost_history_window_help" = "Визначає, скільки днів локальних журналів використання показувати в меню.";
 "cost_history_days_title" = "Вікно історії: %d днів";
@@ -515,7 +523,6 @@
 "provider_accent_color_reset" = "Використовувати типовий";
 "quota_warnings_title" = "Попередження про квоту";
 "quota_warning_session" = "сесії";
-"quota_warning_session_capitalized" = "Сесія";
 "quota_warning_weekly" = "щотижня";
 "quota_warning_weekly_capitalized" = "Щотижня";
 "quota_warning_notification_title" = "%1$@ %2$@ квота низька";
@@ -536,6 +543,11 @@
 "session_depleted_notification_body" = "Залишилося 0%. Надішле сповіщення, коли знову стане доступним.";
 "session_restored_notification_title" = "%@ сеанс відновлено";
 "session_restored_notification_body" = "Квота сесії знову доступна.";
+"limit_reset_notifications_title" = "Сповіщення про скидання";
+"limit_reset_notifications_subtitle" = "Повідомляє, у якого провайдера та в якому вікні скинуто ліміт сесії або тижня.";
+"limit_reset_notification_title" = "Ліміт %1$@ скинуто (%2$@)";
+"limit_reset_notification_body" = "Нова квота доступна.";
+"limit_reset_notification_body_with_account" = "Обліковий запис %@. Нова квота доступна.";
 "quota_warning_warn_at" = "Попередити при";
 "quota_warning_global_threshold_subtitle" = "Відсотки, що залишилися для вікон сесії та тижня, якщо постачальник не замінить їх.";
 "quota_warning_sound" = "Відтворити звук сповіщення";
@@ -612,6 +624,12 @@
 "cost_summary_off" = "Вимкнено";
 "merge_icons_title" = "Злиття значків";
 "merge_icons_subtitle" = "Використовуйте одну піктограму панелі меню з перемикачем провайдерів.";
+"merged_icon_style_title" = "Стиль об'єднаного значка";
+"merged_icon_style_subtitle" = "Перемикач по черзі показує провайдерів; Стос показує двох провайдерів одночасно, кожного у своєму рядку.";
+"merged_icon_style_switcher" = "Перемикач";
+"merged_icon_style_stacked" = "Стос";
+"merge_icon_stacked_top_provider_title" = "Верхній рядок";
+"merge_icon_stacked_bottom_provider_title" = "Нижній рядок";
 "show_most_used_provider_title" = "Показати постачальника, який найчастіше використовується";
 "show_most_used_provider_subtitle" = "Рядок меню автоматично показує постачальника, який найближче до ліміту.";
 "display_mode_title" = "Режим відображення";
@@ -834,7 +852,6 @@
 "No local data found" = "Немає локальних даних";
 "Credits unavailable; keep Codex running to refresh." = "Кредити недоступні; продовжуйте працювати Codex для оновлення.";
 "No available fetch strategy for minimax." = "Немає доступної стратегії вибірки для minimax.";
-"No Cursor session found. Please log in to cursor.com in Safari, Chrome, Microsoft Edge, Brave, Arc, Dia, ChatGPT Atlas, Chromium, Helium, Vivaldi, Yandex Browser, Firefox, Zen, Colibri, Sidekick, Opera, Opera GX, or Edge Canary. If you use Safari, grant CodexBar Full Disk Access in System Settings ▸ Privacy & Security. You can also sign in to Cursor from the CodexBar menu (Add / switch account)." = "Сеанс курсору не знайдено. Увійдіть на cursor.com у Safari, Chrome, Microsoft Edge, Brave, Arc, Dia, ChatGPT Atlas, Chromium, Helium, Vivaldi, Yandex Browser, Firefox, Zen, Colibri, Sidekick, Opera, Opera GX або Edge Canary. Якщо ви користуєтеся Safari, надайте CodexBar повний доступ до диска в системних параметрах ▸ Конфіденційність і безпека. Ви також можете ввійти в Cursor з меню CodexBar (Додати/змінити обліковий запис).";
 "No OpenCode session cookies found in browsers." = "У браузерах не знайдено сеансових файлів cookie OpenCode.";
 "No available fetch strategy for %@." = "Немає доступної стратегії отримання для %@.";
 "Today" = "Сьогодні";
@@ -882,6 +899,12 @@
 "usage_percent_suffix_used" = "використовується";
 "Store multiple DeepSeek API keys." = "Зберігайте кілька ключів DeepSeek API.";
 "This week" = "Цього тижня";
+"Current window" = "Поточне вікно";
+"Last week" = "Минулого тижня";
+"%d weeks ago" = "%d тиж. тому";
+"Previous window" = "Попереднє вікно";
+"%d windows ago" = "%d вікн. тому";
+"Recent windows" = "Недавні вікна";
 "Week" = "тиждень";
 "Month" = "місяць";
 "Models" = "Моделі";
@@ -941,6 +964,14 @@
 "Overage" = "Надлишок";
 "Activity" = "діяльність";
 "Copied" = "Скопійовано";
+"Managed by Homebrew" = "Керується через Homebrew";
+"Copy update command" = "Скопіювати команду оновлення";
+"Update to %@" = "Оновити до %@";
+"CodexBar %@ is available" = "Доступна версія CodexBar %@";
+"CodexBar is up to date" = "CodexBar оновлено";
+"Checking for updates…" = "Перевірка оновлень…";
+"Updating with Homebrew…" = "Оновлення через Homebrew…";
+"Homebrew update failed. You can run this command in Terminal instead:" = "Не вдалося оновити через Homebrew. Натомість можна виконати цю команду в Терміналі:";
 "Copy error" = "Помилка копіювання";
 "Copy path" = "Копіювати шлях";
 "Extra usage spent" = "Витрачено додаткове використання";
@@ -1150,11 +1181,13 @@
 "Open Augment (Log Out & Back In)" = "Відкрити доповнення (вийти та повернутися)";
 "Open Codebuff Dashboard" = "Відкрийте інформаційну панель Codebuff";
 "Open Command Code Settings" = "Відкрийте налаштування коду команди";
-"Open Crof dashboard" = "Відкрийте інформаційну панель Crof";
 "Open Manus" = "Відкрийте Manus";
 "Open MiMo Balance" = "Відкрийте MiMo Balance";
 "Open Moonshot Console" = "Відкрийте консоль Moonshot";
 "Open Ollama API Keys" = "Відкрийте ключі Ollama API";
+"Open llmman" = "Відкрити llmman";
+"Stored in ~/.codexbar/config.json. Only needed when llmman serve requires API keys." = "Зберігається в ~/.codexbar/config.json. Потрібен лише тоді, коли llmman serve вимагає API-ключі.";
+"Address of llmman serve. Defaults to http://127.0.0.1:17434." = "Адреса llmman serve. За замовчуванням http://127.0.0.1:17434.";
 "Open StepFun Platform" = "Відкрийте платформу StepFun";
 "Open T3 Chat Settings" = "Відкрийте налаштування чату T3";
 "Open Volcengine Ark Console" = "Відкрийте консоль Volcengine Ark";
@@ -1218,7 +1251,6 @@
 "Stored in ~/.codexbar/config.json. Requires an Anthropic Admin API key." = "Зберігається в ~/.codexbar/config.json. Потрібен ключ API адміністратора Anthropic.";
 "Stored in ~/.codexbar/config.json. Used for /v1/quota-stats." = "Зберігається в ~/.codexbar/config.json. Використовується для /v1/quota-stats.";
 "Stored in ~/.codexbar/config.json. You can also provide CODEBUFF_API_KEY or let CodexBar read ~/.config/manicode/credentials.json (created by `codebuff login`)." = "Зберігається в ~/.codexbar/config.json. Ви також можете надати CODEBUFF_API_KEY або дозволити CodexBar читати ~/.config/manicode/credentials.json (створений `codebuff login`).";
-"Stored in ~/.codexbar/config.json. You can also provide CROF_API_KEY." = "Зберігається в ~/.codexbar/config.json. Ви також можете надати CROF_API_KEY.";
 "Stored in ~/.codexbar/config.json. You can also provide KILO_API_KEY or ~/.local/share/kilo/auth.json (kilo.access)." = "Зберігається в ~/.codexbar/config.json. Ви також можете надати KILO_API_KEY або ~/.local/share/kilo/auth.json (kilo.access).";
 "T3 Chat cookie" = "T3 Чат cookie";
 "Team mode" = "Командний режим";
@@ -1336,6 +1368,8 @@
 "Tracked tokens" = "Відстежувані токени";
 "Subscriptions" = "Підписки";
 "By subscription" = "За підписками";
+"By source" = "By source";
+"%d of %d sources have spend" = "%d of %d sources have spend";
 "No model-level history" = "Немає історії за моделями";
 "Daily estimated spend" = "Орієнтовні щоденні витрати";
 "Hourly estimated spend" = "Орієнтовні погодинні витрати";
@@ -1391,7 +1425,6 @@
 "menu_bar_layout_gap_tight" = "Вузький";
 "menu_bar_layout_gap_regular" = "Звичайний";
 "menu_bar_layout_vertical_adjustment" = "Вертикальне налаштування";
-"menu_bar_layout_keyboard_hint" = "Delete видаляє вибраний елемент";
 "menu_bar_layout_sample_account" = "обліковий запис";
 "menu_bar_layout_sample_runs_out" = "закінчиться пт.";
 "menu_bar_layout_token_icon" = "Значок";
@@ -1429,11 +1462,40 @@
 "Cost today unavailable" = "Вартість сьогодні: Недоступний";
 "30-day cost unavailable" = "Вартість за 30 днів: Недоступний";
 "Resets" = "Скидання";
+"codex_workspaces_cost_unavailable" = "Вартість недоступна";
+"codex_workspaces_elevated_usage" = "Підвищене використання";
+"codex_workspaces_estimated_cost_short" = "Оцін. вартість";
+"codex_workspaces_estimated_cost_value" = "оцін. %@";
+"codex_workspaces_estimated_local_logs" = "Оцінено за локальними журналами Codex";
+"codex_workspaces_failed_read_logs" = "Не вдалося прочитати журнали Codex";
+"codex_workspaces_high_usage" = "Високе використання";
+"codex_workspaces_indexing_local_logs" = "Індексування локальних журналів Codex…";
+"codex_workspaces_indexing_projects" = "Індексування проєктів…";
+"codex_workspaces_local_codex_chat" = "Локальний чат Codex";
+"codex_workspaces_model" = "Модель";
+"codex_workspaces_no_local_usage" = "Локальних даних про використання Codex ще немає";
+"codex_workspaces_no_sessions" = "У цьому робочому просторі немає сеансів";
+"codex_workspaces_normal_usage" = "Звичайне використання";
+"codex_workspaces_partial_data" = "Часткові дані";
+"codex_workspaces_refresh_usage_data" = "Оновити дані про використання";
+"codex_workspaces_retry" = "Повторити спробу";
+"codex_workspaces_saving_project_index" = "Збереження індексу проєктів…";
+"codex_workspaces_scanning_logs" = "Сканування журналів Codex…";
+"codex_workspaces_session" = "Сеанс";
+"codex_workspaces_session_count" = "Сеанси: %@";
+"codex_workspaces_sessions" = "Сеанси";
+"codex_workspaces_started" = "Розпочато";
+"codex_workspaces_title" = "Робочі простори";
+"codex_workspaces_token_count_accessibility" = "%@ токенів";
+"codex_workspaces_tokens" = "Токени";
+"codex_workspaces_top_model" = "Основна модель";
 "Finish now" = "Завершити зараз";
 "Continue in background" = "Продовжити у фоновому режимі";
 
 "Cumulative" = "Наростаючим підсумком";
 "Token activity" = "Активність токенів";
+"Earlier activity" = "Раніша активність";
+"More recent activity" = "Новіша активність";
 "View" = "Вигляд";
 "in the last year" = "за останній рік";
 "No activity in the last 12 months" = "Немає активності за останні 12 місяців";
@@ -1506,6 +1568,7 @@
 "Time until reset" = "Time until reset";
 "claude_oauth_keychain_access_revoked" = "Доступ до В’язки ключів Claude було відкликано через ротацію токена в Claude Code. Натисніть «Оновити», щоб повторно надати доступ, або перемкніть джерело використання Claude на CLI/Web.";
 "claude_showing_last_known_usage" = "Показано останні відомі дані про використання (отримано %@).";
+"claude_limited_usage_detail" = "Обмежена деталізація використання";
 /* Spend dashboard cost analysis */
 "90d" = "90d";
 "Input" = "Input";
@@ -1513,6 +1576,10 @@
 "Cache write" = "Cache write";
 "Reasoning" = "Reasoning";
 "Sessions" = "Sessions";
+
+"Independent chat" = "Окремий чат";
+"Independent chats" = "Окремі чати";
+"Chat %d" = "Чат %d";
 "Projects" = "Projects";
 "Plan metered" = "Plan metered";
 "List-price equivalent" = "List-price equivalent";
@@ -1561,4 +1628,62 @@
 "menu_bar_layout_conditional_default_session_spent" = "Сесія майже вичерпана";
 "menu_bar_layout_conditional_default_either_high" = "Сесія або тиждень на високому рівні";
 "menu_bar_layout_conditional_default_scoped_weekly" = "Тижневе вікно моделі понад 60 %";
+"Visible usage items" = "Видимі елементи використання";
+"Restore Defaults" = "Відновити типові значення";
+"Choose which usage rows appear in this provider's menu, Settings preview, and Overview." = "Виберіть, які рядки використання відображатимуться в меню цього постачальника, попередньому перегляді налаштувань і огляді.";
+"%@ (unavailable)" = "%@ (недоступний)";
 "Spending cap, not balance" = "Ліміт витрат, не баланс";
+
+"Color Pace Indicator" = "Кольорова індикація темпу";
+"Green pace indicator when behind pace, red when ahead of pace (risk of running out early)" = "Зелений — витрати нижчі за очікуваний темп (є запас); червоний — вищі (ризик дострокового вичерпання квоти).";
+"%@ weekly" = "%@ за тиждень";
+
+"agent_sessions_hide_unreachable_title" = "Приховувати недоступні вузли";
+"agent_sessions_hide_unreachable_subtitle" = "Приховувати вузли, якщо не вдалося отримати їхні сеанси.";
+
+/* Overview share flow */
+"Share Usage Snapshot…" = "Поділитися оглядом використання…";
+"Usage snapshot unavailable" = "Огляд використання недоступний";
+"CodexBar couldn't prepare a shareable usage snapshot. Refresh Usage & Spend and try again." = "CodexBar не вдалося підготувати огляд використання для поширення. Оновіть розділ «Використання й витрати» та повторіть спробу.";
+"Incomplete" = "Неповні дані";
+"Est. subtotal (%@): %@" = "Орієнтовний підсумок (%@): %@";
+"Excluded requests with missing final usage: %d" = "Виключені запити без остаточних даних про використання: %d";
+
+"overview_layout_title" = "Компонування огляду";
+"overview_layout_subtitle" = "Виберіть, скільки інформації показувати в огляді.";
+"overview_layout_detailed" = "Докладно";
+"overview_layout_compact" = "Компактний";
+
+"section_widgets" = "Віджети";
+"account_widgets_title" = "Оновлювати дані облікових записів для віджетів";
+"account_widgets_description" = "Виберіть обліковий запис у кожному віджеті Account Usage. Оновлює до шести облікових записів для кожного постачальника.";
+
+/* Spend time zone */
+"Statistics time zone" = "Часовий пояс статистики";
+"Use Mac's current time zone" = "Використати поточний часовий пояс Mac";
+"Daily usage uses a fixed time zone. Changing it may move usage to a different day." = "Використання за день обчислюється у фіксованому часовому поясі. Його зміна може перенести частину використання на інший день.";
+
+/* Antigravity local cost estimates */
+"antigravity_cost_estimate_hint" = "Локальне використання × публічні ціни API · це не рахунки та не кредити Antigravity";
+"antigravity_quota_window_note" = "Вартість вікна охоплює всі моделі · показано вікно найбільш обмеженої родини";
+"antigravity_no_priced_token_history" = "Немає оціненої історії токенів Antigravity.";
+"Supported browsers: %@. Use Manual for other browsers." = "Підтримувані браузери: %@. Для інших браузерів використовуйте ручний режим.";
+"Paste the Cookie header from a Chrome request to www.workbuddy.cn/profile/plans-usage." = "Вставте заголовок Cookie із запиту Chrome до www.workbuddy.cn/profile/plans-usage.";
+"Reserved" = "Зарезервовано";
+
+/* Selected browser profile */
+"Browser profile" = "Профіль браузера";
+"Unavailable profile: %@" = "Профіль недоступний: %@";
+"Read only the selected %@ profile. Accounts are never selected automatically." = "Читати лише вибраний профіль %@. Облікові записи ніколи не вибираються автоматично.";
+
+// Spend chart navigation and inspection
+"Recorded spend" = "Зафіксовані витрати";
+"Highest recorded spend" = "Найвищі зафіксовані витрати";
+"Previous day" = "Попередній день";
+"Next day" = "Наступний день";
+"Click to isolate a source. Click again to show all." = "Натисніть для перегляду одного джерела. Натисніть знову для перегляду всіх.";
+"Recorded hourly spend" = "Записані погодинні витрати";
+"Highest spend" = "Найбільші витрати";
+"Models for this day" = "Моделі за цей день";
+
+"Click a bar to explore. Use the menu below for exact amounts." = "Натисніть на стовпчик для перегляду деталей. Точні суми доступні в меню нижче.";

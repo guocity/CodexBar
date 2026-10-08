@@ -39,6 +39,17 @@ Common building blocks already exist:
 - OpenAI dashboard web scrape: `OpenAIDashboardFetcher` (WKWebView + JS)
 - cost usage: local log scanner (Codex + Claude)
 
+Browser discovery policy belongs to the provider. Use `ChromiumLocalStorageDiscovery.defaultBrowsers` for
+catalog-derived Chromium storage discovery; the shared traversal handles localStorage, sessionStorage, and
+origin-filtered IndexedDB. For intentionally Chrome-only cookie imports, use
+`BrowserCookieImportSupport.chromeOnly(reason:)` with the provider's reason for avoiding unrelated browser prompts.
+Copilot budgets, Grok, Helmcode, Qoder, Replicate, TypeSafe, Venice, and ZoomMate retain this restricted
+default. A shared catalog is not permission to widen a provider's documented browser or credential scope.
+Notion uses Chrome followed by Microsoft Edge, with background imports limited to existing prompt-free access.
+Muse (muse.ai) uses the catalog's default browser order, including Aside, Opera, and Opera Neon with SweetCookieKit 0.5.5.
+Plugin cookie settings display the provider's catalog-derived supported-browser names and a Manual fallback. Use the
+same `ctx.browser.supportedBrowsers` names in plugin sign-in guidance; never maintain a second browser-name list.
+
 Provider behavior is descriptor-driven. Two flat first-party manifests form the closed bootstrap boundary:
 `ProviderManifest` lists core descriptors and `ProviderImplementationManifest` lists app implementations. The registries
 retain thread-safe `register(_:)` methods for future dynamic providers.
@@ -86,7 +97,7 @@ lexical policy scan with a SwiftSyntax-based implementation that can model expre
 Introduce a single descriptor per provider:
 - `id` (stable `UsageProvider`)
 - display/labels/URLs (menu title, dashboard URL, status URL)
-- UI branding (icon name, primary color, 2–3-color confetti palette)
+- UI branding (icon name, primary color, 2–3-color confetti palette); see the [palette audit](provider-palette.md) for sourced accents and contrast decisions.
 - capabilities (supportsCredits, supportsTokenCost, supportsStatusPolling, supportsLogin)
 - fetch plan (allowed `--source` modes + ordered strategy pipeline)
 - CLI metadata (cliName, aliases, version provider)
@@ -95,6 +106,10 @@ Introduce a single descriptor per provider:
 UI and settings should become descriptor-driven:
 - no provider-specific branching for labels/links/toggle titles
 - minimal provider-specific UI (only when a provider truly needs bespoke UX)
+
+For detail-backed balances, set `presentation.menuBarBalanceDetailLabels` to the provider's ordered row labels.
+The shared menu bar resolver uses the first reported row for Balance elements and, when no quota window exists,
+automatic text. Keep real percentage windows intact; do not fabricate a quota for a credits-only account.
 
 ## Fetch strategies
 
@@ -201,6 +216,8 @@ struct ExampleFetchStrategy: ProviderFetchStrategy {
 - Identity silo: never display identity/plan fields from provider A inside provider B UI.
 - Privacy: default to on-device parsing; browser cookies are opt-in and never persisted by us beyond WebKit stores.
 - Reliability: providers must be timeout-bounded; no unbounded waits on network/PTY/UI.
+- Numeric parsing: preserve each source's rounding contract, then use failable integer conversion to reject
+  unrepresentable counts. Comparing with `Double(Int.max)` is insufficient because that boundary rounds upward.
 - Degradation: prefer cached data over flapping; show clear errors when stale.
 
 ## Hosted relay eligibility
@@ -232,6 +249,8 @@ Adding a first-party provider currently requires all of these registration point
    `caseDisplayRepresentations` entry to the WidgetKit `ProviderChoice` `AppEnum`. AppIntents extracts this table
    statically, so widget display representations cannot be derived at runtime. `WidgetProviderChoiceTests` keeps the
    literal table synchronized with selectable descriptor metadata and display names.
+   Also add a literal case and display entry to `BurnProviderChoice` for every provider, including providers with
+   `burnDownWidgetSelectable: false`; its stable ID table is separate from runtime widget eligibility.
 7. Add focused tests for the provider's parser/snapshot mapping, strategy availability and fallback, credential or
    settings projection, and CLI aliases/source validation as applicable.
 8. Add or update the user-facing provider entry in `docs/providers.md`, including authentication and data-source
@@ -252,6 +271,10 @@ implementation, icon, settings-section, or widget registrations by provider ID. 
 remain deliberate literal exceptions because AppIntents requires statically extractable declarations.
 
 ## UI notes (Providers settings)
+Providers with opt-in filesystem roots return `ProviderSettingsDirectoryListDescriptor` values from
+`settingsDirectoryLists(context:)`. The shared row owns the directory picker and add/remove controls;
+providers retain responsibility for path interpretation and scan scope.
+
 Current: checkboxes per provider.
 
 Preferred direction: table/list rows (like a “sessions” table):

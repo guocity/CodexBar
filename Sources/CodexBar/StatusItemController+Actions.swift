@@ -31,19 +31,6 @@ extension StatusItemController {
 extension StatusItemController: StatusItemMenuPersistentActionDelegate {
     // MARK: - Actions reachable from menus
 
-    func refreshStore(
-        forceTokenUsage: Bool,
-        refreshOpenMenusWhenComplete: Bool = true,
-        interaction: ProviderInteraction = .userInitiated)
-    {
-        Task {
-            await self.performStoreRefresh(
-                forceTokenUsage: forceTokenUsage,
-                refreshOpenMenusWhenComplete: refreshOpenMenusWhenComplete,
-                interaction: interaction)
-        }
-    }
-
     func performStoreRefresh(
         forceTokenUsage: Bool,
         refreshOpenMenusWhenComplete: Bool,
@@ -184,12 +171,13 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
             originatingMenuInteractionGeneration: originatingMenuInteractionGeneration)
     }
 
-    private func startManualRefresh(
+    func startManualRefresh(
         for provider: ProviderInstanceID?,
         originatingMenuID: ObjectIdentifier?,
         originatingMenuInteractionGeneration: Int?)
     {
         let firstPartyProvider = provider?.firstPartyProvider
+        let tracksFirstPartyCards = provider == nil || firstPartyProvider != nil
         let scope: ManualRefreshScope = provider.map(ManualRefreshScope.provider) ?? .global
         let scopedRefreshInFlight = provider.map { self.store.refreshingProviders.contains($0) }
             ?? !self.store.refreshingProviders.isEmpty
@@ -206,7 +194,7 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
               !scopedRefreshInFlight
         else { return }
 
-        let frozenModels = self.frozenManualRefreshMenuCardModels()
+        let frozenModels = tracksFirstPartyCards ? self.frozenManualRefreshMenuCardModels() : [:]
         let viewportRestoreRequests = self.armManualRefreshViewportRestoreRequests(
             originatingMenuID: originatingMenuID,
             originatingMenuInteractionGeneration: originatingMenuInteractionGeneration)
@@ -215,7 +203,9 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
             var completed = false
             defer {
                 self.manualRefreshTasks[scope] = nil
-                self.menuCardRefreshMonitor.endManualRefresh(for: firstPartyProvider)
+                if tracksFirstPartyCards {
+                    self.menuCardRefreshMonitor.endManualRefresh(for: firstPartyProvider)
+                }
                 self.updatePersistentRefreshItemsEnabled()
                 if completed {
                     self.scheduleCompletedManualRefreshViewportRestore(viewportRestoreRequests)
@@ -239,6 +229,12 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
                     for: provider,
                     refreshOpenMenusWhenComplete: true,
                     interaction: .userInitiated)
+            } else if let provider {
+                await self.withProviderInteraction(.userInitiated) {
+                    await self.store.refreshUserPlugin(provider)
+                    guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+                    self.refreshOpenMenusAfterUserPluginRefresh(provider)
+                }
             } else {
                 await self.performStoreRefresh(
                     enrichmentMode: .forcedBackground,
@@ -249,16 +245,21 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
             completed = true
         }
         self.manualRefreshTasks[scope] = task
-        self.menuCardRefreshMonitor.beginManualRefresh(frozenModels: frozenModels, provider: firstPartyProvider)
+        if tracksFirstPartyCards {
+            self.menuCardRefreshMonitor.beginManualRefresh(frozenModels: frozenModels, provider: firstPartyProvider)
+        }
         self.updatePersistentRefreshItemsEnabled()
     }
 
-    private func manualRefreshProvider(for menu: NSMenu?) -> ProviderInstanceID? {
+    func manualRefreshProvider(for menu: NSMenu?) -> ProviderInstanceID? {
         guard let menu else { return nil }
         if self.shouldMergeIcons {
             guard self.mergedMenu == nil || menu === self.mergedMenu else { return nil }
-            guard !self.isMergedOverviewSelected(in: menu) else { return nil }
-            return self.resolvedMenuProvider()?.instanceID
+            let enabledProviders = self.store.enabledFirstPartyProvidersForDisplay()
+            if let selection = self.resolvedMergedMenuSelection(enabledProviders: enabledProviders) {
+                return selection.instanceID
+            }
+            return self.resolvedMenuProvider(enabledProviders: enabledProviders)?.instanceID
         }
         return self.menuProviders[ObjectIdentifier(menu)]
     }
@@ -340,6 +341,10 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         self.updater.installUpdate()
     }
 
+    @objc func checkForUpdates() {
+        self.updater.checkForUpdates(nil)
+    }
+
     @objc func openDashboard() {
         // Provider-specific by design: Codex remains the historical action fallback when no provider is selected.
         let preferred = self.lastMenuProvider?.firstPartyProvider
@@ -355,6 +360,9 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         environment: [String: String] = ProcessInfo.processInfo.environment) -> URL?
     {
         // Provider-specific by design: these dashboards depend on region, source label, scope, or subscription plan.
+        if provider == .kimi {
+            return self.settings.kimiRegion.consoleURL
+        }
         if provider == .alibaba {
             return self.settings.alibabaCodingPlanAPIRegion.dashboardURL
         }
@@ -386,8 +394,13 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
 
         if provider == .qoder {
             return QoderProviderDescriptor.dashboardURL(
-                settings: self.settings.qoderSettingsSnapshot(tokenOverride: nil),
+                settings: self.settings.resolvedCookieSettings(provider: provider, tokenOverride: nil),
                 sourceLabel: self.store.sourceLabel(for: .qoder))
+        }
+
+        // Provider-specific by design: the successful Helmcode snapshot owns the detected tenant.
+        if provider == .helmcode {
+            return HelmcodeProviderDescriptor.dashboardURL(snapshot: self.store.snapshot(for: provider.instanceID))
         }
 
         let meta = self.store.metadata(for: provider)
@@ -573,6 +586,16 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         self.openSettings(pane: .stats)
     }
 
+    @objc func showProviderSettings(_ sender: NSMenuItem) {
+        guard let rawProvider = sender.representedObject as? String,
+              let provider = UsageProvider(rawValue: rawProvider)
+        else {
+            self.menuLogger.error("Provider settings action is missing a valid provider")
+            return
+        }
+        self.openSettings(pane: .provider(provider.instanceID))
+    }
+
     @objc func showSettingsAbout() {
         self.openSettings(pane: .about)
     }
@@ -644,7 +667,7 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
 
         self.scheduleQuitTermination { [weak self] in
             guard let self else { return }
-            self.prepareForAppShutdown()
+            // Let applicationWillTerminate remove items so released provider items keep their saved positions.
             self.terminateApplicationForQuit()
         }
     }
@@ -659,46 +682,20 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
 
     func openTerminal(command: String) {
         let terminal = self.settings.terminalApp
-
-        if terminal != .terminal, !terminal.isInstalled {
-            CodexBarLog.logger(LogCategories.terminal).warning(
-                "\(terminal.label) is not installed, falling back to Terminal.app",
-                metadata: ["terminal": terminal.rawValue])
-            Self.openTerminalInDefaultTerminal(command: command)
-            return
-        }
-
-        if Self.executeAppleScript(terminal.appleScript(command: command)) {
-            return
-        }
-        guard terminal != .terminal else { return }
-
-        CodexBarLog.logger(LogCategories.terminal).warning(
-            "\(terminal.label) AppleScript failed, falling back to Terminal.app",
-            metadata: ["terminal": terminal.rawValue])
-        Self.openTerminalInDefaultTerminal(command: command)
-    }
-
-    private static func openTerminalInDefaultTerminal(command: String) {
-        self.executeAppleScript(TerminalApp.terminal.appleScript(command: command))
-    }
-
-    /// Executes an AppleScript and returns `true` on success, `false` on failure.
-    @discardableResult
-    private static func executeAppleScript(_ source: String) -> Bool {
-        if let appleScript = NSAppleScript(source: source) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-            if let error {
+        Task { @MainActor in
+            switch await TerminalLauncher().launch(terminal, command: command) {
+            case .selected:
+                break
+            case .fallback:
+                CodexBarLog.logger(LogCategories.terminal).warning(
+                    "\(terminal.label) launch failed, fell back to Terminal.app",
+                    metadata: ["terminal": terminal.rawValue])
+            case .failed:
                 CodexBarLog.logger(LogCategories.terminal).error(
-                    "Failed to execute AppleScript",
-                    metadata: ["error": String(describing: error)])
-                return false
+                    "Failed to open terminal",
+                    metadata: ["terminal": terminal.rawValue])
             }
-            return true
         }
-        CodexBarLog.logger(LogCategories.terminal).error("Failed to compile AppleScript")
-        return false
     }
 
     private func resolvedShortcutProvider() -> UsageProvider {
@@ -732,7 +729,7 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         }
     }
 
-    func presentCodexLoginResult(_ result: CodexLoginRunner.Result) {
+    func presentCodexLoginResult(_ result: CLILoginRunner.Result) {
         guard let info = CodexLoginAlertPresentation.alertInfo(for: result) else { return }
         self.presentLoginAlert(title: info.title, message: info.message)
     }
@@ -774,9 +771,10 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         }
     }
 
-    func describe(_ outcome: CodexLoginRunner.Result.Outcome) -> String {
+    func describe(_ outcome: CLILoginRunner.Result.Outcome) -> String {
         switch outcome {
         case .success: "success"
+        case .cancelled: "cancelled"
         case .timedOut: "timedOut"
         case let .failed(status): "failed(status: \(status))"
         case .missingBinary: "missingBinary"

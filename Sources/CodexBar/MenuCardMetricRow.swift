@@ -1,3 +1,4 @@
+import CodexBarCore
 import SwiftUI
 
 struct MetricRow: View {
@@ -5,6 +6,7 @@ struct MetricRow: View {
     let layoutMetric: UsageMenuCardView.Model.Metric
     let title: String
     let progressColor: Color
+    var compact = false
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
@@ -23,9 +25,9 @@ struct MetricRow: View {
                 MetricRowHeader(
                     title: presentation.titleText,
                     layoutTitle: layoutPresentation.titleText,
-                    resetText: presentation.resetText,
-                    layoutResetText: layoutPresentation.resetText,
-                    resetHelpText: self.metric.resetHelpText,
+                    resetText: self.compact ? nil : presentation.resetText,
+                    layoutResetText: self.compact ? nil : layoutPresentation.resetText,
+                    resetHelpText: self.compact ? nil : self.metric.resetHelpText,
                     isHighlighted: self.isHighlighted)
                 VStack(alignment: .leading, spacing: 3) {
                     UsageProgressBar(
@@ -37,20 +39,20 @@ struct MetricRow: View {
                         warningMarkerPercents: self.metric.warningMarkerPercents,
                         workdayMarkerPercents: self.metric.workdayMarkerPercents,
                         workdayTickAppearance: self.metric.workdayTickAppearance)
-                    if let timeline = self.metric.resetTimeline {
+                    if !self.compact, let timeline = self.metric.resetTimeline {
                         ResetTimelineBar(
                             resetsAt: timeline.resetsAt,
                             windowSeconds: timeline.windowSeconds,
                             accessibilityLabel: L("Time until reset"))
                     }
                 }
-                if let layoutMetaText = layoutPresentation.metaText {
+                if !self.compact, let layoutMetaText = layoutPresentation.metaText {
                     self.layoutPreservingText(
                         presentation.metaText,
                         layoutText: layoutMetaText,
                         lineLimit: 2)
                 }
-                if let layoutDetailText = self.layoutMetric.detailText {
+                if !self.compact, let layoutDetailText = self.layoutMetric.detailText {
                     self.layoutPreservingText(
                         self.metric.detailText,
                         layoutText: layoutDetailText,
@@ -74,6 +76,8 @@ struct MetricRow: View {
             .lineLimit(lineLimit)
             .fixedSize(horizontal: false, vertical: true)
             .hidden()
+            // Freeze the measured height, but let updates use the entire metric row width.
+            .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .topLeading) {
                 if let text, !text.isEmpty {
                     Text(text)
@@ -81,7 +85,6 @@ struct MetricRow: View {
                         .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                         .lineLimit(lineLimit)
                         .truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .clipped()

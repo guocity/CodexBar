@@ -16,65 +16,17 @@ enum CLIRenderer {
         context: RenderContext,
         now: Date = Date()) -> String
     {
-        let descriptor = ProviderDescriptorRegistry.descriptor(for: provider)
-        let labels = descriptor.presentation.rateWindowLabels(
-            metadata: descriptor.metadata,
-            snapshot: snapshot)
-        var lines: [String] = []
-        lines.append(self.headerLine(context.header, useColor: context.useColor))
-        self.appendPrimaryLines(
-            provider: provider,
-            snapshot: snapshot,
-            labels: labels,
-            context: context,
-            now: now,
-            lines: &lines)
-        self.appendSecondaryLines(
-            provider: provider,
-            snapshot: snapshot,
-            labels: labels,
-            context: context,
-            now: now,
-            lines: &lines)
-        self.appendTertiaryLines(
-            provider: provider,
-            snapshot: snapshot,
-            labels: labels,
-            context: context,
-            now: now,
-            lines: &lines)
-        self.appendExtraRateWindows(
-            provider: provider,
-            snapshot: snapshot,
-            context: context,
-            now: now,
-            lines: &lines)
-        self.appendProviderDetails(snapshot.details, useColor: context.useColor, lines: &lines)
-        self.appendPresentationCostLines(
-            provider: provider,
-            snapshot: snapshot,
-            useColor: context.useColor,
-            lines: &lines)
-        self.appendLimitsUnavailableLine(
-            provider: provider,
-            snapshot: snapshot,
-            useColor: context.useColor,
-            lines: &lines)
-        self.appendCreditsLine(provider: provider, credits: credits, useColor: context.useColor, lines: &lines)
-        self.appendCodexResetCreditsLine(
-            provider: provider,
-            snapshot: snapshot,
-            now: now,
-            useColor: context.useColor,
-            lines: &lines)
-        self.appendIdentityAndNotes(
-            provider: provider,
-            snapshot: snapshot,
-            context: context,
-            lines: &lines)
+        var lines = [self.headerLine(context.header, useColor: context.useColor)]
+            + self.renderCardBodyLines(
+                provider: provider,
+                snapshot: snapshot,
+                credits: credits,
+                context: context,
+                includeIdentity: true,
+                now: now)
 
         if let status = context.status {
-            let statusLine = "Status: \(status.indicator.label)\(status.descriptionSuffix)"
+            let statusLine = "Status: \(status.indicator.cliLabel)\(status.descriptionSuffix)"
             lines.append(self.colorize(statusLine, indicator: status.indicator, useColor: context.useColor))
         }
 
@@ -94,39 +46,46 @@ enum CLIRenderer {
             metadata: descriptor.metadata,
             snapshot: snapshot)
         var lines: [String] = []
-        self.appendPrimaryLines(
-            provider: provider,
-            snapshot: snapshot,
-            labels: labels,
-            context: context,
-            now: now,
-            lines: &lines)
-        self.appendSecondaryLines(
-            provider: provider,
-            snapshot: snapshot,
-            labels: labels,
-            context: context,
-            now: now,
-            lines: &lines)
-        self.appendTertiaryLines(
-            provider: provider,
-            snapshot: snapshot,
-            labels: labels,
-            context: context,
-            now: now,
-            lines: &lines)
-        self.appendExtraRateWindows(
-            provider: provider,
-            snapshot: snapshot,
-            context: context,
-            now: now,
-            lines: &lines)
+        if let quotaLanes = Self.antigravityQuotaSummaryLanes(provider: provider, snapshot: snapshot) {
+            self.appendNamedRateWindowLines(quotaLanes, context: context, now: now, lines: &lines)
+        } else {
+            self.appendPrimaryLines(
+                provider: provider,
+                snapshot: snapshot,
+                labels: labels,
+                context: context,
+                now: now,
+                lines: &lines)
+            self.appendSecondaryLines(
+                provider: provider,
+                snapshot: snapshot,
+                labels: labels,
+                context: context,
+                now: now,
+                lines: &lines)
+            self.appendTertiaryLines(
+                provider: provider,
+                snapshot: snapshot,
+                labels: labels,
+                context: context,
+                now: now,
+                lines: &lines)
+            self.appendExtraRateWindows(
+                provider: provider,
+                snapshot: snapshot,
+                context: context,
+                now: now,
+                lines: &lines)
+        }
         self.appendProviderDetails(snapshot.details, useColor: context.useColor, lines: &lines)
         self.appendPresentationCostLines(
             provider: provider,
             snapshot: snapshot,
             useColor: context.useColor,
             lines: &lines)
+        if let history = self.liveHistoryLine(snapshot: snapshot, useColor: context.useColor) {
+            lines.append(history)
+        }
         self.appendLimitsUnavailableLine(
             provider: provider,
             snapshot: snapshot,
@@ -246,30 +205,6 @@ enum CLIRenderer {
         }
     }
 
-    static func gradientRemainingBar(remainingPercent: Double, width: Int) -> String {
-        let clamped = max(0, min(100, remainingPercent))
-        let barWidth = max(4, width)
-        let rawFilled = Int((clamped / 100) * Double(barWidth))
-        let filled = max(0, min(barWidth, rawFilled))
-        let empty = max(0, barWidth - filled)
-        let colors = self.remainingGradientRGB(remainingPercent: clamped)
-        var bar = ""
-        if filled > 0 {
-            for index in 0..<filled {
-                let t = filled == 1 ? 1.0 : Double(index) / Double(filled - 1)
-                let red = Int(Double(colors.dark.0) * (1 - t) + Double(colors.light.0) * t)
-                let green = Int(Double(colors.dark.1) * (1 - t) + Double(colors.light.1) * t)
-                let blue = Int(Double(colors.dark.2) * (1 - t) + Double(colors.light.2) * t)
-                bar += self.ansiTrueColor(red: red, green: green, blue: blue, "█")
-            }
-        }
-        if empty > 0 {
-            let emptyCell = self.ansiTrueColor(red: 48, green: 50, blue: 62, "░")
-            bar += String(repeating: emptyCell, count: empty)
-        }
-        return bar
-    }
-
     static func gradientRemainingTrackBar(remainingPercent: Double, width: Int) -> String {
         let clamped = max(0, min(100, remainingPercent))
         let barWidth = max(4, width)
@@ -322,10 +257,6 @@ enum CLIRenderer {
         self.ansiTrueColor(red: 198, green: 146, blue: 255, text)
     }
 
-    static func colorizeEnhancedAccent(_ text: String) -> String {
-        self.ansiTrueColor(red: 176, green: 132, blue: 232, text)
-    }
-
     static func colorizeEnhancedSubtle(_ text: String) -> String {
         self.ansiTrueColor(red: 130, green: 135, blue: 150, text)
     }
@@ -335,14 +266,7 @@ enum CLIRenderer {
     }
 
     static func colorizeEnhancedBadge(_ source: String) -> String {
-        let r = max(0, min(255, 66))
-        let g = max(0, min(255, 133))
-        let b = max(0, min(255, 244))
-        return "\u{001B}[38;2;245;248;255;48;2;\(r);\(g);\(b)m \(source) \u{001B}[0m"
-    }
-
-    static func colorizeEnhancedPlanBox(_ text: String) -> String {
-        self.ansiTrueColor(red: 220, green: 222, blue: 230, text)
+        "\u{001B}[38;2;245;248;255;48;2;66;133;244m \(source) \u{001B}[0m"
     }
 
     static func colorizeEnhancedPlanLabel(_ text: String) -> String {
@@ -405,40 +329,23 @@ enum CLIRenderer {
         let labels = descriptor.presentation.rateWindowLabels(
             metadata: descriptor.metadata,
             snapshot: snapshot)
-        var metrics: [CLICardMetric] = []
-        if let primary = snapshot.primary, !primary.isSyntheticPlaceholder {
-            metrics.append(self.makeCardMetric(
-                provider: provider,
-                label: labels.primary,
-                window: primary,
-                resetStyle: resetStyle,
-                now: now))
+        let windows: [NamedRateWindow]
+        if let quotaLanes = Self.antigravityQuotaSummaryLanes(provider: provider, snapshot: snapshot) {
+            windows = quotaLanes
+        } else {
+            let slots: [(String, RateWindow?)] = [
+                (labels.primary, snapshot.primary),
+                (labels.secondary, snapshot.secondary),
+                (labels.tertiary, labels.showsTertiary ? snapshot.tertiary : nil),
+            ]
+            windows = slots.compactMap { label, window in
+                guard let window, !window.isSyntheticPlaceholder else { return nil }
+                return NamedRateWindow(id: label, title: label, window: window)
+            } + descriptor.presentation.extraRateWindows(snapshot: snapshot)
         }
-        if let secondary = snapshot.secondary, !secondary.isSyntheticPlaceholder {
-            metrics.append(self.makeCardMetric(
-                provider: provider,
-                label: labels.secondary,
-                window: secondary,
-                resetStyle: resetStyle,
-                now: now))
+        return windows.map {
+            self.makeCardMetric(provider: provider, window: $0, resetStyle: resetStyle, now: now)
         }
-        if labels.showsTertiary, let tertiary = snapshot.tertiary, !tertiary.isSyntheticPlaceholder {
-            metrics.append(self.makeCardMetric(
-                provider: provider,
-                label: labels.tertiary,
-                window: tertiary,
-                resetStyle: resetStyle,
-                now: now))
-        }
-        for extra in descriptor.presentation.extraRateWindows(snapshot: snapshot) {
-            metrics.append(self.makeCardMetric(
-                provider: provider,
-                label: extra.title,
-                window: extra.window,
-                resetStyle: resetStyle,
-                now: now))
-        }
-        return metrics
     }
 
     static func collectCardInfoLines(
@@ -516,21 +423,21 @@ enum CLIRenderer {
 
     private static func makeCardMetric(
         provider: UsageProvider,
-        label: String,
-        window: RateWindow,
+        window: NamedRateWindow,
         resetStyle: ResetTimeDisplayStyle,
         now: Date) -> CLICardMetric
     {
-        let detailBacked = self.usesDetailBackedWindow(provider: provider)
+        let rateWindow = window.window
+        let detailBacked = ProviderDescriptorRegistry.descriptor(for: provider).metadata.usesDetailBackedWindow
         let reset = detailBacked
-            ? self.resetLineForDetailBackedWindow(window: window, style: resetStyle, now: now)
-            : self.resetLine(for: window, style: resetStyle, now: now)
-        let detailText = detailBacked ? self.detailLineForDetailBackedWindow(window: window) : nil
+            ? self.resetLineForDetailBackedWindow(window: rateWindow, style: resetStyle, now: now)
+            : UsageFormatter.resetLine(for: rateWindow, style: resetStyle, now: now)
+        let detailText = detailBacked ? self.detailLineForDetailBackedWindow(window: rateWindow) : nil
         return CLICardMetric(
-            label: label,
-            remainingPercent: window.remainingPercent,
+            label: window.title,
+            remainingPercent: window.usageKnown ? rateWindow.remainingPercent : nil,
             resetText: reset.map { "⏳ \($0)" },
-            resetAt: window.resetsAt,
+            resetAt: rateWindow.resetsAt,
             detailText: detailText)
     }
 
@@ -540,7 +447,7 @@ enum CLIRenderer {
 
     static func colorizeStatusLine(
         _ text: String,
-        indicator: ProviderStatusPayload.ProviderStatusIndicator,
+        indicator: ProviderStatusIndicator,
         useColor: Bool) -> String
     {
         self.colorize(text, indicator: indicator, useColor: useColor)
@@ -601,7 +508,7 @@ enum CLIRenderer {
         now: Date,
         lines: inout [String])
     {
-        if let primary = snapshot.primary {
+        if let primary = snapshot.primary?.measured {
             self.appendRateWindowLines(
                 provider: provider,
                 title: labels.primary,
@@ -681,6 +588,34 @@ enum CLIRenderer {
         }
     }
 
+    static func liveHistoryLine(snapshot: UsageSnapshot, useColor: Bool) -> String? {
+        guard let history = snapshot.costUsage else { return nil }
+        var values: [String] = []
+        if let amount = history.last30DaysCostUSD {
+            let value = UsageFormatter.currencyString(amount, currencyCode: history.currencyCode)
+            let provenance: String? = switch history.costProvenance {
+            case .vendorMetered: "reported"
+            case .listPriceEstimate: "estimated"
+            case .mixed: "includes estimates"
+            case .unknown: nil
+            }
+            values.append(provenance.map { "\(value) (\($0))" } ?? value)
+        }
+        if let tokens = history.last30DaysTokens {
+            let unit = tokens == 1 ? "token" : "tokens"
+            values.append("\(UsageFormatter.tokenCountString(tokens)) \(unit)")
+        }
+        guard !values.isEmpty else { return nil }
+        let label: String = if let custom = history.historyLabel,
+                               !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            custom
+        } else {
+            history.historyDays == 1 ? "Last 1 day" : "Last \(history.historyDays) days"
+        }
+        return self.labelValueLine(label, value: values.joined(separator: " · "), useColor: useColor)
+    }
+
     // swiftlint:disable:next function_parameter_count
     private static func appendTertiaryLines(
         provider: UsageProvider,
@@ -691,22 +626,15 @@ enum CLIRenderer {
         lines: inout [String])
     {
         guard labels.showsTertiary, let tertiary = snapshot.tertiary else { return }
-        lines.append(self.rateLine(title: labels.tertiary, window: tertiary, useColor: context.useColor))
-        if ProviderDescriptorRegistry.descriptor(for: provider).pace
-            .allowsPace(dataConfidence: snapshot.dataConfidence),
-            let pace = self.paceLine(
-                provider: provider,
-                window: tertiary,
-                slot: .tertiary,
-                weeklyWorkDays: context.weeklyWorkDays,
-                useColor: context.useColor,
-                now: now)
-        {
-            lines.append(pace)
-        }
-        if let reset = self.resetLine(for: tertiary, style: context.resetStyle, now: now) {
-            lines.append(self.subtleLine(reset, useColor: context.useColor))
-        }
+        self.appendRateWindowLines(
+            provider: provider,
+            title: labels.tertiary,
+            window: tertiary,
+            paceSlot: .tertiary,
+            dataConfidence: snapshot.dataConfidence,
+            context: context,
+            now: now,
+            lines: &lines)
     }
 
     private static func appendExtraRateWindows(
@@ -716,15 +644,50 @@ enum CLIRenderer {
         now: Date,
         lines: inout [String])
     {
-        let extras = ProviderDescriptorRegistry.descriptor(for: provider)
-            .presentation
-            .extraRateWindows(snapshot: snapshot)
-        for extra in extras {
-            lines.append(self.rateLine(title: extra.title, window: extra.window, useColor: context.useColor))
-            if let reset = self.resetLine(for: extra.window, style: context.resetStyle, now: now) {
-                lines.append(self.subtleLine(reset, useColor: context.useColor))
-            }
+        let presentation = ProviderDescriptorRegistry.descriptor(for: provider).presentation
+        self.appendNamedRateWindowLines(
+            presentation.extraRateWindows(snapshot: snapshot),
+            context: context,
+            now: now,
+            lines: &lines,
+            usesResetDescriptionAsDetail: presentation.menuCard.extraRateWindowShowsResetDescriptionAsDetail)
+    }
+
+    private static func appendNamedRateWindowLines(
+        _ windows: [NamedRateWindow],
+        context: RenderContext,
+        now: Date,
+        lines: inout [String],
+        usesResetDescriptionAsDetail: (NamedRateWindow) -> Bool = { _ in false })
+    {
+        for window in windows {
+            let line = window.usageKnown
+                ? self.rateLine(title: window.title, window: window.window, useColor: context.useColor)
+                : self.labelValueLine(window.title, value: "Unavailable", useColor: context.useColor)
+            lines.append(line)
+            self.appendResetAndDetailLines(
+                usesDetail: usesResetDescriptionAsDetail(window),
+                window: window.window,
+                context: context,
+                now: now,
+                lines: &lines)
         }
+    }
+
+    /// Quota-summary buckets replace legacy family representatives only on CLI display surfaces.
+    /// Keep raw snapshots intact and retain the existing all-idle/unknown-family visibility policy.
+    private static func antigravityQuotaSummaryLanes(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot) -> [NamedRateWindow]?
+    {
+        // Provider-specific by design: quota buckets replace Antigravity family representatives only in CLI views.
+        guard provider == .antigravity else { return nil }
+        let extras = snapshot.extraRateWindows ?? []
+        guard extras.contains(where: { AntigravityStatusSnapshot.isQuotaSummaryWindowID($0.id) }) else {
+            return nil
+        }
+        let idleWindowIDs = AntigravityQuotaFamilyVisibility.idleWindowIDs(in: snapshot)
+        return extras.filter { !idleWindowIDs.contains($0.id) }
     }
 
     private static func appendCreditsLine(
@@ -829,7 +792,7 @@ enum CLIRenderer {
             lines.append(pace)
         }
         self.appendResetAndDetailLines(
-            provider: provider,
+            usesDetail: ProviderDescriptorRegistry.descriptor(for: provider).metadata.usesDetailBackedWindow,
             window: window,
             context: context,
             now: now,
@@ -837,13 +800,13 @@ enum CLIRenderer {
     }
 
     private static func appendResetAndDetailLines(
-        provider: UsageProvider,
+        usesDetail: Bool,
         window: RateWindow,
         context: RenderContext,
         now: Date,
         lines: inout [String])
     {
-        if self.usesDetailBackedWindow(provider: provider) {
+        if usesDetail {
             if let reset = self.resetLineForDetailBackedWindow(window: window, style: context.resetStyle, now: now) {
                 lines.append(self.subtleLine(reset, useColor: context.useColor))
             }
@@ -853,17 +816,9 @@ enum CLIRenderer {
             return
         }
 
-        if let reset = self.resetLine(for: window, style: context.resetStyle, now: now) {
+        if let reset = UsageFormatter.resetLine(for: window, style: context.resetStyle, now: now) {
             lines.append(self.subtleLine(reset, useColor: context.useColor))
         }
-    }
-
-    private static func resetLine(for window: RateWindow, style: ResetTimeDisplayStyle, now: Date) -> String? {
-        UsageFormatter.resetLine(for: window, style: style, now: now)
-    }
-
-    private static func usesDetailBackedWindow(provider: UsageProvider) -> Bool {
-        ProviderDescriptorRegistry.descriptor(for: provider).metadata.usesDetailBackedWindow
     }
 
     private static func resetLineForDetailBackedWindow(
@@ -874,12 +829,7 @@ enum CLIRenderer {
         // Some provider snapshots use resetDescription for non-reset detail.
         // Only render "Resets ..." when a concrete reset date exists.
         guard window.resetsAt != nil else { return nil }
-        let resetOnlyWindow = RateWindow(
-            usedPercent: window.usedPercent,
-            windowMinutes: window.windowMinutes,
-            resetsAt: window.resetsAt,
-            resetDescription: nil)
-        return UsageFormatter.resetLine(for: resetOnlyWindow, style: style, now: now)
+        return UsageFormatter.resetLine(for: window, style: style, now: now)
     }
 
     private static func detailLineForDetailBackedWindow(window: RateWindow) -> String? {
@@ -1110,7 +1060,7 @@ enum CLIRenderer {
 
     private static func colorize(
         _ text: String,
-        indicator: ProviderStatusPayload.ProviderStatusIndicator,
+        indicator: ProviderStatusIndicator,
         useColor: Bool)
         -> String
     {

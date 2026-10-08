@@ -9,59 +9,6 @@ import CSQLite3
 // MARK: - Typed reads
 
 extension CostUsageStore {
-    func fetchFile(path: String) -> CostUsageStoreFile? {
-        self.withDatabase(default: nil) { database in
-            let statement = try Self.prepare(database, Self.fileSelectSQL + " WHERE path = ?")
-            defer { sqlite3_finalize(statement) }
-            Self.bind(path, to: statement, at: 1)
-            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
-            self.scopedReadWorkRecorderForTesting?.recordFile()
-            return try Self.decodeFile(statement)
-        }
-    }
-
-    func fetchTokenSnapshots(path: String) -> [CostUsageStoreTokenSnapshot] {
-        self.withDatabase(default: []) { database in
-            try Self.readTokenSnapshots(database, path: path, recorder: self.scopedReadWorkRecorderForTesting)
-        }
-    }
-
-    func fetchUsageRows(path: String) -> [CostUsageStoreUsageRow] {
-        self.withDatabase(default: []) { database in
-            try Self.readUsageRows(database, path: path, recorder: self.scopedReadWorkRecorderForTesting)
-        }
-    }
-
-    func fetchDayAggregates(sinceDay: String, untilDay: String) -> [CostUsageStoreDayAggregate] {
-        guard sinceDay <= untilDay else { return [] }
-        return self.withDatabase(default: []) { database in
-            try Self.readDayAggregates(database, sinceDay: sinceDay, untilDay: untilDay)
-        }
-    }
-
-    func fetchFileDayAggregates(path: String) -> [CostUsageStoreDayAggregate] {
-        self.withDatabase(default: []) { database in
-            try Self.readFileDayAggregates(database, path: path).map(\.aggregate)
-        }
-    }
-
-    func fetchForkLineage(path: String) -> CostUsageStoreForkLineage? {
-        self.withDatabase(default: nil) { database in
-            let values = try Self.readForkLineage(database, path: path)
-            return values.first
-        }
-    }
-
-    func fetchBufferedLines(
-        path: String,
-        kind: CostUsageStoreBufferedLineKind? = nil) -> [CostUsageStoreBufferedLine]
-    {
-        self.withDatabase(default: []) { database in
-            try Self.readBufferedLines(
-                database, path: path, kind: kind, recorder: self.scopedReadWorkRecorderForTesting)
-        }
-    }
-
     func fetchDiscoveryState() -> CostUsageStoreDiscoveryState? {
         self.readSingleton(CostUsageStoreDiscoveryState.self, table: "discovery_state")
     }
@@ -74,44 +21,22 @@ extension CostUsageStore {
         self.readSingleton(CostUsageStoreMetadata.self, table: "scan_metadata") ?? .empty
     }
 
-    func fetchAccumulator(path: String) -> CostUsageStoreAccumulator? {
-        self.withDatabase(default: nil) { database in
-            try Self.readAccumulators(database, path: path, recorder: self.scopedReadWorkRecorderForTesting).first
-        }
-    }
-
-    func readReport(sinceDay: String, untilDay: String) -> CostUsageStoreReport {
-        guard sinceDay <= untilDay else {
-            return CostUsageStoreReport(metadata: .empty, aggregates: [])
-        }
-        return self.withDatabase(default: CostUsageStoreReport(metadata: .empty, aggregates: [])) { database in
+    func readSnapshot(loadTokenSnapshots: Bool = true) -> CostUsageStoreSnapshot {
+        self.withDatabase(default: Self.emptySnapshot) { database in
             try Self.inReadTransaction(database) {
-                let metadata = try Self.readSingleton(
-                    CostUsageStoreMetadata.self,
-                    database: database,
-                    table: "scan_metadata") ?? .empty
-                let aggregates = try Self.readDayAggregates(
+                let snapshot = try Self.readSnapshot(
                     database,
-                    sinceDay: sinceDay,
-                    untilDay: untilDay)
-                return CostUsageStoreReport(metadata: metadata, aggregates: aggregates)
+                    loadTokenSnapshots: loadTokenSnapshots,
+                    recorder: self.scopedReadWorkRecorderForTesting)
+                #if DEBUG
+                if let checkpoint = CostUsageStoreTestHooks.current.codexCacheReadCheckpoint,
+                   checkpoint.databaseURL == self.databaseURL
+                {
+                    try checkpoint.checkpoint()
+                }
+                #endif
+                return snapshot
             }
-        }
-    }
-
-    func readSnapshot() -> CostUsageStoreSnapshot {
-        self.withDatabase(default: Self.emptySnapshot) { database in
-            try Self.inReadTransaction(database) {
-                try Self.readSnapshot(database, recorder: self.scopedReadWorkRecorderForTesting)
-            }
-        }
-    }
-
-    /// Reads from the caller's current transaction. The save path uses this after acquiring
-    /// its writer lock so content identity and the following write share one SQLite snapshot.
-    func readSnapshotInCurrentTransaction() -> CostUsageStoreSnapshot {
-        self.withDatabase(default: Self.emptySnapshot) { database in
-            try Self.readSnapshot(database, recorder: self.scopedReadWorkRecorderForTesting)
         }
     }
 
@@ -123,47 +48,6 @@ extension CostUsageStore {
                 foreignKeysEnabled: Self.scalarInt(database, "PRAGMA foreign_keys") == 1,
                 autoVacuumMode: Int(Self.scalarInt(database, "PRAGMA auto_vacuum")),
                 userVersion: Int(Self.scalarInt(database, "PRAGMA user_version")))
-        }
-    }
-
-    /// SQLite connection counters used by persistence regression tests. These count logical
-    /// row changes and cache pages flushed by this connection; they supplement, but are not a
-    /// substitute for, filesystem-level write evidence.
-    func persistenceWriteMetricsForTesting(resetPageCounter: Bool = false) -> (rows: Int, pages: Int) {
-        self.withDatabase(default: (rows: 0, pages: 0)) { database in
-            var current: Int32 = 0
-            var highwater: Int32 = 0
-            let result = sqlite3_db_status(
-                database,
-                SQLITE_DBSTATUS_CACHE_WRITE,
-                &current,
-                &highwater,
-                resetPageCounter ? 1 : 0)
-            guard result == SQLITE_OK else { throw StoreError.sqlite(result) }
-            return (rows: Int(sqlite3_total_changes(database)), pages: Int(current))
-        }
-    }
-
-    func setWALAutoCheckpointForTesting(_ pages: Int32) -> Bool {
-        self.withDatabase(default: false) { database in
-            let result = sqlite3_wal_autocheckpoint(database, pages)
-            guard result == SQLITE_OK else { throw StoreError.sqlite(result) }
-            return true
-        }
-    }
-
-    func truncateWALForTesting() -> Bool {
-        self.withDatabase(default: false) { database in
-            var logFrames: Int32 = 0
-            var checkpointedFrames: Int32 = 0
-            let result = sqlite3_wal_checkpoint_v2(
-                database,
-                nil,
-                SQLITE_CHECKPOINT_TRUNCATE,
-                &logFrames,
-                &checkpointedFrames)
-            guard result == SQLITE_OK else { throw StoreError.sqlite(result) }
-            return true
         }
     }
 
@@ -192,8 +76,10 @@ extension CostUsageStore {
             accumulators: [])
     }
 
-    private static func readSnapshot(
+    static func readSnapshot(
         _ database: OpaquePointer,
+        loadTokenSnapshots: Bool = true,
+        loadUsageRows: Bool = true,
         recorder: CostUsageStoreReadWorkRecorder?) throws -> CostUsageStoreSnapshot
     {
         let snapshot = try CostUsageStoreSnapshot(
@@ -202,8 +88,9 @@ extension CostUsageStore {
                 database: database,
                 table: "scan_metadata") ?? .empty,
             files: self.readFiles(database, recorder: recorder),
-            tokenSnapshots: self.readTokenSnapshots(database, path: nil, recorder: recorder),
-            usageRows: self.readUsageRows(database, path: nil, recorder: recorder),
+            tokenSnapshots: loadTokenSnapshots
+                ? self.readTokenSnapshots(database, path: nil, recorder: recorder) : [],
+            usageRows: loadUsageRows ? self.readUsageRows(database, path: nil, recorder: recorder) : [],
             fileDayAggregates: self.readFileDayAggregates(database, path: nil),
             dayAggregates: self.readDayAggregates(database, sinceDay: nil, untilDay: nil),
             forkLineage: self.readForkLineage(database, path: nil),
@@ -217,11 +104,15 @@ extension CostUsageStore {
                 database: database,
                 table: "lookback_state"),
             accumulators: self.readAccumulators(database, path: nil, recorder: recorder))
-        recorder?.recordFullSnapshot()
+        if loadTokenSnapshots {
+            recorder?.recordFullSnapshot()
+        } else {
+            recorder?.recordScannerSnapshot()
+        }
         return snapshot
     }
 
-    private static let fileSelectSQL = """
+    static let fileSelectSQL = """
     SELECT path, inode, mtime_ms, size, parsed_bytes, anchor_indexed_bytes,
            anchor_window_start, anchor_sha256, scan_state, scan_target_size,
            scan_complete, session_id, coverage_since_day, coverage_until_day, updated_at_ms
@@ -322,6 +213,18 @@ extension CostUsageStore {
         path: String?,
         recorder: CostUsageStoreReadWorkRecorder? = nil) throws -> [CostUsageStoreUsageRow]
     {
+        var values: [CostUsageStoreUsageRow] = []
+        try self.forEachUsageRow(database, path: path, recorder: recorder) { values.append($0) }
+        recorder?.recordMaterializedUsageRows(count: values.count)
+        return values
+    }
+
+    static func forEachUsageRow(
+        _ database: OpaquePointer,
+        path: String?,
+        recorder: CostUsageStoreReadWorkRecorder? = nil,
+        visit: (CostUsageStoreUsageRow) -> Void) throws
+    {
         var sql = """
         SELECT f.path, r.row_index, r.payload
         FROM usage_rows r JOIN files f ON f.id = r.file_id
@@ -335,7 +238,6 @@ extension CostUsageStore {
         if let path {
             self.bind(path, to: statement, at: 1)
         }
-        var values: [CostUsageStoreUsageRow] = []
         var result = sqlite3_step(statement)
         while result == SQLITE_ROW {
             guard let path = self.columnText(statement, at: 0),
@@ -343,11 +245,10 @@ extension CostUsageStore {
                   let payload = self.columnData(statement, at: 2)
             else { throw StoreError.invalidData }
             recorder?.recordUsageRow(payloadBytes: payload.count)
-            values.append(CostUsageStoreUsageRow(path: path, rowIndex: rowIndex, payload: payload))
+            visit(CostUsageStoreUsageRow(path: path, rowIndex: rowIndex, payload: payload))
             result = sqlite3_step(statement)
         }
         guard result == SQLITE_DONE else { throw StoreError.sqlite(result) }
-        return values
     }
 
     static func readDayAggregates(

@@ -39,17 +39,25 @@ public struct OpenCodexTokenUsage: Sendable, Equatable {
     }
 
     public var resolvedTotalTokens: Int? {
-        if let totalTokens {
-            return totalTokens
+        self.resolvedTotalCount.value
+    }
+
+    var tokenMix: CostUsageTokenMix {
+        CostUsageTokenMix(
+            inputTokens: self.inputTokens,
+            outputTokens: self.outputTokens,
+            cacheReadTokens: self.cacheReadTokens,
+            cacheCreationTokens: self.cacheCreationInputTokens,
+            reasoningTokens: self.reasoningOutputTokens)
+    }
+
+    var resolvedTotalCount: CostUsageDailyReport.OptionalCountAccumulator {
+        if let totalTokens { return .init(totalTokens) }
+        var count = CostUsageDailyReport.OptionalCountAccumulator()
+        for value in [self.inputTokens, self.outputTokens, self.cacheReadTokens, self.cacheCreationInputTokens] {
+            count.add(value)
         }
-        let parts = [
-            self.inputTokens,
-            self.outputTokens,
-            self.cacheReadTokens,
-            self.cacheCreationInputTokens,
-        ].compactMap(\.self)
-        guard !parts.isEmpty else { return nil }
-        return parts.reduce(0, +)
+        return count
     }
 
     private static func nonnegative(_ value: Int?) -> Int? {
@@ -95,7 +103,12 @@ public struct OpenCodexUsageEntry: Sendable, Equatable {
     }
 
     public var resolvedTotalTokens: Int? {
-        self.totalTokens ?? self.usage?.resolvedTotalTokens
+        self.resolvedTotalCount.value
+    }
+
+    var resolvedTotalCount: CostUsageDailyReport.OptionalCountAccumulator {
+        if let totalTokens { return .init(totalTokens) }
+        return self.usage?.resolvedTotalCount ?? .init()
     }
 
     public var displayAccountLabel: String {
@@ -129,7 +142,7 @@ public enum OpenCodexUsageLog {
             return URL(fileURLWithPath: override, isDirectory: true)
                 .appendingPathComponent("usage.jsonl", isDirectory: false)
         }
-        if Self.isRunningTests(environment) || Self.isRunningTests(ProcessInfo.processInfo.environment) {
+        if TestProcessSafety.isRunning || TestProcessSafety.isRunningUnderTests(environment: environment) {
             return nil
         }
         return homeDirectory
@@ -146,33 +159,5 @@ public enum OpenCodexUsageLog {
             .appendingPathComponent("CodexBar", isDirectory: true)
             ?? AppGroupSupport.localFallbackDirectory(fileManager: fileManager)
         return codexBarRoot.appendingPathComponent("opencodex-usage", isDirectory: true)
-    }
-
-    private static func isRunningTests(_ environment: [String: String]) -> Bool {
-        let keys = [
-            "XCTestConfigurationFilePath",
-            "XCTestBundlePath",
-            "XCTestSessionIdentifier",
-            "SWIFT_TESTING_ENABLED",
-            "TESTING_LIBRARY_VERSION",
-            "SWIFT_TESTING",
-        ]
-        if keys.contains(where: { environment[$0] != nil }) {
-            return true
-        }
-        if keys.contains(where: { ProcessInfo.processInfo.environment[$0] != nil }) {
-            return true
-        }
-        if NSClassFromString("XCTestCase") != nil {
-            return true
-        }
-        #if os(macOS)
-        return Bundle.allBundles.contains { $0.bundlePath.hasSuffix(".xctest") }
-        #else
-        // Bundle.allBundles crashes on Linux (swift-corelibs-foundation). SwiftPM
-        // builds test executables with a `.xctest` suffix, so detect the test
-        // process from the main executable instead of enumerating bundles.
-        return Bundle.main.executableURL?.path.hasSuffix(".xctest") ?? false
-        #endif
     }
 }

@@ -29,6 +29,20 @@ User-facing behavior and troubleshooting live in [Keychain prompts](keychain-pro
 - `KeychainCacheStore` retains its existing ACL-creation fallback and disabled-mode in-memory cookie behavior; those
   are separate from this prompt-containment change.
 
+## Browser consent and credential files
+
+Startup persists its resolved OpenAI web-access preference before loading app state. Both the legacy
+`openAIWebAccess` key and current `openAIWebAccessEnabled` key preserve explicit denial across launches. A denied
+preference with no configured cookie source is saved as Codex `cookieSource: "off"`, so CLI refresh cannot interpret
+an absent source as Auto. Existing explicit cookie-source choices and legacy inference on the first upgrade remain
+unchanged. This does not reset browser-denial cooldowns, read cookies, or introduce interactive access.
+
+Credential-bearing file writes share `CredentialFileWriter`: each write creates its own `0700` staging directory
+beside the destination and an exclusive `0600` file before writing bytes. The writer syncs the file and atomically
+renames it over the destination on the same volume, then removes its staging directory. A failed write leaves the
+previous destination intact. Config, token accounts, Codex auth/promotion, Antigravity OAuth, Gemini OAuth/curl requests,
+and file-backed cookie/session stores use this path.
+
 ## Unified legacy migration
 
 `CodexBarConfigMigrator` is the single migration owner for retired token, cookie, MiniMax, Kimi, OpenCode, and token-
@@ -62,6 +76,11 @@ Routine tests run with `CODEXBAR_SUPPRESS_TEST_KEYCHAIN_ACCESS=1` through `Scrip
 query construction checks, source audits, and store doubles. No test source except the audit itself may contain a
 direct Security item API call, and routine verification must not query the real Keychain, import browser cookies, or
 launch live provider probes.
+
+The live Claude PTY fetch test requires both `LIVE_CLAUDE_FETCH=1` and
+`CODEXBAR_ALLOW_TEST_KEYCHAIN_ACCESS=1`. The provider CLI owns its Keychain access and does not honor CodexBar's
+suppression flag, so the explicit access opt-in gates both the fetch and its raw diagnostic subprocess. Regression
+tests exercise that decision with synthetic environments without launching Claude.
 
 Relevant implementation files:
 

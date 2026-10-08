@@ -5,11 +5,88 @@ struct KimiUsageResponse: Codable {
 }
 
 struct KimiCodeAPIUsageResponse: Codable {
-    let usage: KimiUsageDetail
+    let usage: KimiUsageDetail?
+    let usages: KimiCodeUsagePools?
     let limits: [KimiRateLimit]?
+    let user: User?
+    let version: String?
+    private let versionIsMalformed: Bool
+
+    private enum CodingKeys: String, CodingKey { case usage, usages, limits, user, version }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.usage = try container.decodeIfPresent(KimiUsageDetail.self, forKey: .usage)
+        self.usages = try container.decodeIfPresent(KimiCodeUsagePools.self, forKey: .usages)
+        self.limits = try container.decodeIfPresent([KimiRateLimit].self, forKey: .limits)
+        // Optional membership schema drift must not reject otherwise valid Code usage.
+        self.user = try? container.decode(User.self, forKey: .user)
+        do {
+            self.version = try container.decodeIfPresent(String.self, forKey: .version)
+            self.versionIsMalformed = false
+        } catch {
+            self.version = nil
+            self.versionIsMalformed = true
+        }
+    }
+
+    struct User: Codable {
+        let membership: Membership?
+    }
+
+    struct Membership: Codable {
+        let level: String?
+    }
+
+    var planName: String? {
+        guard let level = user?.membership?.level?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !level.isEmpty, level != "LEVEL_UNSPECIFIED" else { return nil }
+        // Names from the official V1 membership goods catalog. Preserve unknown enum values.
+        guard !self.versionIsMalformed,
+              self.version == nil || self.version == "GOODS_VERSION_V1" else { return level }
+        switch level {
+        case "LEVEL_FREE": return "Adagio"
+        case "LEVEL_TRIAL": return "Andante"
+        case "LEVEL_BASIC": return "Moderato"
+        case "LEVEL_INTERMEDIATE": return "Allegretto"
+        case "LEVEL_ADVANCED": return "Allegro"
+        default: return level
+        }
+    }
 }
 
-struct KimiSubscriptionStatsResponse: Codable {
+struct KimiCodeUsagePools: Codable, Sendable {
+    let session: KimiRatioPool?
+    let weekly: KimiRatioPool?
+    let monthly: KimiRatioPool?
+
+    private enum CodingKeys: String, CodingKey {
+        case session = "limit_5h"
+        case weekly = "limit_7d"
+        case monthly = "limit_month_total"
+    }
+}
+
+struct KimiRatioPool: Codable, Sendable {
+    let usedRatio: Double?
+    let resetTime: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case usedRatio = "used_ratio"
+        case resetTime = "reset_time"
+    }
+
+    func window(minutes: Int) -> RateWindow? {
+        guard let usedRatio, usedRatio.isFinite, usedRatio >= 0 else { return nil }
+        return RateWindow(
+            usedPercent: min(1, usedRatio) * 100,
+            windowMinutes: minutes,
+            resetsAt: ISO8601DateParser.parse(self.resetTime),
+            resetDescription: nil)
+    }
+}
+
+struct KimiSubscriptionStatsResponse: Codable, Sendable {
     let subscriptionBalance: KimiSubscriptionBalance?
     let ratelimitCode7d: KimiSubscriptionRateLimit?
 }
@@ -96,11 +173,8 @@ public struct KimiUsageDetail: Codable, Sendable {
             return String(value)
         }
         if let value = try? container.decode(Double.self, forKey: key) {
-            if value.rounded(.towardZero) == value,
-               value >= Double(Int64.min),
-               value <= Double(Int64.max)
-            {
-                return String(Int64(value))
+            if let integer = Int64(exactly: value) {
+                return String(integer)
             }
             return String(value)
         }
@@ -132,5 +206,29 @@ struct KimiWindow: Codable, Sendable {
         }
         let result = self.duration.multipliedReportingOverflow(by: multiplier)
         return result.overflow ? nil : result.partialValue
+    }
+}
+
+/// The active subscription, as returned by the same endpoint used by the Code console.
+struct KimiSubscriptionResponse: Decodable {
+    let subscription: Subscription?
+
+    struct Subscription: Decodable {
+        let active: Bool?
+        let status: String?
+        let goods: Goods?
+    }
+
+    struct Goods: Decodable {
+        let title: String?
+    }
+
+    var planName: String? {
+        guard let subscription,
+              subscription.active == true,
+              subscription.status == "SUBSCRIPTION_STATUS_ACTIVE",
+              let title = subscription.goods?.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else { return nil }
+        return title
     }
 }

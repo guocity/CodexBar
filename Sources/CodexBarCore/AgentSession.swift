@@ -149,6 +149,22 @@ struct DirectoryMetadataScanBudget {
         clock() < self.deadline
     }
 
+    func compactMapWhileTimeRemains<Result>(
+        _ urls: [URL],
+        clock: () -> Date = Date.init,
+        transform: (URL) -> Result?) -> [Result]
+    {
+        var results: [Result] = []
+        for url in urls {
+            // Enumeration already charged the entry count; enrichment shares its deadline.
+            guard self.hasTimeRemaining(clock: clock) else { break }
+            if let result = transform(url) {
+                results.append(result)
+            }
+        }
+        return results
+    }
+
     private mutating func entries(
         in directory: URL,
         fileManager: FileManager,
@@ -168,10 +184,38 @@ struct DirectoryMetadataScanBudget {
             guard let url = enumerator.nextObject() as? URL else { break }
             self.remainingEntryCount -= 1
             self.didVisitEntry?()
+            guard self.hasTimeRemaining(clock: clock) else { break }
             let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             entries.append((url, isDirectory))
         }
         return entries
+    }
+}
+
+enum AgentProcessPath {
+    /// Foundation's tilde rules vary by runtime/SDK. An explicit directory hint avoids a metadata probe.
+    static let expandsBareTilde = URL(fileURLWithPath: "~", isDirectory: false).relativePath != "~"
+
+    static func basename(
+        _ path: String,
+        currentDirectory: @autoclosure () -> String = FileManager.default.currentDirectoryPath,
+        expandTilde: (String) -> String = { ($0 as NSString).expandingTildeInPath },
+        expandsBareTilde: Bool = Self.expandsBareTilde) -> String
+    {
+        let path = path.hasPrefix("~") && (expandsBareTilde || path.hasPrefix("~/")) ? expandTilde(path) : path
+        let basename = (path as NSString).lastPathComponent
+        if path.hasPrefix("/") { return basename }
+        guard basename.isEmpty || basename == "." || basename == ".." else { return basename }
+        // File URLs resolve relative dot components against CWD, but leave absolute ones alone.
+        var components = currentDirectory().components(separatedBy: "/")
+        for component in path.components(separatedBy: "/") {
+            if component == ".." {
+                if components.count > 1 { components.removeLast() }
+            } else if component != "." {
+                components.append(component)
+            }
+        }
+        return components.last(where: { !$0.isEmpty }) ?? "/"
     }
 }
 
@@ -180,21 +224,38 @@ public struct AgentProcessRecord: Equatable, Sendable {
     public let ppid: Int32
     public let startedAt: Date?
     public let command: String
+    /// Original argv when the platform exposes it. `command` remains the portable fallback.
+    public let arguments: [String]?
+    /// Only Pi root selectors; nil means unavailable and an empty map means a known empty selection.
+    @ProcessEnvironment public private(set) var piSelectorEnvironment: [String: String]?
 
-    public init(pid: Int32, ppid: Int32, startedAt: Date?, command: String) {
+    public init(
+        pid: Int32,
+        ppid: Int32,
+        startedAt: Date?,
+        command: String,
+        arguments: [String]? = nil,
+        piSelectorEnvironment: [String: String]? = nil)
+    {
         self.pid = pid
         self.ppid = ppid
         self.startedAt = startedAt
         self.command = command
+        self.arguments = arguments
+        self.piSelectorEnvironment = PiProcessEnvironment.filtered(piSelectorEnvironment)
+    }
+
+    func withPiSelectorEnvironment(_ environment: [String: String]?) -> Self {
+        var record = self
+        record.piSelectorEnvironment = PiProcessEnvironment.filtered(environment)
+        return record
     }
 
     public var executableBasename: String {
-        let firstToken = self.command.split(whereSeparator: \ .isWhitespace).first.map(String.init) ?? ""
-        let firstBasename = URL(fileURLWithPath: firstToken).lastPathComponent
-        if firstBasename == "disclaimer" {
-            return firstBasename
-        }
-        if self.command.contains("Application Support/Claude/claude-code/claude") {
+        let firstToken = self.arguments?.first ?? self.command.split(whereSeparator: \ .isWhitespace).first
+            .map(String.init) ?? ""
+        let firstBasename = AgentProcessPath.basename(firstToken)
+        if firstBasename != "disclaimer", self.command.contains("Application Support/Claude/claude-code/claude") {
             return AgentSession.Provider.claude.rawValue
         }
         return firstBasename
@@ -229,7 +290,7 @@ public enum AgentPSOutputParser {
                 return !self.isObviousPiFamilyHelper(record.command)
             }
             if basename == AgentSession.Provider.codex.rawValue {
-                let arguments = self.arguments(record.command)
+                let arguments = self.arguments(record)
                 return self.isCodexAgentExecutable(record.command) &&
                     !arguments.contains("app-server") &&
                     !arguments.contains("--help") &&
@@ -267,10 +328,23 @@ public enum AgentPSOutputParser {
     }
 
     public static func piDialect(for record: AgentProcessRecord) -> AgentSession.Dialect? {
-        let tokens = record.command.split(whereSeparator: \ .isWhitespace).map(String.init)
-        guard let firstToken = tokens.first else { return nil }
+        self.piDialect(executableBasename: record.executableBasename, arguments: self.arguments(record))
+    }
 
-        let firstBasename = URL(fileURLWithPath: firstToken).lastPathComponent.lowercased()
+    static func piDialect(arguments: [String]) -> AgentSession.Dialect? {
+        guard let dialect = self.piDialect(
+            executableBasename: AgentProcessPath.basename(arguments.first ?? ""),
+            arguments: Array(arguments.dropFirst()))
+        else { return nil }
+        return arguments.joined(separator: " ")
+            .contains("Application Support/Claude/claude-code/claude") ? nil : dialect
+    }
+
+    static func piDialect(
+        executableBasename: String,
+        arguments: @autoclosure () -> [String]) -> AgentSession.Dialect?
+    {
+        let firstBasename = AgentProcessPath.basename(executableBasename).lowercased()
         if firstBasename == AgentSession.Provider.pi.rawValue {
             return .pi
         }
@@ -278,8 +352,8 @@ public enum AgentPSOutputParser {
             return .omp
         }
         guard firstBasename == "bun" else { return nil }
-        return tokens.dropFirst().contains {
-            URL(fileURLWithPath: $0).lastPathComponent.lowercased() == "omp"
+        return arguments().contains {
+            AgentProcessPath.basename($0).lowercased() == "omp"
         } ? .omp : nil
     }
 
@@ -292,30 +366,29 @@ public enum AgentPSOutputParser {
         records.contains { record in
             record.executableBasename.lowercased() == AgentSession.Provider.codex.rawValue &&
                 self.isCodexAgentExecutable(record.command) &&
-                self.arguments(record.command).contains("app-server")
+                self.arguments(record).contains("app-server")
         }
     }
 
-    static func chatGPTCodexAppServerExecutable(
+    static let chatGPTCodexExecutablePaths: Set<String> = [
+        "/Applications/ChatGPT.app/Contents/Resources/codex",
+        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+    ]
+
+    static func hasTrustedChatGPTCodexAppServer(
         in records: [AgentProcessRecord],
-        homeDirectory: URL) -> String?
+        validator: (AgentProcessRecord) -> Bool) -> Bool
     {
-        let allowedPaths = Set([
-            URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex")
-                .standardizedFileURL.path,
-            homeDirectory.appendingPathComponent("Applications/ChatGPT.app/Contents/Resources/codex")
-                .standardizedFileURL.path,
-        ])
+        records.contains { record in
+            let executable = record.arguments?.first ?? record.command.split(whereSeparator: \ .isWhitespace)
+                .first.map(String.init) ?? ""
+            return self.chatGPTCodexExecutablePaths.contains(executable) &&
+                self.arguments(record).contains("app-server") && validator(record)
+        }
+    }
 
-        return records.lazy.compactMap { record -> String? in
-            guard record.executableBasename.lowercased() == AgentSession.Provider.codex.rawValue,
-                  self.arguments(record.command).contains("app-server"),
-                  let executable = record.command.split(whereSeparator: \ .isWhitespace).first
-            else { return nil }
-
-            let path = URL(fileURLWithPath: String(executable)).standardizedFileURL.path
-            return allowedPaths.contains(path) ? path : nil
-        }.first
+    private static func arguments(_ record: AgentProcessRecord) -> [String] {
+        Array((record.arguments ?? record.command.split(whereSeparator: \ .isWhitespace).map(String.init)).dropFirst())
     }
 
     private static func arguments(_ command: String) -> [String] {
@@ -325,7 +398,7 @@ public enum AgentPSOutputParser {
     private static func normalizedClaudeArguments(_ command: String) -> [String] {
         let arguments = self.arguments(command)
         if let index = arguments.firstIndex(where: {
-            URL(fileURLWithPath: $0).lastPathComponent == AgentSession.Provider.claude.rawValue
+            AgentProcessPath.basename($0) == AgentSession.Provider.claude.rawValue
         }) {
             return Array(arguments.suffix(from: arguments.index(after: index)))
         }

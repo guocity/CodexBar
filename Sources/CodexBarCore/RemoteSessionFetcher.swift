@@ -191,10 +191,14 @@ public struct RemoteSessionFetcher: Sendable {
             let result = try await SubprocessRunner.run(
                 binary: ssh,
                 arguments: [
-                    "-o", "BatchMode=yes",
-                    "-o", "ConnectTimeout=3",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=3",
                     host,
-                    "sh", "-lc", Self.shellQuote(command),
+                    "sh",
+                    "-lc",
+                    Self.shellQuote(command),
                 ],
                 environment: environment,
                 timeout: 5,
@@ -231,7 +235,7 @@ public struct RemoteSessionFetcher: Sendable {
     /// that omits the standard CLI locations, so we also probe them explicitly before
     /// falling back to the app binary itself.
     package static func tailscaleBinaryCandidates(path: String?) -> [String] {
-        let pathDirs = path?.split(separator: ":").map(String.init) ?? []
+        let pathDirs = PathBuilder.searchDirectories(path?.split(separator: ":").map(String.init) ?? [])
         var seen = Set<String>()
         var candidates = (pathDirs + ["/usr/local/bin", "/opt/homebrew/bin"])
             .filter { seen.insert($0).inserted }
@@ -244,28 +248,21 @@ public struct RemoteSessionFetcher: Sendable {
 
     /// Environment that keeps the dual-mode Tailscale app binary in CLI mode.
     ///
-    /// With no shell/terminal marker present the binary boots the full menu-bar GUI
-    /// (SkyLight/WindowServer, status icon) instead of running the CLI: it never emits
-    /// JSON, the probe times out, and the Tailscale icon flickers on every refresh. A
-    /// set `TERM` or `SHLVL` forces CLI mode (argv[0] casing and `XPC_SERVICE_NAME` do
-    /// not). `SHLVL` is what the app's own `/bin/sh` CLI wrapper injects, so we mirror it here.
-    ///
-    /// Applied to every probe, not just the app-binary fallback: it is redundant but harmless for the
-    /// CLI wrapper (itself a `/bin/sh` script that already exports `SHLVL`), and injecting it
-    /// unconditionally keeps CLI mode guaranteed regardless of which binary `tailscaleBinary` resolves.
-    /// An existing `TERM`/`SHLVL` (real terminal context) is left untouched.
+    /// Shell markers alone can still select the GUI path and crash newer app binaries. Force the
+    /// documented CLI override for every candidate, including symlinks to the app. Retain the shell
+    /// marker for older installations without changing an existing terminal context.
     package static func tailscaleCLIEnvironment(from environment: [String: String]) -> [String: String] {
-        guard environment["TERM"] == nil, environment["SHLVL"] == nil else { return environment }
         var environment = environment
-        environment["SHLVL"] = "1"
+        environment["TAILSCALE_BE_CLI"] = "1"
+        if environment["TERM"] == nil, environment["SHLVL"] == nil {
+            environment["SHLVL"] = "1"
+        }
         return environment
     }
 
     private func findExecutable(_ name: String, environment: [String: String]) -> String? {
         let path = environment["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-        return path.split(separator: ":")
-            .map { String($0) + "/" + name }
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
+        return BinaryLocator.find(name, in: path.split(separator: ":").map(String.init), fileManager: .default)
     }
 
     public static func sanitizedHosts(_ hosts: [String]) -> [String] {
@@ -276,10 +273,15 @@ public struct RemoteSessionFetcher: Sendable {
                 CharacterSet.controlCharacters.contains(scalar) ||
                     CharacterSet.whitespacesAndNewlines.contains(scalar)
             }
+            let key: String = if let separator = host.lastIndex(of: "@") {
+                String(host[...separator]) + host[host.index(after: separator)...].lowercased()
+            } else {
+                host.lowercased()
+            }
             guard !host.isEmpty,
                   !host.hasPrefix("-"),
                   !hasUnsafeScalar,
-                  seen.insert(host.lowercased()).inserted
+                  seen.insert(key).inserted
             else { return nil }
             return host
         }

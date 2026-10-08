@@ -33,16 +33,18 @@ public enum AmpProviderDescriptor {
             branding: ProviderBranding(
                 iconStyle: .init(provider: .amp),
                 iconResourceName: "ProviderIcon-amp",
-                color: ProviderColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255),
+                color: ProviderColor(hex: 0xF34E3F),
                 confettiPalette: [
                     ProviderColor(hex: 0x091C1E),
                     ProviderColor(hex: 0xDFDFC1),
-                    ProviderColor(hex: 0xD97706),
+                    ProviderColor(hex: 0xF34E3F),
                 ]),
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "Amp cost summary is not supported." }),
-            pace: .calendarMonthResetWindow,
+            pace: ProviderPaceCapability(resetWindowPace: .custom { window, _ in
+                window.windowMinutes != nil && window.resetDescription?.hasPrefix("renews in ") == true
+            }),
             presentation: ProviderUsagePresentation(
                 rateWindowLabeler: { metadata, snapshot, _ in
                     ProviderRateWindowLabels(
@@ -65,7 +67,10 @@ public enum AmpProviderDescriptor {
     }
 
     public static func primaryLabel(snapshot: UsageSnapshot) -> String? {
-        snapshot.secondary == nil ? nil : "Other usage"
+        if snapshot.detailRow(label: "Agent") != nil {
+            return "Agent usage"
+        }
+        return snapshot.secondary == nil ? nil : "Other usage"
     }
 
     public static func secondaryLabel(snapshot: UsageSnapshot) -> String? {

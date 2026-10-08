@@ -21,6 +21,9 @@ enum ProviderChoice: String, AppEnum {
     case opencodego
     case mistral
     case kimi
+    case deepseek
+    case openrouter
+    case pi
 
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Provider")
 
@@ -45,6 +48,9 @@ enum ProviderChoice: String, AppEnum {
         .opencodego: DisplayRepresentation(title: "OpenCode Go"),
         .mistral: DisplayRepresentation(title: "Mistral"),
         .kimi: DisplayRepresentation(title: "Kimi Code"),
+        .deepseek: DisplayRepresentation(title: "DeepSeek"),
+        .openrouter: DisplayRepresentation(title: "OpenRouter"),
+        .pi: DisplayRepresentation(title: "Pi"),
     ]
 
     var provider: UsageProvider {
@@ -67,7 +73,7 @@ enum CompactMetric: String, AppEnum {
     static let caseDisplayRepresentations: [CompactMetric: DisplayRepresentation] = [
         .credits: DisplayRepresentation(title: "Credits left"),
         .todayCost: DisplayRepresentation(title: "Today cost"),
-        .last30DaysCost: DisplayRepresentation(title: "30d cost"),
+        .last30DaysCost: DisplayRepresentation(title: "Cost"),
     ]
 }
 
@@ -171,7 +177,7 @@ struct CodexBarTimelineProvider: AppIntentTimelineProvider {
 struct CodexBarSwitcherTimelineProvider: TimelineProvider {
     func placeholder(in context: Context) -> CodexBarSwitcherEntry {
         let snapshot = WidgetPreviewData.snapshot()
-        let providers = self.availableProviders(from: snapshot)
+        let providers = Self.supportedProviders(from: snapshot)
         return CodexBarSwitcherEntry(
             date: Date(),
             provider: providers.first ?? .codex,
@@ -194,7 +200,7 @@ struct CodexBarSwitcherTimelineProvider: TimelineProvider {
 
     private func makeEntry() -> CodexBarSwitcherEntry {
         let snapshot = WidgetSnapshotStore.load() ?? WidgetPreviewData.emptySnapshot()
-        let providers = self.availableProviders(from: snapshot)
+        let providers = Self.supportedProviders(from: snapshot)
         let stored = WidgetSelectionStore.loadSelectedProvider()
         let selected = providers.first { $0.instanceID == stored } ?? providers.first ?? .codex
         if selected.instanceID != stored {
@@ -205,10 +211,6 @@ struct CodexBarSwitcherTimelineProvider: TimelineProvider {
             provider: selected,
             availableProviders: providers,
             snapshot: snapshot)
-    }
-
-    private func availableProviders(from snapshot: WidgetSnapshot) -> [UsageProvider] {
-        Self.supportedProviders(from: snapshot)
     }
 
     static func supportedProviders(from snapshot: WidgetSnapshot) -> [UsageProvider] {
@@ -266,15 +268,20 @@ enum WidgetPreviewData {
     }
 
     static func snapshot() -> WidgetSnapshot {
-        let primary = RateWindow(usedPercent: 35, windowMinutes: 300, resetsAt: nil, resetDescription: "Resets in 4h")
+        let now = Date()
+        let primary = RateWindow(
+            usedPercent: 35,
+            windowMinutes: 300,
+            resetsAt: now.addingTimeInterval(4 * 3600),
+            resetDescription: "Resets in 4h")
         let secondary = RateWindow(
             usedPercent: 60,
             windowMinutes: 10080,
-            resetsAt: nil,
+            resetsAt: now.addingTimeInterval(3 * 86400),
             resetDescription: "Resets in 3d")
         let entry = WidgetSnapshot.ProviderEntry(
             provider: .codex,
-            updatedAt: Date(),
+            updatedAt: now,
             primary: primary,
             secondary: secondary,
             tertiary: nil,
@@ -294,6 +301,6 @@ enum WidgetPreviewData {
                 WidgetSnapshot.DailyUsagePoint(dayKey: "2025-12-06", totalTokens: 70000, costUSD: 8.9),
                 WidgetSnapshot.DailyUsagePoint(dayKey: "2025-12-07", totalTokens: 110_000, costUSD: 13.7),
             ])
-        return WidgetSnapshot(entries: [entry], generatedAt: Date())
+        return WidgetSnapshot(entries: [entry], generatedAt: now)
     }
 }

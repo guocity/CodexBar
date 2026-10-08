@@ -101,6 +101,40 @@ extension StatusMenuTests {
     }
 
     @Test
+    func `usage submenu selection clears when deselected without selecting credits`() throws {
+        let previousRendering = StatusItemController.menuCardRenderingEnabled
+        StatusItemController.menuCardRenderingEnabled = true
+        defer { StatusItemController.menuCardRenderingEnabled = previousRendering }
+
+        let settings = self.makeSettings()
+        settings.statusChecksEnabled = false
+        let controller = self.makeRecyclingController(settings: settings)
+        defer { controller.releaseStatusItemsForTesting() }
+        let menu = NSMenu()
+        let usage = controller.makeMenuCardItem(
+            Text("Usage"),
+            id: "menuCardUsage",
+            width: 300,
+            submenu: NSMenu(),
+            containsInteractiveControls: true)
+        let credits = controller.makeMenuCardItem(Text("Credits"), id: "menuCardCredits", width: 300)
+        menu.addItem(usage)
+        menu.addItem(credits)
+        let usageView = try #require(usage.view as? ErasedMenuCardHostingView)
+        let creditsView = try #require(credits.view as? ErasedMenuCardHostingView)
+
+        controller.menu(menu, willHighlight: usage)
+        #expect(usageView.highlightState.isHighlighted)
+        #expect(!creditsView.highlightState.isHighlighted)
+        #expect(!usage.isHighlighted)
+
+        controller.menu(menu, willHighlight: nil)
+        #expect(!usageView.highlightState.isHighlighted)
+        #expect(!creditsView.highlightState.isHighlighted)
+        #expect(controller.highlightedMenuItems[ObjectIdentifier(menu)] == nil)
+    }
+
+    @Test
     func `embedded controls stay enabled without highlighting the card`() {
         StatusItemController.setMenuRefreshEnabledForTesting(false)
         let previousRendering = StatusItemController.menuCardRenderingEnabled
@@ -151,12 +185,12 @@ extension StatusMenuTests {
             ]),
         ]
 
-        let narrowWidth = controller.measuredMenuCardWidth(for: [narrow])
-        let stableWidth = controller.measuredMenuCardWidth(for: [narrow, wide])
+        let narrowWidth = controller.measuredMenuCardWidth(for: [(.codex, narrow)])
+        let stableWidth = controller.measuredMenuCardWidth(for: [(.codex, narrow), (.claude, wide)])
 
         #expect(narrowWidth == StatusItemController.menuCardBaseWidth)
         #expect(stableWidth > narrowWidth)
-        #expect(controller.measuredMenuCardWidth(for: [wide, narrow]) == stableWidth)
+        #expect(controller.measuredMenuCardWidth(for: [(.claude, wide), (.codex, narrow)]) == stableWidth)
     }
 
     @Test
@@ -212,12 +246,7 @@ extension StatusMenuTests {
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = false
-        let registry = ProviderRegistry.shared
-        for provider in UsageProvider.allCases {
-            if let metadata = registry.metadata[provider] {
-                settings.setProviderEnabled(provider: provider, metadata: metadata, enabled: provider == .codex)
-            }
-        }
+        enableTestProviders([.codex], settings: settings)
 
         let controller = self.makeRecyclingController(settings: settings)
         defer { controller.releaseStatusItemsForTesting() }
@@ -250,16 +279,7 @@ extension StatusMenuTests {
         settings.refreshFrequency = .manual
         settings.mergeIcons = true
         settings.mergedMenuLastSelectedWasOverview = false
-        let registry = ProviderRegistry.shared
-        let enabled: Set<UsageProvider> = [.codex, .claude]
-        for provider in UsageProvider.allCases {
-            if let metadata = registry.metadata[provider] {
-                settings.setProviderEnabled(
-                    provider: provider,
-                    metadata: metadata,
-                    enabled: enabled.contains(provider))
-            }
-        }
+        enableTestProviders([.codex, .claude], settings: settings)
         let store = self.makeCodexStore(settings: settings, dashboardAuthorized: false)
         let controller = StatusItemController(
             store: store,
@@ -399,6 +419,65 @@ extension StatusMenuTests {
         #expect(menu.items.first === plainItem)
         #expect(!(menu.items.first is MenuCardMenuItem))
         #expect(displacedCard.first === cardItem)
+    }
+
+    @Test
+    func `cached card swap keeps the live row in place when heights match`() {
+        let previousRendering = StatusItemController.menuCardRenderingEnabled
+        StatusItemController.menuCardRenderingEnabled = true
+        defer { StatusItemController.menuCardRenderingEnabled = previousRendering }
+
+        let settings = self.makeSettings()
+        settings.statusChecksEnabled = false
+        let controller = self.makeRecyclingController(settings: settings)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let liveItem = controller.makeMenuCardItem(
+            Text("Overview").frame(height: 120), id: "overviewRow-codex", width: 300)
+        let incoming = controller.makeMenuCardItem(
+            Text("Claude").frame(height: 120), id: "menuCard-0", width: 300)
+        let liveView = liveItem.view
+        let menu = NSMenu()
+        menu.addItem(liveItem)
+
+        let displaced = controller.replaceMenuContentKeepingRowsVisible(menu, fromIndex: 0, with: [incoming])
+
+        // Flash-free path: same-height payloads swap inside the attached row.
+        #expect(menu.items.first === liveItem)
+        #expect(liveItem.view === liveView)
+        #expect(liveItem.representedObject as? String == "menuCard-0")
+        #expect(displaced.first === incoming)
+    }
+
+    @Test
+    func `cached card swap replaces the live row when heights differ`() {
+        let previousRendering = StatusItemController.menuCardRenderingEnabled
+        StatusItemController.menuCardRenderingEnabled = true
+        defer { StatusItemController.menuCardRenderingEnabled = previousRendering }
+
+        let settings = self.makeSettings()
+        settings.statusChecksEnabled = false
+        let controller = self.makeRecyclingController(settings: settings)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let liveItem = controller.makeMenuCardItem(
+            Text("Overview").frame(height: 340), id: "overviewRow-codex", width: 300)
+        let incoming = controller.makeMenuCardItem(
+            Text("Claude").frame(height: 120), id: "menuCard-0", width: 300)
+        let menu = NSMenu()
+        menu.addItem(liveItem)
+
+        let displaced = controller.replaceMenuContentKeepingRowsVisible(menu, fromIndex: 0, with: [incoming])
+
+        // AppKit's table-backed menu keeps a reused row's old height (#3549), so a height change
+        // must present a fresh item that the menu measures.
+        #expect(menu.items.first === incoming)
+        #expect(displaced.first === liveItem)
+        #expect(liveItem.menu == nil)
+
+        let displacedBack = controller.replaceMenuContentKeepingRowsVisible(menu, fromIndex: 0, with: displaced)
+        #expect(menu.items.first === liveItem)
+        #expect(displacedBack.first === incoming)
     }
 
     @Test
@@ -863,6 +942,8 @@ extension StatusMenuTests {
         // so selection never re-invalidates the SwiftUI graph.
         controller.menu(menu, willHighlight: item)
         #expect(gpuView.isHighlightedForTesting)
+        #expect(!gpuView.allowsVibrancy)
+        #expect(gpuView.subviews.last?.allowsVibrancy == false)
         #expect(!gpuView.swiftUIHighlightStateIsHighlightedForTesting)
 
         controller.menu(menu, willHighlight: nil)
@@ -917,5 +998,9 @@ extension StatusMenuTests {
         #expect(displaced[0].view === cachedContainer)
         #expect(cachedContainer.usesGPUSelectionForTesting)
         #expect(cachedContainer.hasGPUSelectionLayerForTesting)
+        for container in [attachedContainer, cachedContainer] {
+            #expect(!container.allowsVibrancy)
+            #expect(container.subviews.last?.allowsVibrancy == false)
+        }
     }
 }

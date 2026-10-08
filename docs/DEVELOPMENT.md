@@ -34,6 +34,19 @@ read_when:
 4. **Optional file log**: enable Debug → Logging → "Enable file logging" to write
    `~/Library/Logs/CodexBar/CodexBar.log` (verbosity defaults to "Verbose")
 
+## Swift Toolchain Compatibility
+
+The package supports Swift 6.2, including Xcode 26.3 on macOS 15. CI's
+`swift-build-macos-compatibility` job builds the app, CLI, and all test targets
+with that Xcode version using `swift build --build-tests`, without running them.
+It uses the existing macOS path gate, including every Swift change, and runs on
+draft PRs too. The aggregate `lint-build-test` gate requires a successful build
+when applicable; docs-only changes may skip it. Runtime tests remain on newer Xcode.
+
+Keep large initializer and `#expect` expressions simple: bind intermediate values
+to explicitly typed locals when the Swift 6.2 type checker struggles. Use
+`ProviderColor(hex:)` for provider colors instead of arithmetic inside spec initializers.
+
 ## Keychain Prompts (Development)
 
 ### First Launch After Fresh Clone
@@ -112,11 +125,10 @@ See the canonical [provider authoring guide](provider.md#adding-a-new-provider) 
 1. Add the provider identity to `Sources/CodexBarCore/Providers/Providers.swift`.
 2. Add the descriptor and the fetcher, parser, settings-reader, or status-probe pieces the provider needs under
    `Sources/CodexBarCore/Providers/YourProvider/`.
-3. Register the descriptor from `Sources/CodexBarCore/Providers/ProviderDescriptor.swift`.
+3. Follow the descriptor naming convention in the provider authoring guide.
 4. Add an app-side `ProviderImplementation` under `Sources/CodexBar/Providers/YourProvider/`; implementations can use
    protocol defaults when no custom UI or macOS integration is needed.
-5. Add the provider's exhaustive switch case to
-   `Sources/CodexBar/Providers/Shared/ProviderImplementationRegistry.swift`.
+5. Run `Scripts/regenerate-provider-manifests.sh` to update the Core descriptor manifest and the immutable app catalog.
 6. Add icon assets under `Sources/CodexBar/Resources/`.
 7. Add focused tests under `Tests/CodexBarTests/` and, for CLI/core behavior that must run on Linux, `TestsLinux/`.
 
@@ -127,10 +139,108 @@ See the canonical [provider authoring guide](provider.md#adding-a-new-provider) 
    - Filter: `subsystem:com.steipete.codexbar category:augment`
    - Importer messages include the `[augment-cookie]` prefix
 
+### Debug Menu Bar Placement
+
+Status-item creation checks the item's saved preferred position and its matching legacy key before assigning the
+autosave name. Malformed, non-finite, non-positive, and out-of-bounds positions are removed; unrelated items are
+untouched, and each removed key is logged. The bound is the widest connected display's width in points plus a
+512-point margin, independent of display arrangement. Finite positive positions are preserved when no display bound
+is available. Unlike the older global-coordinate bound, this also clears menu-manager parking positions beyond that
+range. Preferred-position repair runs on each creation, independently of the one-time hidden-visibility repair flag.
+Items are created with zero length, assigned their stable autosave name, registered, then given variable length.
+Startup, provider vending, and visibility recovery all use this synchronous factory; recovery keeps `codexbar-merged`.
+Dictionary-backed placement tests and a recording item cover cleanup and creation order without creating live status
+items. AppKit exposes no public factory taking an autosave name, so zero-length creation cannot prove how a menu
+manager enumerates an item inside AppKit's factory. These tests also do not establish the writer of a position that
+changes after launch; recurring placement and Bartender UUID behavior still require isolated runtime evidence.
+
+Runtime removal and visibility changes preserve the current saved position if AppKit clears it. Runtime removal
+hides the item under its stable name, removes it with that name intact, then retires the autosave identity to prevent
+later cleanup from clearing the restored position. This includes startup visibility recovery when Control Center
+has not hosted the items yet: resetting a visible item's name before removal exposes a new automatic identity to
+menu bar managers. Replacement items keep the existing `codexbar-merged` and `codexbar-<provider>` names. During
+`applicationWillTerminate`, removal instead keeps the identity intact: renaming a host immediately before exit can
+leave a blank Control Center slot on macOS 26.6.2. Status-menu Quit requests termination after menu tracking unwinds
+and leaves cleanup to that callback; shutdown detaches menus without hiding or renaming the items before removal.
+The deterministic tests use in-memory defaults, an injected recording status bar, and a hosting probe that misses
+the first startup sample to check recovery and teardown ordering, identity, visibility, and placement restoration.
+They compare already-hosted relaunches with delayed hosting; they do not reproduce Sparkle or Bartender's UUID store.
+Native proof must use a signed, isolated app with visibly hosted
+merged and provider items: record the exact old window IDs, quit normally, confirm those windows disappear, then
+relaunch and check custom positions. Also exercise runtime removal/recreation and hide/show. Unit tests cannot prove
+Control Center host removal or placement after process exit. This does not diagnose older out-of-range placement reports.
+
 ### Run Tests Only
+
+The shell test runners and all Make test targets source `Scripts/test_environment.sh` before launching Swift.
+The Linux CI test step sources it too. It removes exported variables whose names contain `TOKEN`, `KEY`, `SECRET`,
+`PASSWORD`, `PASSWD`, `WEBHOOK`, `CREDENTIAL`, `COOKIE`, `PRIVATE`, or `_PAT`, ignoring case. Explicit non-secret
+exceptions preserve `CODEXBAR_ALLOW_TEST_KEYCHAIN_ACCESS`, `CODEXBAR_SUPPRESS_TEST_KEYCHAIN_ACCESS`,
+`CODEXBAR_DISABLE_KEYCHAIN_ACCESS`, and `CODEXBAR_USE_LOCAL_SWEETCOOKIEKIT`. Standard build and loader search paths
+(`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, `DYLD_FRAMEWORK_PATH`, `LIBRARY_PATH`, and `PKG_CONFIG_PATH`) are also preserved:
+their `_PATH` suffix otherwise matches `_PAT`. Other matching variables, including `CODEXBAR_*` credentials, are removed.
+Use synthetic dictionaries or set synthetic sentinels inside fixtures; never depend on inherited real credentials.
+For direct `swift test`, source the script in a Bash subshell first. This does not authorize live account tests.
+
+`@ProcessEnvironment` provides count-only descriptions and reflection for stored process-environment dictionaries
+throughout the app, CLI, provider contexts, and session scanners. Use it on every stored environment, including
+captured configuration structs and optional dictionaries. Optional storage preserves `nil` versus an empty map;
+equality still compares the original contents. Keep formerly immutable properties `private(set)`.
+Explicit dictionary access still returns the original values for provider/subprocess use; never log that dictionary.
+Harness scrubbing remains essential and does not replace a review of debug output before sharing it.
+
+`ProcessEnvironmentStorageTests` scans shipped Swift in `Sources/` and `WidgetExtension/` for environment-named
+dictionary declarations (including optional, multiline, and `Dictionary<String, String>` spellings). This lexical
+tripwire checks locals too; its exact-source allowlist documents only transient dictionaries and rejects stale or
+duplicate exceptions. Computed getters and function parameters are not storage. Inferred types, aliases, differently
+named dictionaries, and explicit dictionary logging still require code review; this is not a Swift dataflow analyzer.
+
+Lint tools are installed at repository-pinned versions by `Scripts/install_lint_tools.sh`, with archive checksums
+verified before installation. TypeScript 7 installs its native package for the running Node platform and architecture
+(including Rosetta). Plugin typechecking uses only its declared libraries and source declarations, so unrelated
+ancestor `node_modules/@types` packages do not affect the result. SwiftFormat targets the package's Swift 6.2 floor.
+
 ```bash
 make test
 ```
+
+For focused iteration, use native SwiftPM filters with the same file/Keychain isolation and process containment:
+
+```bash
+make test-fast FILTER='AdaptiveRefreshPolicyTests'
+make test-skip-build FILTER='(?<suite>AdaptiveRefreshPolicyTests)'
+./Scripts/test_fast.sh --filter FirstSuite --filter SecondSuite --configuration debug
+```
+
+`FILTER` is passed literally, including Make/shell syntax and apostrophes. The script forwards all arguments to
+`swift test`; SwiftPM owns regex syntax and repeated-filter selection. Runs are serial by default and have a
+30-minute build-and-test deadline, configurable with `CODEXBAR_TEST_NATIVE_TIMEOUT`. An explicit `--skip-build` uses
+existing binaries. No framework search-path override is added.
+
+`make test` remains the complete sharded path. Measured expensive suites run in their own groups, retaining all
+selections and their deadlines while avoiding whole-batch retries. Apple-Silicon macOS CI includes the CLI entry suite;
+the former Intel-runner exclusion is retired.
+
+Claude OAuth gate tests use `ClaudeOAuthDefaultsFixtures()` so each test case owns an in-memory preferences store.
+Keep reset, expiry, and persisted-key assertions inside that scope; nested tasks inherit it, detached tasks do not.
+The gates retain their normal production defaults domain. Continue serializing shared gate state and same-host
+full-suite runs: isolating these preferences does not isolate every test dependency.
+
+`make test` and `make check` require a `python3` that provides `os.waitid` with `WNOWAIT`. Some macOS Python
+builds, including Apple's `/usr/bin/python3`, do not provide it. The test runner then stops before its initial
+Swift discovery/build and names the interpreter path, its version, and the missing attributes. Earlier
+`make check` checks may already have run. For an installed Homebrew Python, select its generic commands with:
+
+```bash
+PATH="$(brew --prefix python@3.14)/libexec/bin:$PATH" make check
+PATH="$(brew --prefix python@3.14)/libexec/bin:$PATH" make test
+```
+
+`Scripts/test.sh --list-only` does not need process containment, but still invokes `swift test list`, which may build.
+
+The macOS test target explicitly links the existing Sparkle product and locates frameworks in the products directory
+beside its XCTest bundle. This supports native focused tests on fresh SwiftPM builds. The sharded runner retains its
+guarded runtime recovery for differing toolchain layouts, and `make test` remains the full validation path.
 
 Suite commands retain the default 180-second deadline, including SwiftPM startup and discovery.
 The runner reports elapsed time and owned PIDs every 30 seconds even when test output is buffered.
@@ -141,7 +251,16 @@ finishes (`waitid` with `WNOWAIT`), preventing reuse of its PID/session. Observe
 leaders can establish ownership of orphaned session members only while a matching live or unreaped
 birth identity still anchors that session. Known descendants retain their identities after reparenting;
 empty completed sessions retire. If an observed session loses its anchor while unaccounted live members
-remain, cleanup fails without adopting or signaling those uncertain PIDs. Unavailable metadata for a
+remain, observation may retain that session as pending only while the direct command is still wait-owned
+and running. A nested runner can then finish draining its own child: its unreaped wait handle is not
+signal authority for the outer observer, and macOS may hide the exited leader's metadata. Pending members
+remain birth-checked even if they change sessions. Uncertainty also follows observed descendants and peers
+of a live matching pending session leader, with compatible birth ordering; those identities remain pending
+after reparenting or session migration. Unreadable pending metadata fails closed; confirmed exits or replaced
+pending births retire without claiming replacements. Pending status grants no ownership or signal authority.
+Command exit and every cleanup path require session continuity and fail if uncertainty remains; a detected
+replacement session-leader birth still fails immediately, even during observation.
+No observation or cleanup deadline is extended. Unavailable metadata for a
 known identity also fails cleanup; an unreadable unrelated peer does not abort enumeration.
 For the direct child, confirmed metadata absence (ESRCH/ENOENT) can precede a waitable exit on
 Darwin. Its unreaped wait handle retains ownership while ordinary polling continues within the
@@ -173,14 +292,155 @@ files and self-expiry, with final cleanup restricted to their unreaped direct ch
 
 Process-cleanup fixtures keep ancestry alive until the real ownership refresh observes matching ready
 child identities (and the session-tree grandchild), then acknowledges a private fixture gate before drain.
-The direct `waitid` fixture uses the same handshake without reaping its root. Immediate cases and a controlled
-one-second readiness delay retain the two-second command budget; startup no longer adds a fixed 1.2-second
-ancestry sleep. Gate waits are bounded and stop-file aware; helper self-expiry remains 20 seconds.
+The direct `waitid` fixture uses the same handshake without reaping its root. Success/failure fixtures keep
+their five-second command budget; timeout fixtures keep two seconds. A virtual-clock readiness test proves
+one-second startup adds no fixed ancestry sleep. Gate waits are bounded and stop-file aware; helper
+self-expiry remains 20 seconds.
+The nested failure regression gates the inner drain and controls outer snapshots: the outer observer
+sees a live session leader first, then its previously unseen orphan with the exited leader hidden.
+Only the inner wait owner drains that orphan; the outer runner must complete without claiming it.
+Contract tests also require unresolved sessions to fail at cleanup and reject reused leader births.
 
 Cost performance and fair-scheduling corpora use exclusive initial fixture creation: the scanner only
 reads after setup has closed each file. This avoids per-file atomic publication and durability work
 without changing corpus contents or scan budgets. The shared atomic fixture writer remains available
 for replacement and publication tests.
+
+Menu fixtures use `enableTestProviders` to arrange their initial provider selection without repeatedly persisting
+already-correct config entries. The real setter still handles changed flags and selected-provider cleanup. Keep
+provider-toggle actions under test on the production setter; the fixture helper is for setup before observing changes.
+
+### Cost scanner CPU regressions
+
+`CostUsageJsonl` finds complete physical LF spans with bounded libc `memchr` on Darwin, Glibc, and
+Musl, using the same span algorithm with scalar LF search elsewhere. Borrowed pointers stay inside
+the current `withUnsafeBytes` call; search counts and distances fit the existing 256 KiB read chunk.
+Complete spans keep the original prefix-copy and flush path. Unfinished chunk suffixes still run the
+original scalar JSON tail updater, preserving exact resumable state and EOF validation. CR bytes,
+empty-line offsets, independent prefix/max limits, budgets, and cancellation/stop ordering are unchanged.
+
+Persisted Codable checkpoints are a compatibility boundary, including unusual decoded counters.
+Skipping tail updates requires a nonnegative line count, safe container-depth arithmetic for the span,
+and nonnegative literal indices. Otherwise the same scalar updater runs before the existing flush;
+this preserves its checked operations and state when the flush does not reset a negative line count.
+Do not replace this guard with checkpoint normalization or a new corrupt-cache recovery policy.
+
+`CostUsageJsonlDifferentialTests` in the portable `TestsLinux` target compares exact bytes, offsets,
+sorted full Codable state, callback order, and error domain/code with the frozen e236a21b scalar scanner.
+Its bounded default matrix covers every short-input split, threshold/chunk boundaries, mutations,
+cross-version resumes, and safe unusual checkpoints. Keep that oracle frozen and the older scanner
+oracle independently useful. Full optimized scratch parity must copy the final production source;
+prototype results alone do not carry forward through formatting or edits. Scanner parity does not
+establish pipeline performance; signed optimized builds and synthetic pipeline timing are separate proof.
+
+The shared scanner remains a parser-hash input. The warm-refresh cursor repair adopts `9ca89383b9957b07`
+without rebuilding native rows or checkpoints; it changes scheduling, not persisted parsing semantics.
+Published `e0b0319de43e22d7` is also a tested compatible predecessor because LF-span scanning preserves persisted semantics, including the priority
+cursor changes in #3318. The earlier `7e293e8fc9e25700` and existing predecessors remain supported.
+Native adoption retains rows and checkpoints while invalidating old connection receipts.
+Pi/OMP still reparses once when the hash changes,
+with and without a catalog; subsequent unchanged reads use the current cache. No pricing-key alias is added.
+
+Profile the cost-scan queue separately from the main thread. A busy background scan that later settles
+does not establish an infinite loop. Native timestamp conversion uses Foundation's modern ISO parser
+for strict RFC3339 input, retaining the previous formatter's millisecond truncation and rounding.
+Historical spellings and malformed input keep the formatter fallback. Claude reuses the parsed date
+for local day projection only on the strict path.
+
+`CostUsageTimestampTests` compares exact dates with the prior formatter and checks local days, DST,
+deduplication, and dated pricing. `CostUsageTimestampOrderTests` and `CostUsageStoreCutoverTests` count
+timestamp comparisons: a known ordered prefix needs only the append boundary and new events; unknown
+prefixes get one cancellable validation. Keep these assertions deterministic rather than timing gates.
+Run these alongside scanner, cancellation, bounded-progress, fork, and performance-gate suites with
+the test harness's Keychain and credential-file isolation enabled.
+
+An optimized synthetic check on 2026-08-30 compared main `5a18e8ee9` with this change: three cold
+Claude scans of 20,000 messages (5,237,780 bytes) had median CPU time of 3.430 → 1.273 seconds and
+wall time of 5.838 → 2.107 seconds, with identical emitted token/cost totals and daily output. This
+measures ingestion through the public fetcher, not idle-app CPU or the entire Codex scan pipeline.
+
+Native Codex scans carry an opaque receipt from load to save. `CostUsageStore` owns one decoded persisted
+baseline and compact file/count metadata, releasing it on save, superseding loads, mutations, failures,
+or scan exit (including cancellation and debounce). Abandoned receipts also release through the actor.
+No raw historical SQL snapshot or transaction stays alive across JSONL scanning. Filesystem/device,
+anchor, and pending catch-up reconciliation rerun for comparisons; decoded reuse never freezes them.
+
+Reuse requires the same connection generation and database inode, SQLite's open-file identity check,
+same-connection `data_version`, own `total_changes`, and schema/parser metadata. Observations bracket
+a successfully committed short read transaction. Save checks again under `BEGIN IMMEDIATE`, after
+unchanged-path retention; external changes request a rescan without overwriting current content.
+Retention that rewrites identical metadata requires a fresh locked semantic comparison. Existing callers
+without a receipt read a fresh baseline at save and cannot establish freshness back to an earlier load.
+
+`CostUsageStoreReadWorkTests` counts full load/save cycles: an uncontended unchanged receipt cycle reads
+one scanner snapshot and decodes each exact usage row once, without reading raw token snapshots, with
+one freshness write and no aggregate grouping visits. Changed files and fork ancestors hydrate token
+history through the original receipt, validating its stamp after the read transaction commits. Synthetic
+interleavings cover writer races, mutations, retention, replacement and receipt lifetime.
+Initial decoding, semantic equality, filesystem reconciliation, report generation and priority aggregation
+still cost work proportional to retained history. These counters do not measure installed-app idle CPU;
+refresh cadence, scan budgets, timestamp parsing and incremental-order validation are unchanged.
+
+Claude/Vertex metadata classification searches decoded ASCII strings with case-folded bytes, keeping
+the original Foundation lowercase/substring predicate for non-ASCII or noncontiguous strings. Check
+the whole string for ASCII before matching; combining characters after a marker can affect the old
+predicate. The recursive dictionary/array walk visits dictionaries inside arrays without recursing into nested arrays.
+`CostUsageClaudeVertexClassifierTests` compares with the frozen old predicate and checks complete filtered
+rows, persisted daily tokens/costs, and reports, including decoded JSON escapes, Unicode boundaries,
+nested arrays, and false/numeric metadata flags.
+
+`ClaudeJSONObject` shares a shallow decoded-container view between field extraction and classification;
+the parser reuses its message view for primary detection and usage extraction. On Darwin, ASCII-keyed
+objects retain immutable Foundation containers and use scoped CF bulk access and type dispatch. Only
+JSONSerialization results and their decoded descendants enter that path; arbitrary objects and coerced
+entries use Swift casts. CF bridging is Darwin-only, and retained owners outlive all borrowed pointers
+and temporary allocations.
+Empty containers require no pointer arithmetic. Unicode-keyed objects use the actual conditional
+`[String: Any]` coercion at each object boundary, preserving canonical-key collapse and whole-object
+mixed-key rejection. The walker visits only the resolved entries. Independent coercions can choose
+different collision winners, so tests assert resolved-entry behavior rather than a deterministic winner.
+Linux uses the same view and walker with portable Swift coercions, with no CF bridging or separate
+pricing path. `ClaudeJSONObjectTests` also belongs to the portable CLI/core test target.
+
+Claude parsing returns only rows and parsed bytes. The scan owns reconciliation across streaming chunks,
+parent files and subagents, then builds persisted days from the stored row model; there is no discarded
+parser-day aggregation or second normalization. Daily tests exercise the real cache/report boundary.
+Removing the unused field in the shared scanner changes the generated native parser hash, while Codex
+semantics remain unchanged. Published `494eee446bb2e5f9` is a tested compatible predecessor; existing
+predecessors and store receipt logic remain intact. Pi/OMP pricing keys include this hash and therefore
+reparse once under the existing invalidation contract, also tested with and without a catalog.
+
+A second optimized synthetic check against main `354191af9` used three fresh-cache scans per provider
+with 32–128 KiB text bodies. Median CPU decreased by 3–18% across Claude/Vertex cases (the 3% case is
+small); a separate long-provider-string stress case decreased by 73–75%. The isolated decoded metadata
+predicate used about half the CPU on ordinary nested metadata. Every daily token component and cost
+matched, including the existing unset public request counts. Fixture generation was outside timing;
+wall time was recorded separately under host load. These results do not measure idle-app CPU.
+
+Claude and Vertex scans share one synchronous invocation-owned pricing resolver across full/append file
+parsing, row normalization, and report repricing. It lazily snapshots the catalog, including an empty
+sentinel for unavailable artifacts, at the existing changed-file and nonempty-report preparation points.
+An exact report memo hit and an empty inventory with no rows do not load it. The internal standalone
+parser now owns one snapshot per parse, optionally supplied explicitly; the cancellable parser takes
+that owner directly. It does not reread pricing artifacts between rows.
+
+Normalization and positive/negative catalog lookup memos use exact decoded UTF-8 keys, preserving
+Unicode spelling, dated raw versus stored identities, and non-idempotent normalization. Each memo
+retains at most 1,024 entries per invocation; after saturation, uncached inputs still resolve normally.
+This bounds entry growth, not model-string bytes or scan work. Every row still selects its own dated
+tariff and context tier and runs the existing monetary arithmetic. Historical pricing short-circuits
+before model lookup. Independent scalar Pi/Cursor/direct pricing retains its uncached resolution path.
+Both callers share one private tariff-selection helper whose nonescaping lazy lookup closure runs only
+after historical selection. The scalar calls the original normalizer and lookup directly; the scan
+resolver supplies memoized resolution. Both use the original monetary calculation.
+
+DEBUG Claude scan metrics count normalization cache misses and actual catalog-model lookups with
+positive/negative outcomes; the first lookup still normalizes internally. `repricedRows` continues to
+count all rows. Measure through the synchronous scoped recorder because the public dispatch queue
+does not inherit TaskLocal instrumentation. Resolver and scanner memo tests exercise cross-file reuse,
+snapshot replacement, saturation, exact spelling, and report-only repricing against synthetic fixtures.
+The shared pricing source changes the generated Codex parser hash, but Codex algorithms are unchanged;
+`6366caa15c925349` remains an explicitly tested compatible predecessor.
 
 ### Adaptive refresh fixtures
 
@@ -264,6 +524,19 @@ factory tests; exclude those when running a nonpersistent-only focused check.
 
 ### CI Aggregate Contract
 
+`make check` and portable CI lint run `node Scripts/check-package-resolved.mjs` and its synthetic regression tests
+(`node --test Scripts/test_package_resolved.mjs`). This offline, read-only check compares every package identity,
+revision, and version in the root and widget workspace `Package.resolved` files, including missing or extra pins.
+Pin order and workspace-specific `originHash` values do not affect the comparison. After changing dependencies,
+resolve the widget workspace from the repository root and commit both resolved files together:
+
+```bash
+xcodebuild -resolvePackageDependencies -project WidgetExtension/CodexBarWidgetExtension.xcodeproj
+```
+
+The check names each drifted package and prints this repair command before packaging can fail with an out-of-date
+resolved file when automatic resolution is disabled.
+
 The `lint-build-test` check in `.github/workflows/ci.yml` keeps its existing name and requires successful lint,
 change detection, and the full `build-linux-cli` glibc matrix (x86_64 and ARM64 build, tests, and smoke checks).
 Glibc Linux has no path or draft skip: failure, cancellation, skipped, empty, missing, or unknown matrix results
@@ -276,7 +549,16 @@ verifier argument. `CodexBarLinuxTests` includes the portable `AntigravityLocalh
 both macOS and Linux. It checks session reuse and concurrent synthetic loopback failures without credentials;
 this coverage does not establish or fix the cause of Linux dispatch crashes.
 
+### Static Linux SDK
+
+CI and release builds install the static Linux SDK through `Scripts/install_swift_static_sdk.sh`. It downloads with
+`curl`, verifies the pinned SHA-256, and passes a local archive to `swift sdk install`, avoiding SwiftPM's Linux
+FoundationNetworking/TLS teardown crash. Portable lint checks cover checksum rejection, download failures, and installer
+failure propagation without downloading an SDK.
+Changes to the installer require a musl CI build.
+
 ### Format Code
+
 ```bash
 swiftformat Sources Tests
 swiftlint --strict
@@ -290,11 +572,27 @@ swiftlint --strict
 # Creates: CodexBar.app with ad-hoc signing by default
 ```
 
+For an identity-signed package, set `CODEXBAR_SIGNING=identity` and `APP_IDENTITY` to an installed Developer ID Application signing
+identity's full name, unique name substring, or SHA-1 certificate hash. Packaging resolves it through
+`security find-identity -p codesigning -v`, derives the Team ID from the selected identity, and signs with that
+certificate's hash. A missing or ambiguous match, a certificate other than Developer ID Application with a ten-character Team ID, or a conflicting
+`APP_TEAM_ID` fails before entitlements are generated. Self-signed and Apple Development/Distribution certificates are not supported by this
+path; use ad-hoc packaging or a Developer ID Application identity. Developer ID names carry a Team ID, whereas
+development certificate names can carry a personal ID. Explicit identity selections are also validated in LLDB builds.
+
+App and widget entitlements use the resolved team. Only upstream-team identity-signed release builds embed the
+upstream provisioning profile and CloudKit entitlements; other teams package without those upstream resources.
+Widget build failures and timestamp/signature failures still fail packaging. The sandboxed launch smoke check is
+retained; the existing `CODEXBAR_SKIP_LAUNCH_SMOKE=1` override explicitly reports that it skipped validation.
+
 ### Release Build (Notarized)
 ```bash
 ./Scripts/sign-and-notarize.sh
 # Creates: CodexBar-<version>.zip and CodexBar-<version>.dSYM.zip
 ```
+
+`sign-and-notarize.sh` honors `APP_IDENTITY` and passes the same selection to packaging; it defaults to the upstream
+Developer ID. Timestamping and hardened runtime remain required for all identity-signed releases.
 
 See `docs/RELEASING.md` for full release process.
 
@@ -346,7 +644,8 @@ defaults delete com.steipete.codexbar debugMainThreadHangWatchdog
 ### Cookie Management
 - Automatic browser import via SweetCookieKit
 - Keychain cache for some imported browser cookies and OAuth/device-flow credentials
-- `~/.codexbar/config.json` for provider settings, manual cookies, and stored API keys
+- The resolved config file for provider settings, manual cookies, and stored API keys: new installs use
+  `~/.config/codexbar/config.json`, while existing `~/.codexbar/config.json` installs retain their legacy path
 - Manual override for debugging
 - Browser-cookie import when cached sessions need refresh
 
@@ -355,3 +654,58 @@ defaults delete com.steipete.codexbar debugMainThreadHangWatchdog
 - Parallel provider fetches
 - First failure can be suppressed when prior data exists
 - WidgetKit snapshot for macOS widgets
+
+### macOS direct test groups
+
+`make test` remains serial by default. Invoke
+`./Scripts/test.sh --direct-workers 4` to request up to eight isolated group workers locally.
+SwiftPM still builds and discovers the complete inventory. Before launch, the adapter enumerates
+both XCTest and Swift Testing using the selected Xcode toolchain helpers and requires an exact
+inventory match, including duplicate detection. An inventory mismatch fails the run before any
+group executes. Local runs with missing helpers, unsupported toolchains, or Linux retain the serial
+SwiftPM path with a diagnostic. On CI, requesting direct workers requires a verified direct runtime:
+capability failures also fail the job instead of falling back to serial execution.
+
+Hosted macOS CI explicitly uses two serial SwiftPM shards, retaining the 75-minute test step and
+90-minute job limits. This avoids a third cold build while direct execution on Xcode 26.6 remains
+unverified after a helper SIGTRAP. A five-minute, nonblocking direct smoke test runs one group on
+shard zero after the complete serial shard passes; it is diagnostic evidence, not coverage or
+throughput proof. Both modes print ordered selection groups and timing summaries.
+
+The adapter includes both public and private platform framework search paths and disables Swift
+Testing during XCTest discovery, matching SwiftPM's launcher. Probe failures print the helper,
+exit status or signal, and redacted stdout/stderr. On CI, signal failures also wait up to five
+seconds for fresh helper crash reports in the original and temporary homes. The workflow collects
+fresh test crash reports again after failures, including nonblocking smoke failures. Credential
+values and local home identities are redacted; unrelated process reports are excluded.
+
+Each group has a fresh process and temporary `HOME` and `CFFIXED_USER_HOME`, with the existing credential
+and session-file isolation, Keychain suppression, timeout, retry, and descendant cleanup.
+Test output is buffered per group. A direct runtime failure after execution begins fails the run;
+it does not silently rerun the suite through a different runtime. This opt-in adapter depends on
+SwiftPM's toolchain helper contract and needs compatibility validation when updating Xcode.
+
+`--swift-command /path/to/swift-wrapper` works when the wrapper forwards `-print-target-info`
+unchanged to the selected Xcode Swift compiler and supports `build --show-bin-path`. The runner
+queries the wrapper's products directory; a different compiler/target or command prefix arguments
+are rejected (local serial fallback, CI failure). For a host requiring the native build backend,
+use the same wrapper for serial and direct comparisons:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+case "${1:-}" in
+  test|build)
+    subcommand="$1"
+    shift
+    exec /usr/bin/xcrun swift "$subcommand" --build-system native --jobs 4 -Xswiftc -gnone "$@"
+    ;;
+  *) exec /usr/bin/xcrun swift "$@" ;;
+esac
+```
+
+Save it as an executable file, then invoke
+`./Scripts/test.sh --swift-command /path/to/swift-wrapper --direct-workers 4`.
+Wrappers may add build options; test-selection or runtime-environment changes inside a wrapper
+cannot be reproduced by direct launch and are unsupported. Live/opt-in tests remain disabled by
+their existing test conditions; this flag does not enable them.

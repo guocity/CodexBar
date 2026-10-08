@@ -80,6 +80,8 @@
 "Average (\\(metadata.sessionLabel) + \\(metadata.weeklyLabel))" = "เฉลี่ย (\\(metadata.sessionLabel) + \\(metadata.weeklyLabel))";
 "Avoid Keychain prompts" = "หลีกเลี่ยงข้อความแจ้ง Keychain";
 "Balance" = "สมดุล";
+"Cloud credits" = "เครดิตคลาวด์";
+"Expired" = "หมดอายุแล้ว";
 "Battery Saver" = "ประหยัดแบตเตอรี่";
 "Bordered" = "มีพรมแดน";
 "Build" = "สร้าง";
@@ -133,6 +135,10 @@
 "Cookie: …" = "คุกกี้: ...";
 "CopilotDeviceFlow" = "โคไพลอตอุปกรณ์โฟลว์";
 "Cost" = "ราคา";
+"Token history" = "ประวัติโทเคน";
+"Local token history · dollar costs unavailable" = "ประวัติโทเคนในเครื่อง · ไม่มีข้อมูลค่าใช้จ่ายเป็นดอลลาร์";
+"Partial local history · recorded token subtotal" = "ประวัติในเครื่องบางส่วน · ยอดรวมย่อยของโทเคนที่บันทึก";
+"Local token history is unavailable or incomplete." = "ประวัติโทเคนในเครื่องไม่พร้อมใช้งานหรือไม่ครบถ้วน";
 "Could not add Codex account" = "ไม่สามารถเพิ่มบัญชี Codex ได้";
 "Could not open Terminal for Gemini" = "ไม่สามารถเปิดเทอร์มินัลสําหรับ Gemini";
 "Could not start claude /login" = "ไม่สามารถเริ่ม claude /login";
@@ -478,6 +484,7 @@
 "cost_summary_style_inline_help" = "แสดงสรุปค่าใช้จ่ายในเมนูหลักโดยตรง";
 "cost_summary_style_submenu_help" = "แสดงเมนูย่อยค่าใช้จ่ายแบบละเอียดแทน";
 "cost_summary_style_both_help" = "แสดงทั้งสรุปในเมนูหลักและเมนูย่อยค่าใช้จ่ายแบบละเอียด";
+"Month to date" = "ตั้งแต่ต้นเดือนจนถึงวันนี้";
 "cost_history_window_title" = "กรอบเวลาประวัติ";
 "cost_history_window_help" = "กำหนดจำนวนวันของบันทึกการใช้งานในเครื่องที่จะแสดงในเมนู";
 "cost_history_days_title" = "กรอบเวลาประวัติ: %d วัน";
@@ -500,7 +507,6 @@
 "provider_accent_color_reset" = "ใช้ค่าเริ่มต้น";
 "quota_warnings_title" = "คําเตือนโควต้า";
 "quota_warning_session" = "เซสชั่น";
-"quota_warning_session_capitalized" = "เซสชั่น";
 "quota_warning_weekly" = "รายสัปดาห์";
 "quota_warning_weekly_capitalized" = "รายสัปดาห์";
 "quota_warning_notification_title" = "โควตา%2$@ของ %1$@ ใกล้หมด";
@@ -521,6 +527,11 @@
 "session_depleted_notification_body" = "เหลือ 0% จะแจ้งเตือนเมื่อกลับมาใช้งานได้อีกครั้ง";
 "session_restored_notification_title" = "%@ เซสชันที่กู้คืน";
 "session_restored_notification_body" = "โควต้าเซสชันพร้อมใช้งานอีกครั้ง";
+"limit_reset_notifications_title" = "การแจ้งเตือนการรีเซ็ต";
+"limit_reset_notifications_subtitle" = "แจ้งว่าผู้ให้บริการใดและช่วงใดถูกรีเซ็ตเมื่อขีดจำกัดเซสชันหรือรายสัปดาห์รีเซ็ต";
+"limit_reset_notification_title" = "ขีดจำกัด%2$@ของ %1$@ รีเซ็ตแล้ว";
+"limit_reset_notification_body" = "มีโควตาใหม่พร้อมใช้งาน";
+"limit_reset_notification_body_with_account" = "บัญชี %@ มีโควตาใหม่พร้อมใช้งาน";
 "quota_warning_warn_at" = "เตือนที่";
 "quota_warning_global_threshold_subtitle" = "เปอร์เซ็นต์ที่เหลืออยู่สําหรับกรอบเวลาเซสชันและรายสัปดาห์ เว้นแต่ผู้ให้บริการจะแทนที่";
 "quota_warning_sound" = "เล่นเสียงแจ้งเตือน";
@@ -566,6 +577,7 @@
 "hooks_any_provider" = "ผู้ให้บริการใดก็ได้";
 "hooks_threshold" = "เรียกใช้เมื่อการใช้งาน ≥";
 "hooks_threshold_placeholder" = "90";
+"hooks_executable" = "ไฟล์ปฏิบัติการ";
 "hooks_executable_placeholder" = "/usr/local/bin/my-command";
 "hooks_arguments_placeholder" = "อาร์กิวเมนต์";
 "hooks_argument_placeholder" = "อาร์กิวเมนต์";
@@ -618,6 +630,12 @@
 "cost_summary_off" = "ปิด";
 "merge_icons_title" = "ผสานไอคอน";
 "merge_icons_subtitle" = "ใช้ไอคอนแถบเมนูเดียวกับตัวสลับผู้ให้บริการ";
+"merged_icon_style_title" = "รูปแบบไอคอนรวม";
+"merged_icon_style_subtitle" = "ตัวสลับจะวนแสดงผู้ให้บริการทีละราย ส่วนแบบซ้อนจะแสดงผู้ให้บริการสองรายพร้อมกัน รายละแถว";
+"merged_icon_style_switcher" = "ตัวสลับ";
+"merged_icon_style_stacked" = "แบบซ้อน";
+"merge_icon_stacked_top_provider_title" = "แถวบน";
+"merge_icon_stacked_bottom_provider_title" = "แถวล่าง";
 "show_most_used_provider_title" = "แสดงผู้ให้บริการที่ใช้บ่อยที่สุด";
 "show_most_used_provider_subtitle" = "แถบเมนูจะแสดงผู้ให้บริการที่ใกล้เคียงกับขีดจํากัดอัตรามากที่สุดโดยอัตโนมัติ";
 "display_mode_title" = "โหมดการแสดงผล";
@@ -840,7 +858,6 @@
 "No local data found" = "ไม่พบข้อมูลในเครื่อง";
 "Credits unavailable; keep Codex running to refresh." = "ไม่มีเครดิต Codex ทํางานต่อไปเพื่อรีเฟรช";
 "No available fetch strategy for minimax." = "ไม่มีกลยุทธ์การดึงข้อมูลสําหรับ minimax";
-"No Cursor session found. Please log in to cursor.com in Safari, Chrome, Microsoft Edge, Brave, Arc, Dia, ChatGPT Atlas, Chromium, Helium, Vivaldi, Yandex Browser, Firefox, Zen, Colibri, Sidekick, Opera, Opera GX, or Edge Canary. If you use Safari, grant CodexBar Full Disk Access in System Settings ▸ Privacy & Security. You can also sign in to Cursor from the CodexBar menu (Add / switch account)." = "ไม่พบเซสชัน Cursor โปรดเข้าสู่ระบบ cursor.com ใน Safari, Chrome, Microsoft Edge, Brave, Arc, Dia, ChatGPT Atlas, Chromium, Helium, Vivaldi, Yandex Browser, Firefox, Zen, Colibri, Sidekick, Opera, Opera GX หรือ Edge Canary หากคุณใช้ Safari ให้สิทธิ์การเข้าถึงดิสก์แบบเต็ม CodexBar ใน การตั้งค่าระบบ ▸ ความเป็นส่วนตัวและความปลอดภัย คุณยังสามารถลงชื่อเข้าใช้ Cursor ได้จากเมนู CodexBar (เพิ่ม / สลับบัญชี)";
 "No OpenCode session cookies found in browsers." = "ไม่พบคุกกี้เซสชัน OpenCode ในเบราว์เซอร์";
 "No available fetch strategy for %@." = "ไม่มีกลยุทธ์การดึงข้อมูลสําหรับ %@";
 "Today" = "วันนี้";
@@ -888,6 +905,12 @@
 "usage_percent_suffix_used" = "ใช้แล้ว";
 "Store multiple DeepSeek API keys." = "จัดเก็บปุ่ม DeepSeek API หลายปุ่ม";
 "This week" = "สัปดาห์นี้";
+"Current window" = "หน้าต่างปัจจุบัน";
+"Last week" = "สัปดาห์ที่แล้ว";
+"%d weeks ago" = "%d สัปดาห์ที่แล้ว";
+"Previous window" = "หน้าต่างก่อน";
+"%d windows ago" = "%d หน้าต่างที่แล้ว";
+"Recent windows" = "หน้าต่างล่าสุด";
 "Week" = "สัปดาห์";
 "Month" = "เดือน";
 "Models" = "โมเดล";
@@ -948,6 +971,14 @@
 "Overage" = "ส่วนเกิน";
 "Activity" = "กิจกรรม";
 "Copied" = "คัดลอกแล้ว";
+"Managed by Homebrew" = "จัดการโดย Homebrew";
+"Copy update command" = "คัดลอกคำสั่งอัปเดต";
+"Update to %@" = "อัปเดตเป็น %@";
+"CodexBar %@ is available" = "CodexBar %@ พร้อมให้ใช้งานแล้ว";
+"CodexBar is up to date" = "CodexBar เป็นเวอร์ชันล่าสุดแล้ว";
+"Checking for updates…" = "กำลังตรวจหาอัปเดต…";
+"Updating with Homebrew…" = "กำลังอัปเดตด้วย Homebrew…";
+"Homebrew update failed. You can run this command in Terminal instead:" = "อัปเดตผ่าน Homebrew ไม่สำเร็จ คุณสามารถเรียกใช้คำสั่งนี้ใน Terminal แทนได้:";
 "Copy error" = "ข้อผิดพลาดในการคัดลอก";
 "Copy path" = "คัดลอกเส้นทาง";
 "Extra usage spent" = "การใช้จ่ายเพิ่มเติม";
@@ -1167,11 +1198,13 @@
 "Open Augment (Log Out & Back In)" = "เปิด Augment (ออกจากระบบและกลับเข้ามาใหม่)";
 "Open Codebuff Dashboard" = "เปิดแดชบอร์ด Codebuff";
 "Open Command Code Settings" = "เปิดการตั้งค่า Command Code";
-"Open Crof dashboard" = "เปิดแดชบอร์ด Crof";
 "Open Manus" = "เปิด Manus";
 "Open MiMo Balance" = "เปิดยอดคงเหลือ MiMo";
 "Open Moonshot Console" = "เปิดคอนโซล Moonshot";
 "Open Ollama API Keys" = "เปิดปุ่ม Ollama API";
+"Open llmman" = "เปิด llmman";
+"Stored in ~/.codexbar/config.json. Only needed when llmman serve requires API keys." = "จัดเก็บใน ~/.codexbar/config.json จำเป็นเฉพาะเมื่อ llmman serve ต้องใช้คีย์ API";
+"Address of llmman serve. Defaults to http://127.0.0.1:17434." = "ที่อยู่ของ llmman serve ค่าเริ่มต้นคือ http://127.0.0.1:17434";
 "Open StepFun Platform" = "เปิดแพลตฟอร์ม StepFun";
 "Open T3 Chat Settings" = "เปิดการตั้งค่า T3 Chat";
 "Open Volcengine Ark Console" = "เปิดคอนโซล Volcengine Ark";
@@ -1235,7 +1268,6 @@
 "Stored in ~/.codexbar/config.json. Requires an Anthropic Admin API key." = "เก็บไว้ใน ~/.codexbar/config.json. ต้องใช้คีย์ API ผู้ดูแลระบบ Anthropic";
 "Stored in ~/.codexbar/config.json. Used for /v1/quota-stats." = "เก็บไว้ใน ~/.codexbar/config.json. ใช้สําหรับ /v1/quota-stats.";
 "Stored in ~/.codexbar/config.json. You can also provide CODEBUFF_API_KEY or let CodexBar read ~/.config/manicode/credentials.json (created by `codebuff login`)." = "เก็บไว้ใน ~/.codexbar/config.json. คุณยังสามารถระบุ CODEBUFF_API_KEY หรือให้ CodexBar อ่าน ~/.config/manicode/credentials.json (สร้างโดย `codebuff login`)";
-"Stored in ~/.codexbar/config.json. You can also provide CROF_API_KEY." = "เก็บไว้ใน ~/.codexbar/config.json. คุณยังสามารถให้ CROF_API_KEY";
 "Stored in ~/.codexbar/config.json. You can also provide KILO_API_KEY or ~/.local/share/kilo/auth.json (kilo.access)." = "เก็บไว้ใน ~/.codexbar/config.json. คุณยังสามารถระบุ KILO_API_KEY หรือ ~/.local/share/kilo/auth.json (kilo.access) ได้อีกด้วย";
 "T3 Chat cookie" = "คุกกี้ T3 Chat";
 "Team mode" = "โหมดทีม";
@@ -1340,6 +1372,8 @@
 "Tracked tokens" = "โทเค็นที่ติดตาม";
 "Subscriptions" = "การสมัครสมาชิก";
 "By subscription" = "แยกตามการสมัครสมาชิก";
+"By source" = "By source";
+"%d of %d sources have spend" = "%d of %d sources have spend";
 "No model-level history" = "ไม่มีประวัติระดับโมเดล";
 "Daily estimated spend" = "ค่าใช้จ่ายรายวันโดยประมาณ";
 "Hourly estimated spend" = "ค่าใช้จ่ายรายชั่วโมงโดยประมาณ";
@@ -1395,7 +1429,6 @@
 "menu_bar_layout_gap_tight" = "ชิด";
 "menu_bar_layout_gap_regular" = "ปกติ";
 "menu_bar_layout_vertical_adjustment" = "ปรับแนวตั้ง";
-"menu_bar_layout_keyboard_hint" = "Delete ลบโทเค็นที่เลือก";
 "menu_bar_layout_sample_account" = "บัญชี";
 "menu_bar_layout_sample_runs_out" = "หมดวันศุกร์";
 "menu_bar_layout_token_icon" = "ไอคอน";
@@ -1433,11 +1466,40 @@
 "Cost today unavailable" = "ค่าใช้จ่ายวันนี้: ไม่พร้อมใช้งาน";
 "30-day cost unavailable" = "ค่าใช้จ่าย 30 วัน: ไม่พร้อมใช้งาน";
 "Resets" = "การรีเซ็ต";
+"codex_workspaces_estimated_cost_short" = "ค่าใช้จ่ายโดยประมาณ";
+"codex_workspaces_estimated_cost_value" = "ประมาณ %@";
+"codex_workspaces_estimated_local_logs" = "ประมาณจากบันทึก Codex ในเครื่อง";
+"codex_workspaces_failed_read_logs" = "อ่านบันทึก Codex ไม่สำเร็จ";
+"codex_workspaces_indexing_local_logs" = "กำลังสร้างดัชนีบันทึก Codex ในเครื่อง…";
+"codex_workspaces_indexing_projects" = "กำลังสร้างดัชนีโปรเจ็กต์…";
+"codex_workspaces_local_codex_chat" = "แชท Codex ในเครื่อง";
+"codex_workspaces_no_local_usage" = "ยังไม่มีข้อมูลการใช้งาน Codex ในเครื่อง";
+"codex_workspaces_saving_project_index" = "กำลังบันทึกดัชนีโปรเจ็กต์…";
+"codex_workspaces_scanning_logs" = "กำลังสแกนบันทึก Codex…";
+"codex_workspaces_session_count" = "เซสชัน: %@";
+"codex_workspaces_sessions" = "เซสชัน";
+"codex_workspaces_title" = "พื้นที่ทำงาน";
+"codex_workspaces_tokens" = "โทเค็น";
+"codex_workspaces_token_count_accessibility" = "%@ โทเค็น";
+"codex_workspaces_top_model" = "โมเดลยอดนิยม";
+"codex_workspaces_cost_unavailable" = "ไม่มีข้อมูลค่าใช้จ่าย";
+"codex_workspaces_refresh_usage_data" = "รีเฟรชข้อมูลการใช้งาน";
+"codex_workspaces_retry" = "ลองอีกครั้ง";
+"codex_workspaces_partial_data" = "ข้อมูลบางส่วน";
+"codex_workspaces_high_usage" = "การใช้งานสูง";
+"codex_workspaces_elevated_usage" = "การใช้งานสูงกว่าปกติ";
+"codex_workspaces_normal_usage" = "การใช้งานปกติ";
+"codex_workspaces_no_sessions" = "ไม่มีเซสชันในพื้นที่ทำงานนี้";
+"codex_workspaces_session" = "เซสชัน";
+"codex_workspaces_model" = "โมเดล";
+"codex_workspaces_started" = "เริ่มเมื่อ";
 "Finish now" = "เสร็จสิ้นตอนนี้";
 "Continue in background" = "ทำต่อในเบื้องหลัง";
 
 "Cumulative" = "สะสม";
 "Token activity" = "กิจกรรมโทเทน";
+"Earlier activity" = "กิจกรรมก่อนหน้า";
+"More recent activity" = "กิจกรรมล่าสุด";
 "View" = "มุมมอง";
 "in the last year" = "ในปีที่ผ่านมา";
 "No activity in the last 12 months" = "ไม่มีกิจกรรมในช่วง 12 เดือนที่ผ่านมา";
@@ -1510,6 +1572,7 @@
 "Time until reset" = "Time until reset";
 "claude_oauth_keychain_access_revoked" = "สิทธิ์เข้าถึงพวงกุญแจ Claude ถูกเพิกถอนจากการหมุนเวียนโทเค็นของ Claude Code คลิกรีเฟรชเพื่อให้สิทธิ์อีกครั้ง หรือเปลี่ยนแหล่งที่มาการใช้งาน Claude เป็น CLI/Web";
 "claude_showing_last_known_usage" = "กำลังแสดงการใช้งานล่าสุดที่ทราบ ซึ่งบันทึกเมื่อ %@";
+"claude_limited_usage_detail" = "รายละเอียดการใช้งานมีจำกัด";
 /* Spend dashboard cost analysis */
 "90d" = "90d";
 "Input" = "Input";
@@ -1517,6 +1580,10 @@
 "Cache write" = "Cache write";
 "Reasoning" = "Reasoning";
 "Sessions" = "Sessions";
+
+"Independent chat" = "แชทอิสระ";
+"Independent chats" = "แชทอิสระ";
+"Chat %d" = "แชท %d";
 "Projects" = "Projects";
 "Plan metered" = "Plan metered";
 "List-price equivalent" = "List-price equivalent";
@@ -1565,4 +1632,62 @@
 "menu_bar_layout_conditional_default_session_spent" = "เซสชันเกือบหมด";
 "menu_bar_layout_conditional_default_either_high" = "เซสชันหรือรายสัปดาห์อยู่ในระดับสูง";
 "menu_bar_layout_conditional_default_scoped_weekly" = "รายสัปดาห์ตามโมเดลเกิน 60%";
+"Visible usage items" = "รายการการใช้งานที่มองเห็น";
+"Restore Defaults" = "คืนค่าเริ่มต้น";
+"Choose which usage rows appear in this provider's menu, Settings preview, and Overview." = "เลือกแถวการใช้งานที่จะแสดงในเมนูของผู้ให้บริการนี้ ตัวอย่างการตั้งค่า และภาพรวม";
+"%@ (unavailable)" = "%@ (ไม่พร้อมใช้งาน)";
 "Spending cap, not balance" = "เพดานการใช้จ่าย ไม่ใช่ยอดคงเหลือ";
+
+"Color Pace Indicator" = "แสดงสีอัตราการใช้งาน";
+"Green pace indicator when behind pace, red when ahead of pace (risk of running out early)" = "สีเขียวเมื่อใช้งานช้ากว่าอัตราที่คาดไว้ (มีโควตาสำรอง) สีแดงเมื่อเร็วกว่า (เสี่ยงหมดโควตาก่อนเวลา)";
+"%@ weekly" = "%@ รายสัปดาห์";
+
+"agent_sessions_hide_unreachable_title" = "ซ่อนโฮสต์ที่เข้าถึงไม่ได้";
+"agent_sessions_hide_unreachable_subtitle" = "ซ่อนโฮสต์เมื่อดึงข้อมูลเซสชันไม่สำเร็จ";
+
+/* Overview share flow */
+"Share Usage Snapshot…" = "แชร์ภาพรวมการใช้งาน…";
+"Usage snapshot unavailable" = "ภาพรวมการใช้งานไม่พร้อมใช้งาน";
+"CodexBar couldn't prepare a shareable usage snapshot. Refresh Usage & Spend and try again." = "CodexBar ไม่สามารถเตรียมภาพรวมการใช้งานสำหรับแชร์ได้ รีเฟรชการใช้งานและค่าใช้จ่ายแล้วลองอีกครั้ง";
+"Incomplete" = "ไม่ครบถ้วน";
+"Est. subtotal (%@): %@" = "ยอดรวมย่อยโดยประมาณ (%@): %@";
+"Excluded requests with missing final usage: %d" = "คำขอที่ไม่นับรวมเนื่องจากไม่มีข้อมูลการใช้งานขั้นสุดท้าย: %d";
+
+"overview_layout_title" = "เค้าโครงภาพรวม";
+"overview_layout_subtitle" = "เลือกปริมาณข้อมูลที่จะแสดงในภาพรวม";
+"overview_layout_detailed" = "แบบละเอียด";
+"overview_layout_compact" = "กะทัดรัด";
+
+"section_widgets" = "วิดเจ็ต";
+"account_widgets_title" = "อัปเดตบัญชีสำหรับวิดเจ็ต";
+"account_widgets_description" = "เลือกบัญชีในวิดเจ็ต Account Usage แต่ละรายการ อัปเดตได้สูงสุดหกบัญชีต่อผู้ให้บริการ";
+
+/* Spend time zone */
+"Statistics time zone" = "เขตเวลาสำหรับสถิติ";
+"Use Mac's current time zone" = "ใช้เขตเวลาปัจจุบันของ Mac";
+"Daily usage uses a fixed time zone. Changing it may move usage to a different day." = "การใช้งานรายวันจะจัดกลุ่มตามเขตเวลาที่กำหนดไว้ การเปลี่ยนเขตเวลาอาจย้ายการใช้งานไปอยู่ในวันอื่น";
+
+/* Antigravity local cost estimates */
+"antigravity_cost_estimate_hint" = "การใช้งานในเครื่อง × ราคา API สาธารณะ · ไม่ใช่ค่าบริการหรือเครดิตของ Antigravity";
+"antigravity_quota_window_note" = "ค่าใช้จ่ายของหน้าต่างครอบคลุมทุกโมเดล · หน้าต่างที่แสดงคือกลุ่มที่จำกัดมากที่สุด";
+"antigravity_no_priced_token_history" = "ไม่มีประวัติโทเคน Antigravity ที่คิดราคาไว้";
+"Supported browsers: %@. Use Manual for other browsers." = "เบราว์เซอร์ที่รองรับ: %@ ใช้โหมดกำหนดเองสำหรับเบราว์เซอร์อื่น";
+"Paste the Cookie header from a Chrome request to www.workbuddy.cn/profile/plans-usage." = "วางส่วนหัว Cookie จากคำขอของ Chrome ไปยัง www.workbuddy.cn/profile/plans-usage";
+"Reserved" = "สำรองไว้";
+
+/* Selected browser profile */
+"Browser profile" = "โปรไฟล์เบราว์เซอร์";
+"Unavailable profile: %@" = "โปรไฟล์ไม่พร้อมใช้งาน: %@";
+"Read only the selected %@ profile. Accounts are never selected automatically." = "อ่านเฉพาะโปรไฟล์ %@ ที่เลือกเท่านั้น ระบบจะไม่เลือกบัญชีโดยอัตโนมัติ";
+
+// Spend chart navigation and inspection
+"Recorded spend" = "ค่าใช้จ่ายที่บันทึกไว้";
+"Highest recorded spend" = "ค่าใช้จ่ายที่บันทึกไว้สูงสุด";
+"Previous day" = "วันก่อนหน้า";
+"Next day" = "วันถัดไป";
+"Click to isolate a source. Click again to show all." = "คลิกเพื่อดูแหล่งเดียว คลิกอีกครั้งเพื่อดูทั้งหมด";
+"Recorded hourly spend" = "ค่าใช้จ่ายรายชั่วโมงที่บันทึกไว้";
+"Highest spend" = "ค่าใช้จ่ายสูงสุด";
+"Models for this day" = "โมเดลของวันนี้";
+
+"Click a bar to explore. Use the menu below for exact amounts." = "คลิกแท่งกราฟเพื่อดูรายละเอียด ใช้เมนูด้านล่างเพื่อดูจำนวนเงินที่แน่นอน";

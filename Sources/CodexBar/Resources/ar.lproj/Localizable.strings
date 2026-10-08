@@ -80,6 +80,8 @@
 "Average (\\(metadata.sessionLabel) + \\(metadata.weeklyLabel))" = "المتوسط (\\(metadata.sessionLabel) + \\(metadata.weeklyLabel))";
 "Avoid Keychain prompts" = "تجنب Keychain الأسئلة";
 "Balance" = "التوازن";
+"Cloud credits" = "رصيد السحابة";
+"Expired" = "منتهية الصلاحية";
 "Battery Saver" = "منقذ البطارية";
 "Bordered" = "الحدود";
 "Build" = "البناء";
@@ -133,6 +135,10 @@
 "Cookie: …" = "كوكي: ...";
 "CopilotDeviceFlow" = "CopilotDeviceFlow";
 "Cost" = "التكلفة";
+"Token history" = "سجل الرموز";
+"Local token history · dollar costs unavailable" = "سجل الرموز المحلي · التكاليف بالدولار غير متاحة";
+"Partial local history · recorded token subtotal" = "سجل محلي جزئي · المجموع الفرعي للرموز المسجّلة";
+"Local token history is unavailable or incomplete." = "سجل الرموز المحلي غير متاح أو غير مكتمل.";
 "Could not add Codex account" = "لم أتمكن من إضافة Codex الحساب";
 "Could not open Terminal for Gemini" = "لم أتمكن من فتح الطرفية من Gemini";
 "Could not start claude /login" = "لم تستطع بدء كلود /login";
@@ -478,6 +484,7 @@
 "cost_summary_style_inline_help" = "يعرض ملخص التكلفة مباشرة في القائمة الرئيسية.";
 "cost_summary_style_submenu_help" = "يعرض بدلاً من ذلك قائمة التكلفة الفرعية التفصيلية.";
 "cost_summary_style_both_help" = "يعرض ملخص القائمة الرئيسية وقائمة التكلفة الفرعية التفصيلية.";
+"Month to date" = "من بداية الشهر حتى الآن";
 "cost_history_window_title" = "نافذة التاريخ";
 "cost_history_window_help" = "يحدد عدد أيام سجلات الاستخدام المحلية التي تظهر في القائمة.";
 "cost_history_days_title" = "نافذة التاريخ: %d أيام";
@@ -500,7 +507,6 @@
 "provider_accent_color_reset" = "استخدام الافتراضي";
 "quota_warnings_title" = "تحذيرات الحصص";
 "quota_warning_session" = "الجلسة";
-"quota_warning_session_capitalized" = "الجلسة";
 "quota_warning_weekly" = "أسبوعيا";
 "quota_warning_weekly_capitalized" = "الأسبوعي";
 "quota_warning_notification_title" = "انخفاض حصة %2$@ لدى %1$@";
@@ -521,6 +527,11 @@
 "session_depleted_notification_body" = "المتبقي 0%. سنبلغك عندما تصبح الحصة متاحة مجددًا.";
 "session_restored_notification_title" = "%@ الجلسة التي استعادت";
 "session_restored_notification_body" = "حصة الجلسة متاحة مرة أخرى.";
+"limit_reset_notifications_title" = "إشعارات إعادة التعيين";
+"limit_reset_notifications_subtitle" = "يُعلمك بالمزوّد والنافذة عند إعادة تعيين حد الجلسة أو الحد الأسبوعي.";
+"limit_reset_notification_title" = "تمت إعادة تعيين حد %2$@ لدى %1$@";
+"limit_reset_notification_body" = "تتوفر حصة جديدة.";
+"limit_reset_notification_body_with_account" = "الحساب %@. تتوفر حصة جديدة.";
 "quota_warning_warn_at" = "التحذير في";
 "quota_warning_global_threshold_subtitle" = "النسب المتبقية للجلسات والفترات الأسبوعية ما لم يتجاوزها مقدم الخدمة.";
 "quota_warning_sound" = "تشغيل صوت الإشعار";
@@ -566,6 +577,7 @@
 "hooks_any_provider" = "أي مزود";
 "hooks_threshold" = "التشغيل عند الاستخدام ≥";
 "hooks_threshold_placeholder" = "90";
+"hooks_executable" = "الملف التنفيذي";
 "hooks_executable_placeholder" = "/usr/local/bin/my-command";
 "hooks_arguments_placeholder" = "الوسائط";
 "hooks_argument_placeholder" = "الوسيطة";
@@ -618,6 +630,12 @@
 "cost_summary_off" = "إيقاف";
 "merge_icons_title" = "أيقونات الدمج";
 "merge_icons_subtitle" = "استخدم أيقونة شريط قائمة واحدة مع محول المزود.";
+"merged_icon_style_title" = "نمط الأيقونة المدمجة";
+"merged_icon_style_subtitle" = "يتنقل المبدّل بين المزوّدين واحدًا تلو الآخر؛ يعرض المكدّس مزوّدين في آن واحد، كل منهما في صف.";
+"merged_icon_style_switcher" = "المبدّل";
+"merged_icon_style_stacked" = "مكدّس";
+"merge_icon_stacked_top_provider_title" = "الصف العلوي";
+"merge_icon_stacked_bottom_provider_title" = "الصف السفلي";
 "show_most_used_provider_title" = "عرض المزود الأكثر استخداما";
 "show_most_used_provider_subtitle" = "شريط القوائم يعرض تلقائيا مزود الخدمة الأقرب إلى حد السعر.";
 "display_mode_title" = "وضع العرض";
@@ -840,7 +858,6 @@
 "No local data found" = "لم يتم العثور على بيانات محلية";
 "Credits unavailable; keep Codex running to refresh." = "الاعتمادات غير متوفرة؛ استمر في Codex لتجديد النشاط.";
 "No available fetch strategy for minimax." = "لا توجد استراتيجية جلب متاحة للمينيماكس.";
-"No Cursor session found. Please log in to cursor.com in Safari, Chrome, Microsoft Edge, Brave, Arc, Dia, ChatGPT Atlas, Chromium, Helium, Vivaldi, Yandex Browser, Firefox, Zen, Colibri, Sidekick, Opera, Opera GX, or Edge Canary. If you use Safari, grant CodexBar Full Disk Access in System Settings ▸ Privacy & Security. You can also sign in to Cursor from the CodexBar menu (Add / switch account)." = "لم يتم العثور على جلسة Cursor. يرجى تسجيل الدخول إلى cursor.com في Safari، Chrome، مايكروسوفت إيدج، بريف، آرك، دييا، شات جي بي تي أطلس، كروميوم، هيليوم، فيفالدي، متصفح ياندكس، فايرفوكس، زين، كوليبري، سايدكيك، أوبرا، أوبرا GX، أو إيدج كاناري. إذا كنت تستخدم Safari، امنح CodexBar الوصول الكامل للقرص في إعدادات النظام ▸ الخصوصية والأمان. يمكنك أيضا تسجيل الدخول إلى Cursor من قائمة CodexBar (إضافة / تغيير الحساب).";
 "No OpenCode session cookies found in browsers." = "لا توجد ملفات تعريف الارتباط للجلسة OpenCode في المتصفحات.";
 "No available fetch strategy for %@." = "لا توجد استراتيجية جلب متاحة %@.";
 "Today" = "اليوم";
@@ -888,6 +905,12 @@
 "usage_percent_suffix_used" = "مستخدم";
 "Store multiple DeepSeek API keys." = "خزن عدة مفاتيح DeepSeek API.";
 "This week" = "هذا الأسبوع";
+"Current window" = "النافذة الحالية";
+"Last week" = "الأسبوع الماضي";
+"%d weeks ago" = "قبل %d أسابيع";
+"Previous window" = "النافذة السابقة";
+"%d windows ago" = "قبل %d نوافذ";
+"Recent windows" = "النوافذ الأخيرة";
 "Week" = "الأسبوع";
 "Month" = "الشهر";
 "Models" = "النماذج";
@@ -948,6 +971,14 @@
 "Overage" = "التجاوز";
 "Activity" = "النشاط";
 "Copied" = "تم النسخ";
+"Managed by Homebrew" = "تتم إدارته بواسطة Homebrew";
+"Copy update command" = "نسخ أمر التحديث";
+"Update to %@" = "التحديث إلى %@";
+"CodexBar %@ is available" = "CodexBar %@ متاح";
+"CodexBar is up to date" = "CodexBar محدَّث";
+"Checking for updates…" = "جارٍ البحث عن تحديثات…";
+"Updating with Homebrew…" = "جارٍ التحديث عبر Homebrew…";
+"Homebrew update failed. You can run this command in Terminal instead:" = "فشل التحديث عبر Homebrew. يمكنك تشغيل هذا الأمر في Terminal بدلاً من ذلك:";
 "Copy error" = "خطأ في النسخ.";
 "Copy path" = "مسار النسخ";
 "Extra usage spent" = "الاستخدام الإضافي المخصص";
@@ -1167,11 +1198,13 @@
 "Open Augment (Log Out & Back In)" = "فتح Augment (تسجيل الخروج والعودة للدخول)";
 "Open Codebuff Dashboard" = "لوحة تحكم مفتوحة Codebuff";
 "Open Command Code Settings" = "افتح إعدادات Command Code";
-"Open Crof dashboard" = "لوحة تحكم Open Crof";
 "Open Manus" = "فتح Manus";
 "Open MiMo Balance" = "توازن MiMo مفتوح";
 "Open Moonshot Console" = "وحدة التحكم المفتوحة Moonshot";
 "Open Ollama API Keys" = "مفاتيح Ollama API المفتوحة";
+"Open llmman" = "فتح llmman";
+"Stored in ~/.codexbar/config.json. Only needed when llmman serve requires API keys." = "مخزّن في ~/.codexbar/config.json. مطلوب فقط عندما يتطلب llmman serve مفاتيح API.";
+"Address of llmman serve. Defaults to http://127.0.0.1:17434." = "عنوان llmman serve. القيمة الافتراضية http://127.0.0.1:17434.";
 "Open StepFun Platform" = "منصة StepFun المفتوحة";
 "Open T3 Chat Settings" = "افتح إعدادات T3 Chat";
 "Open Volcengine Ark Console" = "وحدة تحكم فولكموتور المفتوحة";
@@ -1235,7 +1268,6 @@
 "Stored in ~/.codexbar/config.json. Requires an Anthropic Admin API key." = "التخزين في ~/.codexbar/config.json. يتطلب مفتاح API إداري بشري.";
 "Stored in ~/.codexbar/config.json. Used for /v1/quota-stats." = "مخزنة في ~/.codexbar/config.json. تستخدم /v1/quota-stats.";
 "Stored in ~/.codexbar/config.json. You can also provide CODEBUFF_API_KEY or let CodexBar read ~/.config/manicode/credentials.json (created by `codebuff login`)." = "مخزن في ~/.codexbar/config.json. يمكنك أيضا توفير CODEBUFF_API_KEY أو السماح CodexBar بقراءة ~/.config/manicode/credentials.json (تم إنشاؤه بواسطة `codebuff login`).";
-"Stored in ~/.codexbar/config.json. You can also provide CROF_API_KEY." = "مخزن في ~/.codexbar/config.json. يمكنك أيضا توفير CROF_API_KEY.";
 "Stored in ~/.codexbar/config.json. You can also provide KILO_API_KEY or ~/.local/share/kilo/auth.json (kilo.access)." = "مخزنة في ~/.codexbar/config.json. يمكنك أيضا توفير KILO_API_KEY أو ~/.local/share/kilo/auth.json (كيلو.أكس).";
 "T3 Chat cookie" = "T3 Chat كوكي";
 "Team mode" = "وضع الفريق";
@@ -1340,6 +1372,8 @@
 "Tracked tokens" = "الرموز المتتبعة";
 "Subscriptions" = "الاشتراكات";
 "By subscription" = "حسب الاشتراك";
+"By source" = "By source";
+"%d of %d sources have spend" = "%d of %d sources have spend";
 "No model-level history" = "لا يوجد سجل على مستوى النموذج";
 "Daily estimated spend" = "الإنفاق اليومي التقديري";
 "Hourly estimated spend" = "الإنفاق الساعي التقديري";
@@ -1395,7 +1429,6 @@
 "menu_bar_layout_gap_tight" = "ضيّق";
 "menu_bar_layout_gap_regular" = "عادي";
 "menu_bar_layout_vertical_adjustment" = "الضبط العمودي";
-"menu_bar_layout_keyboard_hint" = "يحذف Delete العنصر المحدد";
 "menu_bar_layout_sample_account" = "حساب";
 "menu_bar_layout_sample_runs_out" = "ينفد الجمعة";
 "menu_bar_layout_token_icon" = "الأيقونة";
@@ -1433,11 +1466,40 @@
 "Cost today unavailable" = "تكلفة اليوم: غير متوفر";
 "30-day cost unavailable" = "تكلفة 30 يوماً: غير متوفر";
 "Resets" = "إعادات الضبط";
+"codex_workspaces_estimated_cost_short" = "التكلفة المقدّرة";
+"codex_workspaces_estimated_cost_value" = "مقدّر %@";
+"codex_workspaces_estimated_local_logs" = "تقدير من سجلات Codex المحلية";
+"codex_workspaces_failed_read_logs" = "تعذّرت قراءة سجلات Codex";
+"codex_workspaces_indexing_local_logs" = "جارٍ فهرسة سجلات Codex المحلية…";
+"codex_workspaces_indexing_projects" = "جارٍ فهرسة المشاريع…";
+"codex_workspaces_local_codex_chat" = "دردشة Codex محلية";
+"codex_workspaces_no_local_usage" = "لا يوجد استخدام محلي لـ Codex حتى الآن";
+"codex_workspaces_saving_project_index" = "جارٍ حفظ فهرس المشاريع…";
+"codex_workspaces_scanning_logs" = "جارٍ فحص سجلات Codex…";
+"codex_workspaces_session_count" = "الجلسات: %@";
+"codex_workspaces_sessions" = "الجلسات";
+"codex_workspaces_title" = "مساحات العمل";
+"codex_workspaces_tokens" = "الرموز";
+"codex_workspaces_token_count_accessibility" = "%@ من الرموز";
+"codex_workspaces_top_model" = "النموذج الأكثر استخدامًا";
+"codex_workspaces_cost_unavailable" = "التكلفة غير متاحة";
+"codex_workspaces_refresh_usage_data" = "تحديث بيانات الاستخدام";
+"codex_workspaces_retry" = "أعد المحاولة";
+"codex_workspaces_partial_data" = "بيانات جزئية";
+"codex_workspaces_high_usage" = "استخدام مرتفع";
+"codex_workspaces_elevated_usage" = "استخدام أعلى من المعتاد";
+"codex_workspaces_normal_usage" = "استخدام عادي";
+"codex_workspaces_no_sessions" = "لا توجد جلسات في مساحة العمل هذه";
+"codex_workspaces_session" = "جلسة";
+"codex_workspaces_model" = "النموذج";
+"codex_workspaces_started" = "بدأ";
 "Finish now" = "إنهاء الآن";
 "Continue in background" = "المتابعة في الخلفية";
 
 "Cumulative" = "تراكمي";
 "Token activity" = "نشاط الرموز";
+"Earlier activity" = "نشاط أقدم";
+"More recent activity" = "نشاط أحدث";
 "View" = "عرض";
 "in the last year" = "في العام الماضي";
 "No activity in the last 12 months" = "لا يوجد نشاط في آخر 12 شهرًا";
@@ -1510,6 +1572,7 @@
 "Time until reset" = "Time until reset";
 "claude_oauth_keychain_access_revoked" = "تم إلغاء وصول CodexBar إلى سلسلة مفاتيح Claude بسبب تدوير الرمز المميز في Claude Code. انقر على «تحديث» لمنح الوصول مجددًا، أو بدّل مصدر استخدام Claude إلى CLI/Web.";
 "claude_showing_last_known_usage" = "يتم عرض آخر بيانات استخدام معروفة، تم التقاطها %@.";
+"claude_limited_usage_detail" = "تفاصيل الاستخدام محدودة";
 /* Spend dashboard cost analysis */
 "90d" = "90d";
 "Input" = "Input";
@@ -1517,6 +1580,10 @@
 "Cache write" = "Cache write";
 "Reasoning" = "Reasoning";
 "Sessions" = "Sessions";
+
+"Independent chat" = "محادثة مستقلة";
+"Independent chats" = "محادثات مستقلة";
+"Chat %d" = "محادثة %d";
 "Projects" = "Projects";
 "Plan metered" = "Plan metered";
 "List-price equivalent" = "List-price equivalent";
@@ -1565,4 +1632,62 @@
 "menu_bar_layout_conditional_default_session_spent" = "الجلسة على وشك النفاد";
 "menu_bar_layout_conditional_default_either_high" = "الجلسة أو الأسبوع في مستوى مرتفع";
 "menu_bar_layout_conditional_default_scoped_weekly" = "نافذة الطراز الأسبوعية فوق 60٪";
+"Visible usage items" = "عناصر الاستخدام المرئية";
+"Restore Defaults" = "استعادة الإعدادات الافتراضية";
+"Choose which usage rows appear in this provider's menu, Settings preview, and Overview." = "اختر صفوف الاستخدام التي تظهر في قائمة هذا المزوّد ومعاينة الإعدادات والنظرة العامة.";
+"%@ (unavailable)" = "%@ (غير متوفر)";
 "Spending cap, not balance" = "حد الإنفاق، وليس الرصيد";
+
+"Color Pace Indicator" = "تلوين وتيرة الاستخدام";
+"Green pace indicator when behind pace, red when ahead of pace (risk of running out early)" = "أخضر عندما يكون الاستخدام أبطأ من الوتيرة المتوقعة (احتياطي)؛ وأحمر عندما يكون أسرع (خطر النفاد مبكرًا).";
+"%@ weekly" = "%@ أسبوعيًا";
+
+"agent_sessions_hide_unreachable_title" = "إخفاء المضيفين غير المتاحين";
+"agent_sessions_hide_unreachable_subtitle" = "إخفاء المضيفين عند تعذّر جلب جلساتهم.";
+
+/* Overview share flow */
+"Share Usage Snapshot…" = "مشاركة ملخص الاستخدام…";
+"Usage snapshot unavailable" = "ملخص الاستخدام غير متاح";
+"CodexBar couldn't prepare a shareable usage snapshot. Refresh Usage & Spend and try again." = "تعذر على CodexBar إعداد ملخص استخدام قابل للمشاركة. حدّث الاستخدام والإنفاق ثم حاول مرة أخرى.";
+"Incomplete" = "غير مكتمل";
+"Est. subtotal (%@): %@" = "الإجمالي الفرعي التقديري (%@): %@";
+"Excluded requests with missing final usage: %d" = "الطلبات المستبعدة لعدم توفر بيانات الاستخدام النهائية: %d";
+
+"overview_layout_title" = "تخطيط النظرة العامة";
+"overview_layout_subtitle" = "اختر مقدار المعلومات التي تعرضها النظرة العامة.";
+"overview_layout_detailed" = "مفصل";
+"overview_layout_compact" = "مضغوط";
+
+"section_widgets" = "الأدوات";
+"account_widgets_title" = "تحديث الحسابات للأدوات";
+"account_widgets_description" = "اختر حسابًا في كل أداة Account Usage. يتم تحديث ما يصل إلى ستة حسابات لكل مزوّد.";
+
+/* Spend time zone */
+"Statistics time zone" = "المنطقة الزمنية للإحصاءات";
+"Use Mac's current time zone" = "استخدام المنطقة الزمنية الحالية للـ Mac";
+"Daily usage uses a fixed time zone. Changing it may move usage to a different day." = "يُحسب الاستخدام اليومي وفق منطقة زمنية ثابتة. قد يؤدي تغييرها إلى نقل الاستخدام إلى يوم مختلف.";
+
+/* Antigravity local cost estimates */
+"antigravity_cost_estimate_hint" = "الاستخدام المحلي × أسعار واجهة البرمجة العامة · ليست رسوم أو أرصدة Antigravity";
+"antigravity_quota_window_note" = "تكلفة النافذة تشمل كل النماذج · النافذة المعروضة هي الفئة الأكثر تقييدًا";
+"antigravity_no_priced_token_history" = "لا يتوفر سجل رموز Antigravity مُسعّر.";
+"Supported browsers: %@. Use Manual for other browsers." = "المتصفحات المدعومة: %@. استخدم الوضع اليدوي للمتصفحات الأخرى.";
+"Paste the Cookie header from a Chrome request to www.workbuddy.cn/profile/plans-usage." = "الصق ترويسة Cookie من طلب Chrome إلى www.workbuddy.cn/profile/plans-usage.";
+"Reserved" = "محجوز";
+
+/* Selected browser profile */
+"Browser profile" = "ملف تعريف المتصفح";
+"Unavailable profile: %@" = "ملف التعريف غير متاح: %@";
+"Read only the selected %@ profile. Accounts are never selected automatically." = "قراءة ملف تعريف %@ المحدد فقط. لا يتم اختيار الحسابات تلقائيًا مطلقًا.";
+
+// Spend chart navigation and inspection
+"Recorded spend" = "الإنفاق المسجل";
+"Highest recorded spend" = "أعلى إنفاق مسجل";
+"Previous day" = "اليوم السابق";
+"Next day" = "اليوم التالي";
+"Click to isolate a source. Click again to show all." = "انقر لعرض مصدر واحد. انقر مجددًا لعرض الكل.";
+"Recorded hourly spend" = "الإنفاق المسجل حسب الساعة";
+"Highest spend" = "أعلى إنفاق";
+"Models for this day" = "نماذج هذا اليوم";
+
+"Click a bar to explore. Use the menu below for exact amounts." = "انقر على عمود لاستكشاف البيانات. استخدم القائمة أدناه لعرض المبالغ الدقيقة.";

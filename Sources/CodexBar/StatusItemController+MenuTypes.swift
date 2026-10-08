@@ -39,22 +39,28 @@ struct OverviewMenuCardRowView: View {
     let model: UsageMenuCardView.Model
     let storageText: String?
     let width: CGFloat
+    var layout: MergedOverviewLayout = .detailed
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            UsageMenuCardHeaderSectionView(
-                model: self.model,
-                showDivider: Self.showsSectionDividers && self.hasUsageBlock,
-                width: self.width)
-            if self.hasUsageBlock {
-                UsageMenuCardUsageSectionView(
+            if self.usesFullCard {
+                UsageMenuCardView(model: self.model, width: self.width)
+            } else {
+                UsageMenuCardHeaderSectionView(
                     model: self.model,
-                    layoutModel: self.model,
-                    showBottomDivider: false,
-                    bottomPadding: 6,
-                    width: self.width,
-                    showsSectionDividers: Self.showsSectionDividers)
+                    showDivider: Self.showsSectionDividers && self.model.hasUsageContent,
+                    width: self.width)
+                if self.model.hasUsageContent {
+                    UsageMenuCardUsageSectionView(
+                        model: self.model,
+                        layoutModel: self.model,
+                        showBottomDivider: false,
+                        bottomPadding: 6,
+                        width: self.width,
+                        showsSectionDividers: Self.showsSectionDividers,
+                        compactMetrics: self.layout == .compact)
+                }
             }
             if let storageText {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -68,7 +74,7 @@ struct OverviewMenuCardRowView: View {
                     Spacer()
                 }
                 .padding(.horizontal, UsageMenuCardLayout.horizontalPadding)
-                .padding(.top, self.hasUsageBlock ? 0 : 8)
+                .padding(.top, self.model.hasUsageContent ? 0 : 8)
                 .padding(.bottom, 6)
                 .frame(width: self.width, alignment: .leading)
             }
@@ -76,8 +82,8 @@ struct OverviewMenuCardRowView: View {
         .frame(width: self.width, alignment: .leading)
     }
 
-    private var hasUsageBlock: Bool {
-        self.model.hasUsageContent
+    var usesFullCard: Bool {
+        self.layout == .compact && self.model.metrics.isEmpty
     }
 }
 

@@ -7,7 +7,11 @@ import Testing
 struct CLIOutputTests {
     @Test(arguments: BundledPluginTestSupport.engines)
     func `OpenRouter text and JSON retain independent cap and balance`(engine: ProviderPluginEngineKind) async throws {
-        let snapshot = try await OpenRouterLimitTestSupport.snapshot(engine: engine)
+        let snapshot = try await OpenRouterLimitTestSupport.snapshot(engine: engine, keyBody: #"""
+        {"data":{"limit":30,"limit_remaining":30,"usage":0,"rate_limit":{
+          "requests":-1,"interval":"10s","note":"This field is deprecated and safe to ignore."
+        }}}
+        """#)
         let text = CLIRenderer.renderText(
             provider: .openrouter,
             snapshot: snapshot,
@@ -19,6 +23,7 @@ struct CLIOutputTests {
         #expect(text.contains("Balance: $1.90"))
         #expect(text.contains("100% left"))
         #expect(!text.contains("API key budget"))
+        #expect(!text.contains("Rate limit"))
 
         let data = try JSONEncoder().encode(snapshot)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -28,6 +33,7 @@ struct CLIOutputTests {
             "label": "API key limit", "value": "$30.00", "secondaryValue": "Spending cap, not balance",
         ])
         #expect(rows[1] == ["label": "API key remaining", "value": "$30.00"])
+        #expect(!rows.contains { $0["label"] == "Rate limit" })
         #expect((json["primary"] as? [String: Double]) == ["usedPercent": 0])
         #expect(Set(json.keys) == [
             "primary", "secondary", "tertiary", "details", "updatedAt", "identity", "loginMethod",
@@ -223,7 +229,8 @@ struct CLIOutputTests {
                 useColor: false,
                 resetStyle: .countdown))
 
-        #expect(text.contains("Individual credits: $25.64"))
+        #expect(text.contains("Individual: $25.64"))
+        #expect(text.contains("For agent and orb usage"))
         #expect(text.contains("Workspace Alpha Team: $1,234.56"))
         #expect(text.contains("Account: paid@example.com"))
         #expect(!text.contains("Amp Free:"))
@@ -397,5 +404,49 @@ struct CLIOutputTests {
 
         #expect(text.contains("Extra usage balance: $100.00"))
         #expect(!text.contains("Cost: 0.0 / 0.0"))
+    }
+
+    @Test
+    func `text renderer shows Codex purchased credits without zero cost`() {
+        let now = Date(timeIntervalSince1970: 0)
+        let snapshot = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            providerCost: ProviderCostSnapshot(
+                used: 0,
+                limit: 0,
+                currencyCode: CodexExtraUsageCost.currencyCode,
+                period: "Extra usage",
+                balance: 100,
+                updatedAt: now),
+            updatedAt: now)
+
+        let text = CLIRenderer.renderText(
+            provider: .codex,
+            snapshot: snapshot,
+            credits: nil,
+            context: RenderContext(
+                header: "Codex (oauth)",
+                status: nil,
+                useColor: false,
+                resetStyle: .countdown))
+
+        #expect(text.contains("Extra usage balance: 100.0"))
+        #expect(!text.contains("Cost: 0.0 / 0.0"))
+    }
+
+    @Test
+    func `confirmed zero Codex credits never print zero cost or an old balance`() {
+        let now = Date(timeIntervalSince1970: 0)
+        let snapshot = CodexExtraUsageCost.attaching(
+            to: UsageSnapshot(primary: nil, secondary: nil, updatedAt: now),
+            credits: CreditsSnapshot(remaining: 0, events: [], updatedAt: now))
+        let text = CLIRenderer.renderText(
+            provider: .codex,
+            snapshot: snapshot,
+            credits: nil,
+            context: RenderContext(header: "Codex (oauth)", status: nil, useColor: false, resetStyle: .countdown))
+        #expect(!text.contains("Extra usage balance"))
+        #expect(!text.contains("Cost:"))
     }
 }

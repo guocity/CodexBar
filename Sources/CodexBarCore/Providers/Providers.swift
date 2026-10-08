@@ -48,6 +48,7 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case moonshot
     case amp
     case t3chat
+    case langdock
     case ollama
     case synthetic
     case openrouter
@@ -64,7 +65,6 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case deepseek
     case deepinfra
     case codebuff
-    case crof
     case venice
     case commandcode
     case qoder
@@ -74,10 +74,13 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case groq
     case llmproxy
     case litellm
+    case bifrost
+    case aixy
     case deepgram
     case poe
     case chutes
     case neuralwatt
+    case helmcode
     case clawrouter
     case longcat
     case sub2api
@@ -86,8 +89,28 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case aiand
     case zoommate
     case xai
+    case xapi
     case notion
     case ibmbob
+    case nous
+    case muse
+    case coderabbit
+    case replicate
+    case huggingface
+    case raycast
+    case pi
+    case v0
+    case typesafe
+    case hyper
+    case gitkraken
+    case devpass
+    case atlascloud
+    case vercel
+    case llmman
+    case xkiro
+    case museai
+    case lithosai
+    case workbuddy
 }
 
 // swiftformat:enable sortDeclarations
@@ -118,6 +141,7 @@ public struct IconStyle: RawRepresentable, Hashable, Sendable, CaseIterable, Cus
     public static let antigravity = Self(provider: .antigravity)
     public static let cursor = Self(provider: .cursor)
     public static let factory = Self(provider: .factory)
+    public static let grok = Self(provider: .grok)
     public static let copilot = Self(provider: .copilot)
     public static let commandcode = Self(provider: .commandcode)
     public static let kimi = Self(provider: .kimi)
@@ -143,6 +167,7 @@ public struct ProviderMetadata: Sendable {
     public let cliName: String
     public let defaultEnabled: Bool
     public let widgetSelectable: Bool
+    public let burnDownWidgetSelectable: Bool
     public let isPrimaryProvider: Bool
     public let usesAccountFallback: Bool
     public let sharePlanLabels: [String: String]
@@ -178,6 +203,7 @@ public struct ProviderMetadata: Sendable {
         cliName: String,
         defaultEnabled: Bool,
         widgetSelectable: Bool = true,
+        burnDownWidgetSelectable: Bool = true,
         isPrimaryProvider: Bool = false,
         usesAccountFallback: Bool = false,
         sharePlanLabels: [String: String] = [:],
@@ -207,6 +233,7 @@ public struct ProviderMetadata: Sendable {
         self.cliName = cliName
         self.defaultEnabled = defaultEnabled
         self.widgetSelectable = widgetSelectable
+        self.burnDownWidgetSelectable = burnDownWidgetSelectable
         self.isPrimaryProvider = isPrimaryProvider
         self.usesAccountFallback = usesAccountFallback
         self.sharePlanLabels = sharePlanLabels

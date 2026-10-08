@@ -1,6 +1,20 @@
 import Foundation
 
 extension CostUsageScanner {
+    static func canResumeCodexForkAccounting(
+        _ cached: CostUsageFileUsage,
+        context: CodexFileScanContext) throws -> Bool
+    {
+        guard let parentID = cached.forkedFromId,
+              let saved = cached.codexForkAccountingState,
+              !saved.metadata.isSubagentThread,
+              saved.metadata.sessionId == cached.sessionId,
+              saved.metadata.forkedFromId == parentID,
+              let dependency = cached.forkBaselineDependencyKey
+        else { return false }
+        return try dependency == context.resources.inheritedResolver.currentDependencyKey(for: parentID)
+    }
+
     /// Missing-parent forks stay out of priced totals. Count them as unmetered so Spend
     /// coverage can show the gap instead of silently dropping the session.
     static func unresolvedForkUnmeteredCounts(
@@ -27,11 +41,12 @@ extension CostUsageScanner {
     }
 
     static func isUnresolvedMissingParentFork(_ usage: CostUsageFileUsage) -> Bool {
-        guard usage.forkedFromId != nil else { return false }
-        if let key = usage.forkBaselineDependencyKey {
-            return key.hasPrefix("missing|")
-        }
-        return true
+        usage.forkedFromId != nil
+            && (usage.forkBaselineDependencyKey.map(self.codexDependencyIsMissing) ?? true)
+    }
+
+    static func codexDependencyIsMissing(_ key: String) -> Bool {
+        key.hasPrefix("missing|") || key.contains("|inherited|missing|")
     }
 
     static func codexFileHasBilledTokens(_ usage: CostUsageFileUsage) -> Bool {
@@ -47,13 +62,14 @@ extension CostUsageScanner {
         var rowsByDayModel: [String: [String: [CodexUsageRow]]]
         var unresolvedRowGroups: Set<CodexDayModelKey>
         var modeOwnershipMismatchGroups: Set<CodexDayModelKey>
-        var priorityEvidenceGroups: Set<CodexDayModelKey>
+        var requestPricingEvidenceGroups: Set<CodexDayModelKey>
         var incompletePricingEvidenceGroups: Set<CodexDayModelKey>
         var authoritativeCostEvidenceGroups: Set<CodexDayModelKey>
         var priorityTurns: [String: CodexPriorityTurnMetadata]
         var modelsDevCatalog: ModelsDevCatalog
         var modelsDevCacheRoot: URL?
         var customPricing: CostUsageCustomPricing
+        var pricingResolver: CostUsagePricing.CodexResolver
     }
 
     static func unmeteredForkReportEntry(day: String, unmetered: Int) -> CostUsageDailyReport.Entry? {
@@ -81,13 +97,15 @@ extension CostUsageScanner {
         if modelNames.isEmpty {
             return Self.unmeteredForkReportEntry(day: day, unmetered: unmetered)
         }
-        var dayInput = 0
-        var dayCacheRead = 0
-        var dayOutput = 0
-        var dayReasoning = 0
+        var dayInput = CostUsageDailyReport.OptionalCountAccumulator(0)
+        var dayCacheRead = CostUsageDailyReport.OptionalCountAccumulator(0)
+        var dayOutput = CostUsageDailyReport.OptionalCountAccumulator(0)
+        var dayReasoning = CostUsageDailyReport.OptionalCountAccumulator(0)
         var breakdown: [CostUsageDailyReport.ModelBreakdown] = []
         var dayCost: Double = 0
         var dayCostSeen = false
+        var dayPricedRequests = 0
+        var dayUnpricedRequests = 0
 
         for model in modelNames {
             guard OpenCodexRouteDispatcher.countsTowardCodexSubscription(modelName: model) else { continue }
@@ -95,15 +113,15 @@ extension CostUsageScanner {
             let input = packed[safe: 0] ?? 0
             let cached = packed[safe: 1] ?? 0
             let output = packed[safe: 2] ?? 0
-            let totalTokens = input + output
+            let totalTokens = CheckedSum.integers([input, output])
             let rows = pricing.rowsByDayModel[day]?[model] ?? []
-            let reasoning = rows.compactMap(\.reasoning).reduce(0, +)
+            let reasoning = CheckedSum.integers(rows.compactMap(\.reasoning))
 
-            dayInput += input
-            dayCacheRead += cached
-            dayOutput += output
-            if reasoning > 0 {
-                dayReasoning += reasoning
+            dayInput.add(input)
+            dayCacheRead.add(cached)
+            dayOutput.add(output)
+            for row in rows {
+                dayReasoning.add(row.reasoning)
             }
 
             let rowCost = rows.isEmpty ? nil : Self.codexRowCostBreakdown(
@@ -111,28 +129,54 @@ extension CostUsageScanner {
                 priorityTurns: pricing.priorityTurns,
                 modelsDevCatalog: pricing.modelsDevCatalog,
                 modelsDevCacheRoot: pricing.modelsDevCacheRoot,
-                customPricing: pricing.customPricing)
+                customPricing: pricing.customPricing,
+                pricingResolver: pricing.pricingResolver)
             let group = CodexDayModelKey(day: day, model: model)
-            let rowCostIsTrusted = !pricing.unresolvedRowGroups.contains(group)
+            // A combined token counter can overflow while each source class and its supplied
+            // monetary amount remain valid. Never replace authoritative dollars with repricing.
+            let authoritativeOverflowCost = totalTokens == nil && !rows.isEmpty
+                && rows.allSatisfy { $0.knownCostNanos != nil && ($0.unpricedTokens ?? 0) == 0 }
+                && CheckedSum.integers(rows.map(\.input)) == input
+                && CheckedSum.integers(rows.map(\.cached)) == cached
+                && CheckedSum.integers(rows.map(\.output)) == output
+            let rowsCoverGroup = !pricing.unresolvedRowGroups.contains(group)
                 && !pricing.modeOwnershipMismatchGroups.contains(group)
-                && rowCost?.isTrusted(canonicalTotalTokens: totalTokens) == true
-            let aggregateCost = pricing.priorityEvidenceGroups.contains(group)
+                && (authoritativeOverflowCost
+                    || totalTokens.map { rowCost?.coversGroup(canonicalTotalTokens: $0) == true } == true)
+            let rowCostIsTrusted = rowsCoverGroup && rowCost?.hasIncompletePricing != true
+            // Rows that cover the group but include unknown requests report the subtotal of the priced ones.
+            let partialRowCost = rowsCoverGroup && !rowCostIsTrusted ? rowCost : nil
+            let aggregateCost = pricing.requestPricingEvidenceGroups.contains(group)
                 || pricing.incompletePricingEvidenceGroups.contains(group)
                 || (pricing.unresolvedRowGroups.contains(group)
                     && pricing.authoritativeCostEvidenceGroups.contains(group))
                 || rowCost?.hasIncompletePricing == true
                 ? nil
-                : CostUsagePricing.codexAggregateCostUSD(
+                : CostUsagePricing.codexCostUSD(
+                    aggregate: true,
                     model: model,
                     inputTokens: input,
                     cachedInputTokens: cached,
                     outputTokens: output,
                     modelsDevCatalog: pricing.modelsDevCatalog,
                     modelsDevCacheRoot: pricing.modelsDevCacheRoot,
-                    customPricing: pricing.customPricing)
-            let cost = rowCostIsTrusted
-                ? rowCost?.totalCostUSD ?? aggregateCost
-                : aggregateCost
+                    customPricing: pricing.customPricing,
+                    pricingResolver: pricing.pricingResolver)
+            let cost = if rowCostIsTrusted {
+                rowCost?.totalCostUSD ?? aggregateCost
+            } else if let partialRowCost {
+                partialRowCost.totalCostUSD
+            } else {
+                aggregateCost
+            }
+            if let partialRowCost {
+                dayPricedRequests += partialRowCost.pricedRequestCount
+                dayUnpricedRequests += partialRowCost.unpricedRequestCount
+            } else if cost == nil, (totalTokens ?? 1) > 0 {
+                dayUnpricedRequests += 1
+            } else if cost != nil {
+                dayPricedRequests += rowCostIsTrusted ? max(1, rowCost?.pricedRequestCount ?? 0) : 1
+            }
             let hasModeSplit = rowCostIsTrusted && rowCost?.hasModeSplit == true
             breakdown.append(
                 CostUsageDailyReport.ModelBreakdown(
@@ -142,7 +186,7 @@ extension CostUsageScanner {
                     inputTokens: input,
                     outputTokens: output,
                     cacheReadTokens: cached > 0 ? cached : nil,
-                    reasoningTokens: reasoning > 0 ? reasoning : nil,
+                    reasoningTokens: reasoning.flatMap { $0 > 0 ? $0 : nil },
                     standardCostUSD: hasModeSplit ? rowCost?.optionalStandardCostUSD : nil,
                     priorityCostUSD: hasModeSplit ? rowCost?.optionalPriorityCostUSD : nil,
                     standardTokens: hasModeSplit ? rowCost?.optionalStandardTokens : nil,
@@ -153,20 +197,25 @@ extension CostUsageScanner {
             }
         }
 
-        let dayTotal = dayInput + dayOutput
-        let entryCost = dayCostSeen ? dayCost : nil
+        var dayTokens = dayInput
+        dayTokens.merge(dayOutput)
+        let dayTotal = dayTokens.value
+        let entryCost = dayCostSeen && dayCost.isFinite ? dayCost : nil
         return CostUsageDailyReport.Entry(
             date: day,
-            inputTokens: dayInput,
-            outputTokens: dayOutput,
-            cacheReadTokens: dayCacheRead > 0 ? dayCacheRead : nil,
-            reasoningTokens: dayReasoning > 0 ? dayReasoning : nil,
+            inputTokens: dayInput.value,
+            outputTokens: dayOutput.value,
+            cacheReadTokens: dayCacheRead.value.flatMap { $0 > 0 ? $0 : nil },
+            reasoningTokens: dayReasoning.value.flatMap { $0 > 0 ? $0 : nil },
             totalTokens: dayTotal,
             costUSD: entryCost,
             modelsUsed: modelNames,
             modelBreakdowns: Self.sortedModelBreakdowns(breakdown),
-            unpricedRequestCount: entryCost == nil && dayTotal > 0 ? 1 : nil,
-            unmeteredRequestCount: unmetered > 0 ? unmetered : nil)
+            unpricedRequestCount: dayUnpricedRequests > 0
+                ? dayUnpricedRequests
+                : entryCost == nil && (dayTotal ?? 1) > 0 ? 1 : nil,
+            unmeteredRequestCount: unmetered > 0 ? unmetered : nil,
+            pricedRequestCount: dayUnpricedRequests > 0 && entryCost != nil ? dayPricedRequests : nil)
     }
 }
 
@@ -182,22 +231,17 @@ extension CostUsageFileUsage {
             return true
         }
 
-        // Missing-parent forks keep empty billed days on purpose. Session timestamps still
-        // place them in the scan window so force-rescan prune cannot drop the unmetered gap.
-        let isIncompleteFork = (self.codexReadRetryBufferPresence?.unresolvedFork
-            ?? (self.codexBufferedUnresolvedForkLines != nil))
+        // Billed days are empty for unresolved forks. Use the entire observed event span,
+        // not just the start date: an old fork can contain current usage.
+        let isIncompleteFork = self.hasBufferedCodexUnresolvedForkLines
             || CostUsageScanner.isUnresolvedMissingParentFork(self)
         guard isIncompleteFork else { return false }
-
-        if let unixMs = self.codexSession?.startedAtUnixMs ?? self.codexSession?.latestActivityUnixMs {
-            let dayKey = CostUsageScanner.CostUsageDayRange.dayKey(
-                from: Date(timeIntervalSince1970: TimeInterval(unixMs) / 1000),
-                calendar: calendar)
-            return CostUsageScanner.CostUsageDayRange.isInRange(
-                dayKey: dayKey,
-                since: sinceKey,
-                until: untilKey)
-        }
-        return true
+        guard let first = self.codexSession?.startedAtUnixMs,
+              let last = self.codexSession?.latestActivityUnixMs else { return true }
+        let firstDay = CostUsageScanner.CostUsageDayRange.dayKey(
+            from: Date(timeIntervalSince1970: TimeInterval(first) / 1000), calendar: calendar)
+        let lastDay = CostUsageScanner.CostUsageDayRange.dayKey(
+            from: Date(timeIntervalSince1970: TimeInterval(last) / 1000), calendar: calendar)
+        return firstDay <= untilKey && lastDay >= sinceKey
     }
 }

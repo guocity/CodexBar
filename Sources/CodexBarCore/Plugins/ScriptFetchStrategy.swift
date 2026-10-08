@@ -9,6 +9,8 @@ public enum ProviderPluginPrototype {
 }
 
 public final class ScriptFetchStrategy: ProviderFetchStrategy, @unchecked Sendable {
+    public typealias CookieImport = @Sendable (ProviderFetchContext, String, Int) throws
+        -> [(header: String, source: String)]?
     public typealias SecretResolver = @Sendable ([String: String]) -> String?
     public struct Values: Sendable {
         public let settings: [String: String]
@@ -23,10 +25,14 @@ public final class ScriptFetchStrategy: ProviderFetchStrategy, @unchecked Sendab
     public typealias ValuesResolver = @Sendable (ProviderFetchContext) -> Values?
     public typealias ContextValidator = @Sendable (ProviderFetchContext) throws -> Void
     public typealias EnabledResolver = @Sendable ([String: String]) -> Bool
+    public typealias CookieSettingsResolver = @Sendable (ProviderFetchContext)
+        -> ProviderSettingsSnapshot.CookieProviderSettings
 
     public let id: String
     public let kind: ProviderFetchKind
 
+    private let cookieImport: CookieImport?
+    private let cookieSettings: CookieSettingsResolver?
     private let provider: UsageProvider
     private let bundledPlugin: String
     private let sourceLabel: String
@@ -58,6 +64,8 @@ public final class ScriptFetchStrategy: ProviderFetchStrategy, @unchecked Sendab
         self.sourceLabel = sourceLabel
         self.kind = kind
         self.secretKey = secretKey
+        self.cookieImport = nil
+        self.cookieSettings = nil
         self.transport = transport
         self.timeout = timeout
         self.validateContext = validateContext
@@ -78,6 +86,8 @@ public final class ScriptFetchStrategy: ProviderFetchStrategy, @unchecked Sendab
         transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
         timeout: TimeInterval = ProviderPluginRuntime.defaultTimeout,
         validateContext: @escaping ContextValidator = { _ in },
+        cookieImport: CookieImport? = nil,
+        cookieSettings: CookieSettingsResolver? = nil,
         resolveValues: @escaping ValuesResolver,
         isEnabled: @escaping EnabledResolver = { ProviderPluginPrototype.isEnabled(environment: $0) })
     {
@@ -90,6 +100,8 @@ public final class ScriptFetchStrategy: ProviderFetchStrategy, @unchecked Sendab
         self.transport = transport
         self.timeout = timeout
         self.validateContext = validateContext
+        self.cookieImport = cookieImport
+        self.cookieSettings = cookieSettings
         self.resolveValues = resolveValues
         self.isEnabled = isEnabled
     }
@@ -116,11 +128,29 @@ public final class ScriptFetchStrategy: ProviderFetchStrategy, @unchecked Sendab
             throw ProviderPluginError.invalidManifest(
                 "bundled plugin id '\(runtime.manifest.id.rawValue)' does not match '\(self.provider.rawValue)'")
         }
-        let usage = try await runtime.fetchUsage(
-            settings: values.settings,
-            secrets: values.secrets,
-            cookieResolver: ProviderPluginCookieBroker.resolver(context: context))
-        return self.makeResult(usage: usage, sourceLabel: self.sourceLabel)
+        let importer: ProviderPluginCookieBroker.BatchImporter? = if let importCookies = self.cookieImport {
+            { domain, batch in try importCookies(context, domain, batch) }
+        } else {
+            nil
+        }
+        let cookies = ProviderPluginCookieBroker(
+            provider: self.provider,
+            domains: runtime.manifest.cookieDomains,
+            context: context,
+            importer: importer,
+            policy: runtime.manifest.cookiePolicy,
+            settingsOverride: self.cookieSettings?(context))
+        let result = try await runtime.fetchResult(
+            cookies: cookies, settings: values.settings, secrets: values.secrets, sourceMode: context.sourceMode)
+        try Task.checkCancellation()
+        if runtime.manifest.cookiePolicy?.cache == .nonpersistent {
+            CookieHeaderCache.markNonpersistentRefreshValidated(provider: self.provider)
+        }
+        let saved = result.persist.isEmpty ? ProviderSettingsSaveOutcome.unchanged
+            : await context.settingsWriter?(self.provider, result.persist) ?? .failed
+        try Task.checkCancellation()
+        return self.makeResult(
+            usage: result.usage, sourceLabel: result.sourceLabel ?? self.sourceLabel, diagnostic: saved.diagnostic)
     }
 
     public func shouldFallback(on _: Error, context _: ProviderFetchContext) -> Bool {
@@ -139,71 +169,5 @@ public final class ScriptFetchStrategy: ProviderFetchStrategy, @unchecked Sendab
             timeout: self.timeout)
         self.runtime = runtime
         return runtime
-    }
-}
-
-extension ProviderFetchPlan {
-    struct ScriptPrototypeAPIConfiguration: Sendable {
-        let provider: UsageProvider
-        let plugin: String
-        let secretKey: String
-        let strategyID: String
-        let sourceLabel: String
-        let reportsMissingCredentials: Bool
-
-        init(
-            provider: UsageProvider,
-            plugin: String,
-            secretKey: String,
-            strategyID: String,
-            sourceLabel: String = "api",
-            reportsMissingCredentials: Bool = false)
-        {
-            self.provider = provider
-            self.plugin = plugin
-            self.secretKey = secretKey
-            self.strategyID = strategyID
-            self.sourceLabel = sourceLabel
-            self.reportsMissingCredentials = reportsMissingCredentials
-        }
-    }
-
-    static func scriptPrototypeAPI(
-        configuration: ScriptPrototypeAPIConfiguration,
-        resolveToken: @escaping APITokenFetchStrategy.TokenResolver,
-        resolveSettings: @escaping @Sendable ([String: String]) -> [String: String] = { _ in [:] },
-        validateContext: @escaping ScriptFetchStrategy.ContextValidator = { _ in },
-        missingCredentialsError: @escaping APITokenFetchStrategy.MissingCredentialsError,
-        loadUsage: @escaping APITokenFetchStrategy.UsageLoader) -> ProviderFetchPlan
-    {
-        ProviderFetchPlan(
-            sourceModes: [.auto, .api],
-            pipeline: ProviderFetchPipeline(resolveStrategies: { context in
-                let swift = APITokenFetchStrategy(
-                    id: configuration.strategyID,
-                    sourceLabel: configuration.sourceLabel,
-                    reportsMissingCredentials: configuration.reportsMissingCredentials,
-                    resolveToken: resolveToken,
-                    missingCredentialsError: missingCredentialsError,
-                    loadUsage: loadUsage)
-                guard ProviderPluginPrototype.isEnabled(environment: context.env) else {
-                    return [swift]
-                }
-                return [
-                    ScriptFetchStrategy(
-                        id: "\(configuration.provider.rawValue).js",
-                        provider: configuration.provider,
-                        bundledPlugin: configuration.plugin,
-                        secretKey: configuration.secretKey,
-                        validateContext: validateContext,
-                        resolveValues: { context in
-                            guard let token = resolveToken(context.env) else { return nil }
-                            return ScriptFetchStrategy.Values(
-                                settings: resolveSettings(context.env),
-                                secrets: [configuration.secretKey: token])
-                        }),
-                    swift,
-                ]
-            }))
     }
 }

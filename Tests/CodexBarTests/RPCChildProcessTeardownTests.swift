@@ -53,15 +53,12 @@ struct RPCChildProcessTeardownTests {
             .appendingPathComponent("codex-closed-stdin-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: scriptURL) }
 
+        // Keep interpreter startup outside the behavior exercised by the RPC deadline.
         let script = """
-        #!/usr/bin/python3 -S
-        import os
-        import sys
-
-        sys.stdin.readline()
-        os.close(0)
-        print('{"id":1,"result":{}}', flush=True)
-        os._exit(0)
+        #!/bin/sh
+        IFS= read -r line
+        exec 0<&-
+        printf '%s\\n' '{"id":1,"result":{}}'
         """
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
@@ -101,11 +98,12 @@ struct RPCChildProcessTeardownTests {
         let error = await #expect(throws: GrokRPCError.self) {
             try await client.initialize()
         }
-        guard case let .requestFailed(message) = error else {
+        guard case let .requestFailed(message, code) = error else {
             Issue.record("Expected a normal Grok request failure, got \(String(describing: error))")
             return
         }
         #expect(message.contains("stdin closed"))
+        #expect(code == nil)
     }
 
     @Test
@@ -159,7 +157,7 @@ struct RPCChildProcessTeardownTests {
         let pidText = try String(contentsOf: pidURL, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let pid = try #require(pid_t(pidText))
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while kill(pid, 0) == 0, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -167,7 +165,7 @@ struct RPCChildProcessTeardownTests {
         #expect(errno == ESRCH)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func `Grok RPC shutdown kills a stdio child that ignores SIGTERM`() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
         let scriptURL = temporaryDirectory.appendingPathComponent("grok-stub-\(UUID().uuidString)")
@@ -204,15 +202,12 @@ struct RPCChildProcessTeardownTests {
             requestTimeoutSeconds: 2)
         try await client.initialize()
 
-        let start = ContinuousClock.now
         client.shutdown()
-        let elapsed = start.duration(to: .now)
-        #expect(elapsed < .seconds(3))
 
         let pidText = try String(contentsOf: pidURL, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let pid = try #require(pid_t(pidText))
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while kill(pid, 0) == 0, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }

@@ -1,6 +1,10 @@
 SHELL := /bin/bash
 
-.PHONY: build check docs-list format lint release restart run start start-debug start-release stop test test-live test-tty
+# Keep FILTER literal, including Make expressions, shell syntax, and apostrophes.
+unexport FILTER
+test_filter_arg = $(if $(value FILTER),--filter '$(subst ','"'"',$(value FILTER))')
+
+.PHONY: build check docs-list format lint release restart run start start-debug start-release stop test test-fast test-skip-build test-live test-tty
 
 run:
 	./Scripts/run.sh
@@ -36,11 +40,17 @@ build:
 test:
 	./Scripts/test.sh
 
+test-fast:
+	./Scripts/test_fast.sh $(test_filter_arg)
+
+test-skip-build:
+	./Scripts/test_fast.sh --skip-build $(test_filter_arg)
+
 test-tty:
-	@source Scripts/select_xcode_toolchain.sh && codexbar_select_xcode_toolchain && CODEXBAR_SUPPRESS_TEST_KEYCHAIN_ACCESS=1 swift test --filter TTYIntegrationTests
+	@source Scripts/select_xcode_toolchain.sh && codexbar_select_xcode_toolchain && source ./Scripts/test_environment.sh && CODEXBAR_SUPPRESS_TEST_KEYCHAIN_ACCESS=1 swift test --filter TTYIntegrationTests
 
 test-live:
-	@source Scripts/select_xcode_toolchain.sh && codexbar_select_xcode_toolchain && LIVE_TEST=1 CODEXBAR_ALLOW_TEST_KEYCHAIN_ACCESS=1 swift test --filter LiveAccountTests
+	@source Scripts/select_xcode_toolchain.sh && codexbar_select_xcode_toolchain && export CODEXBAR_ALLOW_TEST_KEYCHAIN_ACCESS=1 && source ./Scripts/test_environment.sh && LIVE_TEST=1 swift test --filter LiveAccountTests
 
 # Fork releases only — loads .fork-release.env (your team, Developer ID, feed, Sparkle key).
 # Do not use package_app.sh / upstream steipete identity from this target.

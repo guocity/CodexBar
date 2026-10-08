@@ -1,10 +1,25 @@
+---
+summary: "Agent Sessions setup, SSH hosts, refresh behavior, and privacy controls."
+read_when:
+  - Configuring local or remote Agent Sessions
+  - Troubleshooting unreachable session hosts
+---
+
 # Agent Sessions
 
 CodexBar can list live Codex, Claude Code, pi, and OMP sessions on this Mac and on macOS or Linux hosts reachable over SSH.
 
 Enable **Settings → Menu → Agent sessions**. Local sessions refresh every 30 seconds. Remote sessions refresh every 60 seconds and whenever the menu opens. Tailscale discovery includes online macOS and Linux peers; add extra SSH destinations as a comma-separated list, such as `user@host`.
 
-The setting is off by default. While it is off, CodexBar clears published local and remote session rows and does not fetch remote sessions. Adaptive agent-aware refresh may still collect a local activity timestamp after explicit consent, but it does not retain or publish session identities or paths.
+On macOS, sessions remain discoverable from their running process arguments after a CLI update removes the old executable.
+This does not relax ChatGPT app-server trust: that check still requires the exact executable path and signed running code.
+
+SSH usernames retain their case when destinations are deduplicated: `user@host` and `USER@host` are separate
+targets. Hostname case alone does not create a duplicate target.
+
+**Hide unreachable hosts** is opt-in and off by default. When enabled, it hides remote hosts after any failed session fetch, including connection, authentication, incompatible CLI, or decoding errors. Fetching and retries continue. Turn it off to restore the `— unreachable` rows and their diagnostic tooltips.
+
+**Agent sessions** itself is off by default. While it is off, CodexBar clears published local and remote session rows and does not fetch remote sessions. Adaptive agent-aware refresh may still collect a local activity timestamp after explicit consent, but it does not retain or publish session identities or paths.
 
 Pi-family discovery is process-backed. Plain pi is recognized by its `pi` process title (upstream also sets `PI_CODING_AGENT=true`); OMP is recognized from an `omp` process or a Bun launcher whose command line contains an `omp` executable. Both feed one scanner and use normalized provider `pi`, with a `dialect` value of `pi` or `omp` on each row.
 
@@ -39,3 +54,5 @@ codexbar sessions focus <session-id>
 Remote fetching tries `sessions --json-v2` before the legacy `sessions --json`, first through `codexbar` on `PATH` and then through the bundled app CLI. This lets current hosts return Pi-family rows while both host-first and client-first mixed-version upgrades remain decodable.
 
 Remote hosts need key-based, non-interactive SSH and either `codexbar` on `PATH` or CodexBar installed in `/Applications`.
+
+Tailscale discovery forces the [documented CLI mode](https://tailscale.com/docs/reference/tailscale-cli?tab=macos) with `TAILSCALE_BE_CLI=1` for every local probe, including launchers or symlinks to the macOS app binary. This keeps discovery headless even when inherited terminal variables do not prevent the app binary from launching its GUI or crashing.

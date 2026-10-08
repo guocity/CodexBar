@@ -38,6 +38,7 @@ extension UsageStore {
         }()
         let snapshot = self.makeWidgetSnapshot(previousSnapshot: previousSnapshot)
         self.lastQueuedWidgetSnapshot = snapshot
+        self.invalidatedQueuedWidgetProviders = self.widgetUsagePreservationBlockedProviders
         NotificationCenter.default.post(
             name: .codexbarUsageSnapshotsDidChange,
             object: UsageSnapshotsDidChangeEvent(snapshots: self.cloudSyncAccountSnapshots()))
@@ -50,18 +51,36 @@ extension UsageStore {
                 return
             }
 
-            let widgetSnapshotURL = self.widgetSnapshotURL
-            await Task.detached(priority: .utility) {
-                if let widgetSnapshotURL {
-                    WidgetSnapshotStore.save(snapshot, to: widgetSnapshotURL)
-                } else {
-                    WidgetSnapshotStore.save(snapshot)
-                }
-            }.value
-            #if canImport(WidgetKit)
-            WidgetCenter.shared.reloadAllTimelines()
-            #endif
+            await Self.saveWidgetSnapshot(
+                snapshot,
+                to: self.widgetSnapshotURL,
+                isRunningTests: SettingsStore.isRunningTests,
+                reloadTimelines: self.widgetTimelineReloader)
         }
+    }
+
+    static func saveWidgetSnapshot(
+        _ snapshot: WidgetSnapshot,
+        to url: URL?,
+        isRunningTests: Bool,
+        reloadTimelines: @MainActor () -> Void) async
+    {
+        await Task.detached(priority: .utility) {
+            if let url {
+                WidgetSnapshotStore.save(snapshot, to: url)
+            } else {
+                WidgetSnapshotStore.save(snapshot)
+            }
+        }.value
+        // Opting into file persistence in tests never opts into WidgetKit side effects.
+        guard !isRunningTests else { return }
+        reloadTimelines()
+    }
+
+    static func reloadWidgetTimelines() {
+        #if canImport(WidgetKit)
+        WidgetCenter.shared.reloadAllTimelines()
+        #endif
     }
 
     /// Builds outbound snapshots only from this Mac's UsageStore; remote fleet snapshots live in CloudSyncState.
@@ -70,6 +89,7 @@ extension UsageStore {
         var payloads: [String: AccountSnapshotSyncPayload] = [:]
 
         for (instanceID, usage) in self.snapshots {
+            guard instanceID.firstPartyProvider.map(Self.requiresBrowserSession) != true else { continue }
             let identity = usage.identity?.accountID ?? usage.identity?.accountEmail
             let label = usage.identity?.accountEmail
                 ?? usage.identity?.accountOrganization
@@ -86,6 +106,7 @@ extension UsageStore {
         }
 
         for (provider, accountSnapshots) in self.accountSnapshots {
+            guard provider.firstPartyProvider.map(Self.requiresBrowserSession) != true else { continue }
             for accountSnapshot in accountSnapshots {
                 guard let usage = accountSnapshot.snapshot else { continue }
                 let identity = usage.identity?.accountID
@@ -128,9 +149,6 @@ extension UsageStore {
             guard let identity else { return }
             identities.insert(AccountSnapshotSyncPayload.accountKey(for: identity))
         }
-        if let usage = self.snapshots[provider.instanceID] {
-            insert(usage.identity?.accountID ?? usage.identity?.accountEmail)
-        }
         for accountSnapshot in self.accountSnapshots[provider.instanceID] ?? [] {
             insert(accountSnapshot.snapshot?.identity?.accountID)
             insert(accountSnapshot.snapshot?.identity?.accountEmail)
@@ -167,17 +185,45 @@ extension UsageStore {
         return identities
     }
 
+    func invalidateGenericWidgetUsage(for provider: UsageProvider) {
+        // Provider-specific by design: Claude keeps its existing owner-aware preservation policy.
+        guard provider != .claude else { return }
+        self.lastWidgetSourceSnapshots[provider.instanceID] = nil
+        self.widgetUsagePreservationBlockedProviders.insert(provider.instanceID)
+        // A successful fetch cannot make an older queued account valid again.
+        self.invalidatedQueuedWidgetProviders.insert(provider.instanceID)
+    }
+
+    static func supportsWidgetUsage(_ provider: UsageProvider) -> Bool {
+        let metadata = ProviderDescriptorRegistry.descriptor(for: provider).metadata
+        return metadata.widgetSelectable || metadata.burnDownWidgetSelectable
+    }
+
     private func makeWidgetSnapshot(previousSnapshot: WidgetSnapshot?) -> WidgetSnapshot {
         let now = Date()
-        let enabledProviders = self.enabledProviders()
-        let entries = UsageProvider.allCases.compactMap { provider in
-            self.makeWidgetEntry(
+        let widgetProviders = UsageProvider.allCases.filter(Self.supportsWidgetUsage)
+        let widgetIDs = Set(widgetProviders.map(\.instanceID))
+        let enabledProviders = self.enabledProviders().filter(widgetIDs.contains)
+        let entries = widgetProviders.compactMap { provider -> WidgetSnapshot.ProviderEntry? in
+            if let entry = self.makeWidgetEntry(
                 for: provider,
                 now: now,
                 previousEntry: previousSnapshot?.entries.first { $0.provider == provider.instanceID })
+            { return entry }
+            // Provider-specific by design: Claude uses its owner-aware path; others require this process's publication.
+            guard provider != .claude, enabledProviders.contains(provider.instanceID),
+                  self.errors[provider.instanceID] != nil,
+                  !self.invalidatedQueuedWidgetProviders.contains(provider.instanceID),
+                  !self.widgetUsagePreservationBlockedProviders.contains(provider.instanceID),
+                  let entry = self.lastQueuedWidgetSnapshot?.entries
+                      .first(where: { $0.provider == provider.instanceID }),
+                      entry.providerCost == nil || self.settings.showOptionalCreditsAndExtraUsage
+            else { return nil }
+            return self.preservedWidgetEntryForCurrentMetric(entry)
         }
         return WidgetSnapshot(
             entries: entries,
+            accounts: self.makeWidgetAccountEntries(now: now),
             enabledProviders: enabledProviders,
             usageBarsShowUsed: self.settings.usageBarsShowUsed,
             generatedAt: now)
@@ -188,9 +234,20 @@ extension UsageStore {
         now: Date,
         previousEntry: WidgetSnapshot.ProviderEntry?) -> WidgetSnapshot.ProviderEntry?
     {
-        let snapshot = self.snapshots[provider.instanceID]
-        let storedTokenSnapshot = self.tokenSnapshotForCurrentProviderConfig(for: provider)?.snapshot
-        let claudeQuotaOwnerKey: String? = if provider == .claude {
+        // The ambient probe can still hold another account's quota while claude-swap owns the menu.
+        let swapOwnsClaude = self.settings.claudeSwapEnabled && ClaudeSwapMenuPrecedence.prefersClaudeSwap(
+            provider: provider,
+            accountCount: self.claudeSwapAccountSnapshots.count,
+            showSingleAccount: self.settings.claudeSwapShowSingleAccount)
+        let activeSwapAccount = swapOwnsClaude ? self.claudeSwapAccountSnapshots.first(where: \.isActive) : nil
+        let snapshot = swapOwnsClaude ? activeSwapAccount?.snapshot : self.snapshots[provider.instanceID]
+        let tokenSnapshot = self.tokenSnapshotForCurrentProviderConfig(for: provider)?.snapshot
+        let claudeQuotaOwnerKey: String? = if swapOwnsClaude {
+            activeSwapAccount.flatMap { account in
+                ClaudeSwapRetainedUsageStore.ownershipFingerprint(for: account)
+                    .map { "claude/swap:\(account.id.opaqueID):\($0)" }
+            }
+        } else if provider == .claude {
             self.claudeWidgetQuotaOwnerKey()
         } else {
             nil
@@ -212,12 +269,11 @@ extension UsageStore {
             nil
         }
         guard snapshot != nil ||
-            (provider == .claude && (storedTokenSnapshot != nil || preservedClaudeUsage != nil))
+            (provider == .claude && (tokenSnapshot != nil || preservedClaudeUsage != nil))
         else {
             return nil
         }
 
-        let tokenSnapshot = storedTokenSnapshot
         let dailyUsage = tokenSnapshot?.daily.map { entry in
             WidgetSnapshot.DailyUsagePoint(
                 dayKey: entry.date,
@@ -229,6 +285,11 @@ extension UsageStore {
         let usageRows = snapshot.map {
             self.widgetUsageRows(provider: provider, snapshot: $0, now: now)
         } ?? preservedClaudeUsage?.usageRows ?? []
+        if ProviderDescriptorRegistry.descriptor(for: provider).presentation.widgetRowsFollowMenuBarMetric,
+           let snapshot
+        {
+            self.lastWidgetSourceSnapshots[provider.instanceID] = snapshot
+        }
 
         let creditsRemaining: Double?
         let codeReviewRemaining: Double?
@@ -251,15 +312,20 @@ extension UsageStore {
         } else {
             nil
         }
-        let quotaOwnerKey: String? = if provider == .claude {
-            snapshot != nil ? claudeQuotaOwnerKey : preservedClaudeUsage?.quotaOwnerKey
-        } else {
+        // Provider-specific by design: DeepSeek and OpenRouter expose their widget value as balance text.
+        let balanceText: String? = switch provider {
+        case .deepseek, .openrouter:
+            MenuBarLayoutBalanceResolver.balance(provider: provider, snapshot: snapshot)
+        default:
             nil
         }
 
+        // Provider-specific by design: Pi's local strategy has no quota measurement; age belongs to its history.
+        let historyUpdatedAt = provider == .pi ? tokenSnapshot?.updatedAt : nil
         return WidgetSnapshot.ProviderEntry(
             provider: provider,
-            updatedAt: snapshot?.updatedAt ?? preservedClaudeUsage?.updatedAt ?? tokenSnapshot?.updatedAt ?? now,
+            updatedAt: historyUpdatedAt ?? snapshot?.updatedAt ?? preservedClaudeUsage?.updatedAt
+                ?? tokenSnapshot?.updatedAt ?? now,
             primary: snapshot?.primary ?? preservedClaudeUsage?.primary,
             secondary: snapshot?.secondary ?? preservedClaudeUsage?.secondary,
             tertiary: snapshot?.tertiary ?? preservedClaudeUsage?.tertiary,
@@ -269,7 +335,8 @@ extension UsageStore {
             tokenUsage: tokenUsage,
             dailyUsage: dailyUsage,
             providerCost: providerCost,
-            quotaOwnerKey: quotaOwnerKey)
+            quotaOwnerKey: snapshot != nil ? claudeQuotaOwnerKey : preservedClaudeUsage?.quotaOwnerKey,
+            balanceText: balanceText)
     }
 
     private struct PreservedClaudeWidgetUsage {
@@ -342,41 +409,50 @@ extension UsageStore {
         provider: UsageProvider) -> WidgetSnapshot.TokenUsageSummary?
     {
         guard let snapshot else { return nil }
-        let fallbackTokens: Int? = {
-            var sum = 0
-            for t in snapshot.daily.compactMap(\.totalTokens) {
-                let (res, of) = sum.addingReportingOverflow(t)
-                if of { return nil }
-                sum = res
-            }
-            return sum > 0 ? sum : nil
-        }()
-        let monthTokensValue = snapshot.last30DaysTokens ?? fallbackTokens
-        let sessionLabel = if provider == .bedrock || provider == .mistral {
-            "Latest billing day"
-        } else if provider == .codex {
-            "Today API est. · not billed"
-        } else {
-            "Today"
+        let fallbackTokens = CheckedSum.integers(snapshot.daily.compactMap(\.totalTokens))
+            .flatMap { $0 > 0 ? $0 : nil }
+        let sessionLabel = switch provider {
+        case .bedrock, .mistral: "Latest billing day"
+        default: "Today"
         }
         let defaultMonthLabel = snapshot.historyDays == 1 ? "Today" : "\(snapshot.historyDays)d"
-        let monthLabel = if provider == .codex {
-            "\(snapshot.historyLabel ?? defaultMonthLabel) API est. · not billed"
-        } else {
-            snapshot.historyLabel ?? defaultMonthLabel
-        }
+        let monthLabel = snapshot.historyLabel.map { L($0) } ?? defaultMonthLabel
+        let estimateSuffix = provider == .codex ? " API est. · not billed" : ""
         return WidgetSnapshot.TokenUsageSummary(
             sessionCostUSD: snapshot.sessionCostUSD,
             sessionTokens: snapshot.sessionTokens,
             last30DaysCostUSD: snapshot.last30DaysCostUSD,
-            last30DaysTokens: monthTokensValue,
+            last30DaysTokens: snapshot.last30DaysTokens ?? fallbackTokens,
             currencyCode: snapshot.currencyCode,
-            sessionLabel: sessionLabel,
-            last30DaysLabel: monthLabel,
+            sessionLabel: sessionLabel + estimateSuffix,
+            last30DaysLabel: monthLabel + estimateSuffix,
             updatedAt: snapshot.updatedAt)
     }
 
-    private func widgetUsageRows(
+    private nonisolated static func widgetPrimaryTitle(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        metadata: ProviderMetadata?) -> String
+    {
+        let dynamicTitle: String? = switch provider {
+        // Legacy request-based Cursor plans track a request quota, not the token-based "Total" pool.
+        case .cursor where snapshot.detailRow(label: "Request quota") != nil: "Requests"
+        case .grok: GrokProviderDescriptor.displayLabel(window: snapshot.primary)
+        case .doubao: DoubaoProviderDescriptor.primaryLabel(window: snapshot.primary)
+        case .amp: AmpProviderDescriptor.primaryLabel(snapshot: snapshot)
+        case .alibabatokenplan: AlibabaTokenPlanProviderDescriptor.primaryLabel(window: snapshot.primary)
+        case .ollama: OllamaProviderDescriptor.primaryLabel(window: snapshot.primary)
+        default: nil
+        }
+        if let dynamicTitle {
+            return dynamicTitle
+        }
+        guard let metadata else { return "Session" }
+        return ProviderDescriptorRegistry.descriptor(for: provider).presentation
+            .rateWindowLabels(metadata: metadata, snapshot: snapshot).primary
+    }
+
+    func widgetUsageRows(
         provider: UsageProvider,
         snapshot: UsageSnapshot,
         now: Date) -> [WidgetSnapshot.WidgetUsageRowSnapshot]
@@ -415,50 +491,12 @@ extension UsageStore {
             ]
         }
         if provider == .antigravity,
-           let rows = Self.antigravityQuotaSummaryWidgetRows(snapshot: snapshot),
-           !rows.isEmpty
-        {
-            return rows
-        }
-        if provider == .antigravity,
-           snapshot.primary == nil,
-           snapshot.secondary == nil,
-           let rows = Self.antigravityLegacyExtraWidgetRows(snapshot: snapshot),
-           !rows.isEmpty
+           let rows = Self.antigravityWidgetRows(snapshot: snapshot)
         {
             return rows
         }
 
-        let primaryTitle: String = {
-            // Legacy request-based Cursor plans track a request quota, not the token-based "Total" pool.
-            if provider == .cursor, snapshot.detailRow(label: "Request quota") != nil {
-                return "Requests"
-            }
-            if provider == .grok,
-               let dyn = GrokProviderDescriptor.displayLabel(window: snapshot.primary)
-            {
-                return dyn
-            }
-            if provider == .doubao,
-               let dyn = DoubaoProviderDescriptor.primaryLabel(window: snapshot.primary)
-            {
-                return dyn
-            }
-            if provider == .amp,
-               let dyn = AmpProviderDescriptor.primaryLabel(snapshot: snapshot)
-            {
-                return dyn
-            }
-            if provider == .crof {
-                return CrofProviderDescriptor.primaryLabel(snapshot: snapshot)
-            }
-            if provider == .alibabatokenplan,
-               let dyn = AlibabaTokenPlanProviderDescriptor.primaryLabel(window: snapshot.primary)
-            {
-                return dyn
-            }
-            return metadata?.sessionLabel ?? "Session"
-        }()
+        let primaryTitle = Self.widgetPrimaryTitle(provider: provider, snapshot: snapshot, metadata: metadata)
         let secondaryTitle = if provider == .amp {
             AmpProviderDescriptor.secondaryLabel(snapshot: snapshot) ?? metadata?.weeklyLabel ?? "Weekly"
         } else if provider == .alibabatokenplan {
@@ -524,7 +562,11 @@ extension UsageStore {
                     percentLeft: window.window.remainingPercent)
             })
         }
-        return rows.filter { $0.percentLeft != nil }
+        return ProviderDescriptorRegistry.descriptor(for: provider).presentation.widgetRows(
+            rows,
+            snapshot: snapshot,
+            metric: self.settings.menuBarMetricPreference(for: provider, snapshot: snapshot).providerMetric)
+            .filter { $0.percentLeft != nil }
     }
 
     /// Identifier prefix Claude fetchers use for model-scoped weekly carve-outs (for example, Fable).
@@ -533,17 +575,25 @@ extension UsageStore {
     private nonisolated static let antigravityQuotaSummaryWindowIDPrefix = "antigravity-quota-summary-"
     private nonisolated static let antigravityCompactFallbackWindowIDPrefix = "antigravity-compact-fallback-"
 
-    private nonisolated static func antigravityQuotaSummaryWidgetRows(
+    private nonisolated static func antigravityWidgetRows(
         snapshot: UsageSnapshot) -> [WidgetSnapshot.WidgetUsageRowSnapshot]?
     {
-        guard let windows = snapshot.extraRateWindows?.filter({
+        let windows = snapshot.extraRateWindows ?? []
+        var visible = windows.filter {
             $0.id.hasPrefix(Self.antigravityQuotaSummaryWindowIDPrefix)
-        }), !windows.isEmpty else {
-            return nil
         }
-        // Match the menu card and drop model families the account never touches.
-        let idleIDs = AntigravityQuotaFamilyVisibility.idleWindowIDs(in: snapshot)
-        return windows.filter { !idleIDs.contains($0.id) }.map { namedWindow in
+        if !visible.isEmpty {
+            // Match the menu card and drop model families the account never touches.
+            let idleIDs = AntigravityQuotaFamilyVisibility.idleWindowIDs(in: snapshot)
+            visible.removeAll { idleIDs.contains($0.id) }
+        }
+        if visible.isEmpty, snapshot.primary == nil, snapshot.secondary == nil {
+            visible = windows.filter {
+                $0.id.hasPrefix(Self.antigravityCompactFallbackWindowIDPrefix) && $0.usageKnown
+            }
+        }
+        guard !visible.isEmpty else { return nil }
+        return visible.map { namedWindow in
             WidgetSnapshot.WidgetUsageRowSnapshot(
                 id: namedWindow.id,
                 title: namedWindow.title,
@@ -551,17 +601,27 @@ extension UsageStore {
         }
     }
 
-    private nonisolated static func antigravityLegacyExtraWidgetRows(
-        snapshot: UsageSnapshot) -> [WidgetSnapshot.WidgetUsageRowSnapshot]?
+    /// Reproject the last published source without changing its measurement time.
+    private func preservedWidgetEntryForCurrentMetric(
+        _ entry: WidgetSnapshot.ProviderEntry) -> WidgetSnapshot.ProviderEntry
     {
-        let windows = snapshot.extraRateWindows?
-            .filter { $0.id.hasPrefix(Self.antigravityCompactFallbackWindowIDPrefix) && $0.usageKnown }
-        guard let windows, !windows.isEmpty else { return nil }
-        return windows.map { namedWindow in
-            WidgetSnapshot.WidgetUsageRowSnapshot(
-                id: namedWindow.id,
-                title: namedWindow.title,
-                percentLeft: namedWindow.window.remainingPercent)
-        }
+        guard let provider = entry.provider.firstPartyProvider,
+              ProviderDescriptorRegistry.descriptor(for: provider).presentation.widgetRowsFollowMenuBarMetric,
+              let snapshot = self.lastWidgetSourceSnapshots[entry.provider]
+        else { return entry }
+        return WidgetSnapshot.ProviderEntry(
+            instanceID: entry.provider,
+            updatedAt: entry.updatedAt,
+            primary: entry.primary,
+            secondary: entry.secondary,
+            tertiary: entry.tertiary,
+            usageRows: self.widgetUsageRows(provider: provider, snapshot: snapshot, now: entry.updatedAt),
+            creditsRemaining: entry.creditsRemaining,
+            codeReviewRemainingPercent: entry.codeReviewRemainingPercent,
+            tokenUsage: entry.tokenUsage,
+            dailyUsage: entry.dailyUsage,
+            providerCost: entry.providerCost,
+            quotaOwnerKey: entry.quotaOwnerKey,
+            balanceText: entry.balanceText)
     }
 }

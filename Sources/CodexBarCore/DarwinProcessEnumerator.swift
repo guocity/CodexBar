@@ -19,15 +19,41 @@ enum DarwinProcessEnumerator {
             ["agy", "antigravity-cli", "antigravity_cli", "node", "bun"].contains(basename)
     }
 
-    /// Parses the `KERN_PROCARGS2` payload without consuming the environment
-    /// strings that follow argv.
-    static func parseProcArgs2(_ data: Data) -> String? {
+    /// Returns the original argv from a `KERN_PROCARGS2` payload. Keeping the
+    /// boundaries matters for flags whose values contain whitespace.
+    static func parseProcArgs2Arguments(_ data: Data) -> [String]? {
+        self.parseProcArgs2Layout(data)?.arguments
+    }
+
+    static func parseProcArgs2Environment(
+        _ data: Data,
+        names: Set<String> = PiProcessEnvironment.selectorNames) -> [String: String]?
+    {
+        guard let layout = self.parseProcArgs2Layout(data) else { return nil }
+        let suffix = Data(data[layout.environmentOffset...])
+        // Darwin can omit environment records from a successful procargs response.
+        // An argv-only response or padding is not evidence of an empty environment.
+        guard let first = suffix.first, first != 0 else { return nil }
+        let start = suffix.startIndex
+        var offset = start
+        while offset < suffix.endIndex {
+            guard let terminator = suffix[offset...].firstIndex(of: 0) else { return nil }
+            if terminator == offset {
+                // The empty environment terminator may be followed by unrelated Apple vectors.
+                return PiProcessEnvironment.parseNULSeparated(Data(suffix[start..<offset]), names: names)
+            }
+            offset = terminator + 1
+        }
+        return PiProcessEnvironment.parseNULSeparated(Data(suffix[start...]), names: names)
+    }
+
+    private static func parseProcArgs2Layout(_ data: Data) -> (arguments: [String], environmentOffset: Int)? {
         let argumentCountSize = MemoryLayout<Int32>.size
         guard data.count >= argumentCountSize else { return nil }
         let argumentCount = data.withUnsafeBytes { rawBuffer in
             Int(Int32(littleEndian: rawBuffer.loadUnaligned(as: Int32.self)))
         }
-        guard argumentCount >= 0 else { return nil }
+        guard argumentCount >= 0, argumentCount <= data.count else { return nil }
 
         let bytes = [UInt8](data)
         var offset = argumentCountSize
@@ -47,7 +73,7 @@ enum DarwinProcessEnumerator {
             arguments.append(argument)
             offset = terminator + 1
         }
-        return arguments.joined(separator: " ")
+        return (arguments, offset)
     }
 }
 
@@ -95,11 +121,32 @@ extension DarwinProcessEnumerator {
         return (Int32(bitPattern: info.pbi_ppid), Date(timeIntervalSince1970: startInterval))
     }
 
-    static func commandLine(pid: Int32) -> String? {
+    static func arguments(pid: Int32) -> [String]? {
+        self.procArgs2Data(pid: pid).flatMap(self.parseProcArgs2Arguments)
+    }
+
+    static func argumentsWithPiSelectorEnvironment(pid: Int32) -> (
+        arguments: [String], piSelectorEnvironment: [String: String]?)?
+    {
+        guard let data = self.procArgs2Data(pid: pid),
+              let layout = self.parseProcArgs2Layout(data)
+        else { return nil }
+        let environment = AgentPSOutputParser.piDialect(arguments: layout.arguments) == nil
+            ? nil
+            : self.parseProcArgs2Environment(data)
+        return (layout.arguments, environment)
+    }
+
+    static func environment(pid: Int32, names: Set<String>) -> [String: String]? {
+        self.procArgs2Data(pid: pid).flatMap { self.parseProcArgs2Environment($0, names: names) }
+    }
+
+    private static func procArgs2Data(pid: Int32) -> Data? {
         var mib = [CTL_KERN, KERN_PROCARGS2, pid]
         var byteCount = 0
         guard sysctl(&mib, u_int(mib.count), nil, &byteCount, nil, 0) == 0,
-              byteCount >= MemoryLayout<Int32>.size
+              byteCount >= MemoryLayout<Int32>.size,
+              byteCount <= PiProcessEnvironment.maxEnvironmentBytes
         else { return nil }
 
         var data = Data(count: byteCount)
@@ -110,7 +157,11 @@ extension DarwinProcessEnumerator {
         if byteCount < data.count {
             data.removeSubrange(byteCount..<data.count)
         }
-        return self.parseProcArgs2(data)
+        return data
+    }
+
+    static func commandLine(pid: Int32) -> String? {
+        self.arguments(pid: pid)?.joined(separator: " ")
     }
 
     static func currentWorkingDirectory(pid: Int32) -> String? {

@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 
 /// Manages currency exchange rates for converting USD-denominated AI model token estimates
-/// into user-preferred currencies (GBP, EUR, CNY, JPY, CAD, AUD, etc.).
+/// into user-preferred currencies (GBP, EUR, CNY, JPY, CAD, AUD, NZD, etc.).
 ///
 /// Rates are sourced from the ExchangeRate-API (open.er-api.com), a free service
 /// aggregating data from central banks and market sources. Rates are updated daily
@@ -14,52 +14,73 @@ public final class CurrencyExchange: @unchecked Sendable {
     public static let shared = CurrencyExchange()
 
     /// All currency codes supported by the converter.
-    public static let supportedCurrencies: [String] = [
-        "USD", "GBP", "EUR", "CZK", "CNY", "JPY", "KRW", "CAD", "AUD", "HKD", "TWD", "SGD", "INR", "CHF", "AED",
-    ]
+    public static let supportedCurrencies = CurrencyExchange.currencies.map(\.code)
 
-    private let lock = NSLock()
+    public static func pickerLabel(for code: String) -> String? {
+        guard let currency = currencies.first(where: { $0.code == code }) else { return nil }
+        return "\(currency.code) (\(currency.symbol))"
+    }
+
+    /// Picker order, symbols, and offline rates share one catalog.
     /// Hardcoded fallback rates (approximate mid-market rates as of 2025-07).
     /// These are only used when no cached or live rates are available.
-    private var rates: [String: Double] = [
-        "USD": 1.0,
-        "GBP": 0.79,
-        "EUR": 0.92,
-        "CZK": 21.0,
-        "CNY": 7.27,
-        "JPY": 154.0,
-        "KRW": 1428.90,
-        "CAD": 1.38,
-        "AUD": 1.55,
-        "HKD": 7.80,
-        "TWD": 32.30,
-        "SGD": 1.34,
-        "INR": 84.50,
-        "CHF": 0.80,
-        "AED": 3.6725,
+    private static let currencies: [(code: String, symbol: String, rate: Double)] = [
+        ("USD", "$", 1.0),
+        ("GBP", "£", 0.79),
+        ("EUR", "€", 0.92),
+        ("CZK", "Kč", 21.0),
+        ("CNY", "¥", 7.27),
+        ("JPY", "¥", 154.0),
+        ("KRW", "₩", 1428.90),
+        ("CAD", "$", 1.38),
+        ("AUD", "$", 1.55),
+        ("HKD", "$", 7.80),
+        ("TWD", "NT$", 32.30),
+        ("SGD", "$", 1.34),
+        ("INR", "₹", 84.50),
+        ("CHF", "Fr.", 0.80),
+        ("AED", "د.إ", 3.6725),
+        ("TRY", "₺", 48.5), // Due to high inflation, rate from 2026-09-13.
+        // Rates below from open.er-api.com on 2026-09-24.
+        ("NZD", "$", 1.761),
+        ("SEK", "kr", 9.908),
+        ("NOK", "kr", 9.480),
+        ("DKK", "kr", 6.554),
+        ("PLN", "zł", 3.838),
+        ("BRL", "R$", 5.117),
+        ("MXN", "$", 17.47),
+        ("ZAR", "R", 16.36),
+        ("THB", "฿", 33.37),
+        ("IDR", "Rp", 17836.0),
+        ("VND", "₫", 25962.0),
+        ("UAH", "₴", 44.86),
     ]
+    private let lock = NSLock()
+    private let defaults: UserDefaults
+    private var rates = Dictionary(uniqueKeysWithValues: CurrencyExchange.currencies.map { ($0.code, $0.rate) })
     private var lastFetchTime: Date?
 
     private static let userDefaultsKey = "CodexBar.CurrencyExchangeRates"
     private static let lastFetchKey = "CodexBar.CurrencyExchangeLastFetch"
 
-    public init() {
-        self.loadCachedRates()
+    public convenience init() {
+        self.init(defaults: .standard)
+    }
+
+    /// Loads cached rates from `UserDefaults`.
+    package init(defaults: UserDefaults) {
+        self.defaults = defaults
+        if let cached = defaults.dictionary(forKey: Self.userDefaultsKey) as? [String: Double] {
+            self.rates.merge(cached) { _, new in new }
+        }
+        self.lastFetchTime = defaults.object(forKey: Self.lastFetchKey) as? Date
     }
 
     /// Converts a USD amount to the specified target currency code.
     /// Returns `nil` when the requested rate is unavailable so callers cannot
     /// accidentally relabel the unchanged amount as the target currency.
     public func convert(usdAmount: Double, to currencyCode: String) -> Double? {
-        let code = currencyCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !code.isEmpty, code != "USD" else { return usdAmount }
-
-        self.lock.lock()
-        let rate = self.rates[code]
-        self.lock.unlock()
-
-        guard let rate else { return nil }
-        return usdAmount * rate
+        self.convert(amount: usdAmount, from: "USD", to: currencyCode)
     }
 
     /// Converts an amount from one currency to another via USD as the pivot.
@@ -70,10 +91,9 @@ public final class CurrencyExchange: @unchecked Sendable {
         let target = targetCurrency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !source.isEmpty, !target.isEmpty, source != target else { return amount }
 
-        self.lock.lock()
-        let sourceRate = source == "USD" ? 1.0 : self.rates[source]
-        let targetRate = target == "USD" ? 1.0 : self.rates[target]
-        self.lock.unlock()
+        let (sourceRate, targetRate) = self.lock.withLock {
+            (source == "USD" ? 1.0 : self.rates[source], target == "USD" ? 1.0 : self.rates[target])
+        }
 
         guard let sourceRate, let targetRate, sourceRate > 0 else { return nil }
         let usdAmount = amount / sourceRate
@@ -84,38 +104,7 @@ public final class CurrencyExchange: @unchecked Sendable {
     public func rate(for currencyCode: String) -> Double? {
         let code = currencyCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !code.isEmpty else { return 1.0 }
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        return self.rates[code]
-    }
-
-    private func getLastFetchTime() -> Date? {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        return self.lastFetchTime
-    }
-
-    private func updateRates(_ newRates: [String: Double]) {
-        self.lock.lock()
-        for (code, rate) in newRates {
-            self.rates[code] = rate
-        }
-        self.lastFetchTime = Date()
-        self.lock.unlock()
-    }
-
-    /// Loads cached rates from `UserDefaults`.
-    private func loadCachedRates() {
-        if let data = UserDefaults.standard.dictionary(forKey: Self.userDefaultsKey) as? [String: Double] {
-            self.lock.lock()
-            for (key, val) in data {
-                self.rates[key] = val
-            }
-            self.lock.unlock()
-        }
-        if let timestamp = UserDefaults.standard.object(forKey: Self.lastFetchKey) as? Date {
-            self.lastFetchTime = timestamp
-        }
+        return self.lock.withLock { self.rates[code] }
     }
 
     public static func requiresLiveRates(preferredCurrencyCode: String) -> Bool {
@@ -131,7 +120,7 @@ public final class CurrencyExchange: @unchecked Sendable {
     /// On failure, the previously cached (or hardcoded fallback) rates remain in use.
     public func fetchLatestRatesIfNeeded(preferredCurrencyCode: String) async {
         guard Self.requiresLiveRates(preferredCurrencyCode: preferredCurrencyCode) else { return }
-        if let lastFetch = self.getLastFetchTime(), Date().timeIntervalSince(lastFetch) < 86400 {
+        if let lastFetch = self.lock.withLock({ self.lastFetchTime }), Date().timeIntervalSince(lastFetch) < 86400 {
             return
         }
 
@@ -148,10 +137,13 @@ public final class CurrencyExchange: @unchecked Sendable {
 
             let decoded = try JSONDecoder().decode(ExchangeResponse.self, from: data)
             if decoded.result == "success", let newRates = decoded.rates {
-                self.updateRates(newRates)
+                self.lock.withLock {
+                    self.rates.merge(newRates) { _, new in new }
+                    self.lastFetchTime = Date()
+                }
 
-                UserDefaults.standard.set(newRates, forKey: Self.userDefaultsKey)
-                UserDefaults.standard.set(Date(), forKey: Self.lastFetchKey)
+                self.defaults.set(newRates, forKey: Self.userDefaultsKey)
+                self.defaults.set(Date(), forKey: Self.lastFetchKey)
             }
         } catch {
             // Ignore fetch errors, keep using fallback / cached rates.

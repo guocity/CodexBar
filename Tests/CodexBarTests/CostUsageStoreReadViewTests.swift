@@ -21,49 +21,56 @@ extension CostUsageStoreReadWorkTests {
         let expected = fixture.fullCachedSnapshot(cache: fixture.canonical)
 
         let recorder = CostUsageStoreReadWorkRecorder(databaseURL: fixture.store.databaseURL)
-        CostUsageStore.readWorkRecorderForTesting = recorder
-        defer { CostUsageStore.readWorkRecorderForTesting = nil }
-        let fetcher = CostUsageFetcher(scannerOptions: fixture.options)
-        let status = await fetcher.codexScanCatchUpStatus()
-        let statusWork = recorder.snapshot()
-        #expect(status.pending)
-        #expect(status.totalFiles == 2)
-        #expect(status.completedFiles == 2)
-        #expect(statusWork.retryPresenceRows == 1)
-        #expect(statusWork.usageRows == 0)
-        #expect(statusWork.usageRowDecodeAttempts == 0)
-        #expect(statusWork.bufferedLines == 0)
-        #expect(statusWork.bufferedPayloadBytes == 0)
-        #expect(statusWork.readViewConversions == 1)
-        #expect(statusWork.readViewConversionsInTransaction == 0)
-        #expect(await fetcher.codexScanCatchUpStatus() == status)
+        var recordingHooks = CostUsageStoreTestHooks.current
+        recordingHooks.readWorkRecorder = recorder
+        try await CostUsageStoreTestHooks.$current.withValue(recordingHooks) {
+            let fetcher = CostUsageFetcher(scannerOptions: fixture.options)
+            let status = await fetcher.codexScanCatchUpStatus()
+            let statusWork = recorder.snapshot()
+            #expect(status.pending)
+            #expect(status.totalFiles == 2)
+            #expect(status.completedFiles == 2)
+            #expect(statusWork.retryPresenceRows == 1)
+            #expect(statusWork.usageRows == 0)
+            #expect(statusWork.usageRowDecodeAttempts == 0)
+            #expect(statusWork.bufferedLines == 0)
+            #expect(statusWork.bufferedPayloadBytes == 0)
+            #expect(statusWork.readViewConversions == 1)
+            #expect(statusWork.readViewConversionsInTransaction == 0)
+            #expect(await fetcher.codexScanCatchUpStatus() == status)
 
-        recorder.reset()
-        let result = try #require(await fixture.cachedSnapshot(details: true))
-        let reportWork = recorder.snapshot()
-        #expect(!result.snapshot.historyCoverageIsEstablished)
-        #expect(result.snapshot.last30DaysTokens == 104)
-        #expect(result.snapshot.last30DaysCostUSD == 0.008)
-        #expect(result.snapshot.daily == expected.daily)
-        #expect(result.snapshot.projects == expected.projects)
-        #expect(result.snapshot.sessions == expected.sessions)
-        #expect(reportWork.retryPresenceRows == 1)
-        #expect(reportWork.usageRows == 8)
-        #expect(reportWork.usageRowDecodeAttempts == 8)
-        #expect(reportWork.usagePayloadBytes > 0)
-        #expect(reportWork.bufferedLines == 0)
-        #expect(reportWork.bufferedPayloadBytes == 0)
-        #expect(reportWork.tokenSnapshotRows == 0)
-        #expect(reportWork.accumulatorRows == 0)
-        #expect(reportWork.readViewConversions == 1)
-        #expect(reportWork.readViewConversionsInTransaction == 0)
-        print("[cost-store-read-proof] malformed-replay pending=\(status.pending) " +
-            "coverage=\(result.snapshot.historyCoverageIsEstablished) " +
-            "status_usage_rows=\(statusWork.usageRows) report_usage_rows=\(reportWork.usageRows) " +
-            "status_replay_bytes=\(statusWork.bufferedPayloadBytes) " +
-            "report_replay_bytes=\(reportWork.bufferedPayloadBytes)")
-        CostUsageStore.readWorkRecorderForTesting = nil
-        #expect(await fixture.store.readSnapshot() == persisted)
+            recorder.reset()
+            let result = try #require(await fixture.cachedSnapshot(details: true))
+            let reportWork = recorder.snapshot()
+            #expect(!result.snapshot.historyCoverageIsEstablished)
+            #expect(result.snapshot.last30DaysTokens == 104)
+            #expect(result.snapshot.last30DaysCostUSD == 0.008)
+            #expect(result.snapshot.daily == expected.daily)
+            #expect(result.snapshot.projects == expected.projects)
+            #expect(result.snapshot.sessions == expected.sessions)
+            // The metadata precheck and detail fallback both inspect presence without loading replay bodies.
+            #expect(reportWork.retryPresenceRows == 3)
+            #expect(reportWork.usageRows == 8)
+            #expect(reportWork.usageRowDecodeAttempts == 8)
+            #expect(reportWork.usagePayloadBytes > 0)
+            #expect(reportWork.bufferedLines == 0)
+            #expect(reportWork.bufferedPayloadBytes == 0)
+            #expect(reportWork.tokenSnapshotRows == 0)
+            #expect(reportWork.accumulatorRows == 0)
+            #expect(reportWork.readViewConversions == 3)
+            #expect(reportWork.integrityChecks == 1)
+            #expect(reportWork.readViewConversionsInTransaction == 0)
+            print("[cost-store-read-proof] malformed-replay pending=\(status.pending) " +
+                "coverage=\(result.snapshot.historyCoverageIsEstablished) " +
+                "status_usage_rows=\(statusWork.usageRows) report_usage_rows=\(reportWork.usageRows) " +
+                "status_replay_bytes=\(statusWork.bufferedPayloadBytes) " +
+                "report_replay_bytes=\(reportWork.bufferedPayloadBytes)")
+            var unrecordedHooks = CostUsageStoreTestHooks.current
+            unrecordedHooks.readWorkRecorder = nil
+            try await CostUsageStoreTestHooks.$current.withValue(unrecordedHooks) {
+                #expect(await fixture.store.readSnapshot() == persisted)
+            }
+        }
     }
 
     @Test(arguments: [false, true])
@@ -84,23 +91,25 @@ extension CostUsageStoreReadWorkTests {
         #expect(baseline.files[path]?.hasBufferedCodexForkRetryLines == true)
         try fixture.expectProjectionParity(baseline)
         let recorder = CostUsageStoreReadWorkRecorder(databaseURL: fixture.store.databaseURL)
-        CostUsageStore.readWorkRecorderForTesting = recorder
-        defer { CostUsageStore.readWorkRecorderForTesting = nil }
-        _ = fixture.store.syncLoadCodexReadView(calendar: fixture.calendar, purpose: .report)
-        #expect(recorder.snapshot().retryPresenceRows == 1)
-        #expect(recorder.snapshot().bufferedPayloadBytes == 0)
-        recorder.reset()
-        let buffers = await fixture.store.fetchBufferedLines(path: path)
-        #expect(buffers.count == 1)
-        #expect(recorder.snapshot().bufferedLines == 1)
-        #expect(recorder.snapshot().bufferedPayloadBytes == buffers.reduce(0) { $0 + $1.payload.count })
-        #expect(await fixture.store.fetchAccumulator(path: path) != nil)
-        #expect(recorder.snapshot().accumulatorRows == 1)
-        #expect(baseline.files[path]?.lastCountedTotals != nil)
-        #expect(baseline.files[path]?.codexTokenSnapshots?.count == 4)
-        #expect(baseline.files[path]?.codexReadRetryBufferPresence == nil)
-        #expect(!fixture.save(baseline).catchUpRequired)
-        #expect(fixture.store.syncLoadCodexCache(calendar: fixture.calendar) == baseline)
+        var recordingHooks = CostUsageStoreTestHooks.current
+        recordingHooks.readWorkRecorder = recorder
+        try await CostUsageStoreTestHooks.$current.withValue(recordingHooks) {
+            _ = fixture.store.syncLoadCodexReadView(calendar: fixture.calendar, purpose: .report)
+            #expect(recorder.snapshot().retryPresenceRows == 1)
+            #expect(recorder.snapshot().bufferedPayloadBytes == 0)
+            recorder.reset()
+            let buffers = await fixture.store.fetchBufferedLines(path: path)
+            #expect(buffers.count == 1)
+            #expect(recorder.snapshot().bufferedLines == 1)
+            #expect(recorder.snapshot().bufferedPayloadBytes == buffers.reduce(0) { $0 + $1.payload.count })
+            #expect(await fixture.store.fetchAccumulator(path: path) != nil)
+            #expect(recorder.snapshot().accumulatorRows == 1)
+            #expect(baseline.files[path]?.lastCountedTotals != nil)
+            #expect(baseline.files[path]?.codexTokenSnapshots?.count == 4)
+            #expect(baseline.files[path]?.codexReadRetryBufferPresence == nil)
+            #expect(!fixture.save(baseline).catchUpRequired)
+            #expect(fixture.store.syncLoadCodexCache(calendar: fixture.calendar) == baseline)
+        }
     }
 
     @Test(arguments: [false, true])
@@ -171,6 +180,75 @@ extension CostUsageStoreReadWorkTests {
         #expect(await fixture.cachedSnapshot(details: true)?.snapshot.updatedAt == fixture.now)
     }
 
+    @Test(arguments: [
+        (false, false, true, false),
+        (false, true, true, false),
+        (true, false, true, false),
+        (false, false, false, false),
+        (true, false, true, true),
+    ])
+    func `completed current window publishes while historical catch up continues`(
+        scenario: (Bool, Bool, Bool, Bool)) async throws
+    {
+        let (pendingCurrentWindow, staleParser, activeLookbackComplete, metadataOnlyPending) = scenario
+        let fixture = try ReadWorkFixture(fileCount: 2, rowsPerFile: 4)
+        defer { fixture.remove() }
+        var cache = fixture.canonical
+        let paths = cache.files.keys.sorted()
+        let currentPath = try #require(paths.first)
+        let historicalPath = try #require(paths.last)
+        let historicalDay = "2026-06-01"
+        cache.files[historicalPath]?.days = [historicalDay: [ReadWorkFixture.model: [40, 8, 12]]]
+        cache.files[historicalPath]?.codexRows = nil
+        cache.files[historicalPath]?.codexStandardTokens = [historicalDay: [ReadWorkFixture.model: 52]]
+        cache.files[historicalPath]?.codexCostNanos = [historicalDay: [ReadWorkFixture.model: 4_000_000]]
+        cache.days = [:]
+        for usage in cache.files.values {
+            CostUsageScanner.applyFileDays(cache: &cache, fileDays: usage.days, sign: 1)
+        }
+
+        let roots = CostUsageScanner.codexSessionsRoots(options: fixture.options)
+            .map { $0.resolvingSymlinksInPath().standardizedFileURL.path }.sorted()
+        let previousReport = CostUsageDailyReport(data: [.init(
+            date: ReadWorkFixture.day,
+            inputTokens: 10,
+            outputTokens: 3,
+            totalTokens: 13,
+            costUSD: nil,
+            modelsUsed: [ReadWorkFixture.model],
+            modelBreakdowns: nil)], summary: nil)
+        cache.codexScanCatchUpPending = true
+        cache.codexPreviousReport = CostUsageCodexPreviousReport(
+            report: previousReport,
+            cache: fixture.canonical,
+            reportSinceKey: fixture.range.sinceKey,
+            reportUntilKey: fixture.range.untilKey)
+        let pendingPath = pendingCurrentWindow ? currentPath : historicalPath
+        if staleParser {
+            cache.files[pendingPath]?.codexParserRevision = nil
+        }
+        cache.codexActiveLookbackState = CostUsageCodexActiveLookbackState(
+            scanSinceKey: fixture.range.scanSinceKey,
+            rootPaths: roots,
+            completedRootPaths: activeLookbackComplete ? roots : [],
+            pendingFilePaths: [pendingPath],
+            legacyRecursivePendingRootPaths: activeLookbackComplete ? [] : roots,
+            completedCurrentWindowRootPaths: roots,
+            completedCurrentWindowFlatRootPaths: roots,
+            cacheWideMigrationQueueActive: metadataOnlyPending ? nil : true)
+        CostUsageStoreAccess.replace(cacheRoot: fixture.env.cacheRoot, cache: cache, calendar: fixture.calendar)
+
+        let status = await CostUsageFetcher(scannerOptions: fixture.options).codexScanCatchUpStatus()
+        let cached = try #require(await fixture.cachedSnapshot())
+        let shouldPreservePrevious = (pendingCurrentWindow && !metadataOnlyPending)
+            || staleParser || !activeLookbackComplete
+
+        #expect(status.pending)
+        #expect(cached.snapshot.historyCoverageIsEstablished)
+        #expect(cached.snapshot.last30DaysTokens == (shouldPreservePrevious ? 13 : 52))
+        #expect((cached.staleSnapshotUpdatedAt != nil) == shouldPreservePrevious)
+    }
+
     @Test
     func `default details preserve mixed authoritative and estimated row pricing`() async throws {
         let fixture = try ReadWorkFixture(fileCount: 2, rowsPerFile: 4)
@@ -219,7 +297,7 @@ extension CostUsageStoreReadWorkTests {
     }
 
     @Test
-    func `missing parent forks retain unmetered coverage in project and session reports`() throws {
+    func `missing parent forks retain unmetered coverage in project and session reports`() async throws {
         let fixture = try ReadWorkFixture(fileCount: 2, rowsPerFile: 4, incomplete: true)
         defer { fixture.remove() }
         var cache = fixture.canonical
@@ -238,6 +316,9 @@ extension CostUsageStoreReadWorkTests {
         try fixture.expectProjectionParity(baseline)
         let report = fixture.fullReport(baseline)
         #expect(report.data.first?.unmeteredRequestCount == 1)
+        let cached = try #require(await fixture.cachedSnapshot(details: true))
+        #expect(cached.snapshot.daily.first?.coverageCounts == report.data.first?.coverageCounts)
+        #expect(cached.snapshot.summary(forLastDays: 1, calendar: fixture.calendar).coverage.unmetered == 1)
         #expect(report.summary?.totalTokens == 52)
         let view = fixture.store.syncLoadCodexReadView(calendar: fixture.calendar, purpose: .report)
         let sessions = view.sessions(
@@ -320,7 +401,7 @@ extension ReadWorkFixture {
             completedFiles: baseline.codexScanCompletedFiles ?? 0,
             totalFiles: baseline.codexScanTotalFiles ?? 0,
             staleSnapshotUpdatedAt: pending ? baseline.codexPreviousReport?.updatedAt : nil)
-        for purpose in [CostUsageStoreReadPurpose.status, .report] {
+        for purpose in [CostUsageStoreReadPurpose.status, .activity, .report] {
             let view = self.store.syncLoadCodexReadView(calendar: self.calendar, purpose: purpose)
             #expect(view.catchUpStatus(roots: roots, rootsFingerprint: fingerprint) == expectedStatus)
             #expect(view.previousReport(range: self.range, rootsFingerprint: fingerprint)
@@ -328,6 +409,9 @@ extension ReadWorkFixture {
                     cache: baseline,
                     range: self.range,
                     rootsFingerprint: fingerprint))
+            if purpose == .activity {
+                #expect(view.scoped(to: roots).days == scoped.days)
+            }
             if purpose == .report {
                 let report = view.scoped(to: roots).dailyReport(range: self.range, cacheRoot: self.env.cacheRoot)
                 let full = self.fullReport(scoped)

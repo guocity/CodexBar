@@ -27,7 +27,7 @@ jobs:
       linux-musl-build: ${{ steps.linux-musl-build.outputs.linux-musl-build }}
       linux-musl-build-reason: ${{ steps.linux-musl-build.outputs.linux-musl-build-reason }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install lint tools
         run: ./Scripts/install_lint_tools.sh swiftlint oxlint oxfmt typescript
@@ -108,29 +108,23 @@ jobs:
     # Apple-Silicon runners: ~2-4x faster Swift builds than the retired-path
     # Intel pool and much shorter queues (see #2585 for the measurements).
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        # Two shards amortize SwiftPM's per-shard discovery/cold build.
-        # Each shard remains within the 50-minute Swift Test timeout.
+        # Two serial shards avoid a third cold build while direct launch is unverified.
+        # Leave timeout headroom for runner variance and suite growth.
         shard-index: [0, 1]
         shard-count: [2]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Select Xcode 26.3 or 26.2
+      - name: Select Xcode 26.6
         run: |
           set -euo pipefail
-          # Both versions are part of the official macOS 26 runner image.
-          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app; do
-            if [[ -d "$candidate" ]]; then
-              sudo xcode-select -s "${candidate}/Contents/Developer"
-              echo "DEVELOPER_DIR=${candidate}/Contents/Developer" >> "$GITHUB_ENV"
-              break
-            fi
-          done
-          [[ "$(/usr/bin/xcodebuild -version)" == Xcode\ 26.* ]]
+          sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer" >> "$GITHUB_ENV"
+          [[ "$(/usr/bin/xcodebuild -version)" == Xcode\ 26.6* ]]
           /usr/bin/xcodebuild -version
 
       - name: Restore SwiftPM build cache
@@ -157,36 +151,42 @@ jobs:
         run: ./Scripts/lint.sh lint-macos
 
       - name: Swift Test
-        # Keep small batches to reduce SwiftPM process overhead without returning to one aggregate run.
-        timeout-minutes: 50
+        # Batch short suites; the runner isolates expensive suites without changing their deadlines.
+        timeout-minutes: 75
         run: |
-          CODEXBAR_TEST_GROUP_SIZE=4 \
+          touch "$RUNNER_TEMP/codexbar-tests-started"
+          echo "Hosted tests use two serial SwiftPM shards; direct runtime validation is nonblocking."
+          CODEXBAR_TEST_GROUP_SIZE=8 \
             CODEXBAR_TEST_SUITE_TIMEOUT=120 \
             CODEXBAR_TEST_RETRY_NON_TIMEOUT_FAILURES=0 \
             CODEXBAR_TEST_SHARD_INDEX=${{ matrix.shard-index }} \
             CODEXBAR_TEST_SHARD_COUNT=${{ matrix.shard-count }} \
             ./Scripts/test.sh
 
+      - name: Direct runtime smoke test (nonblocking)
+        id: direct-probe
+        if: ${{ success() && matrix.shard-index == 0 }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          CODEXBAR_TEST_GROUP_SIZE=8 \
+            CODEXBAR_TEST_SUITE_TIMEOUT=120 \
+            CODEXBAR_TEST_RETRY_NON_TIMEOUT_FAILURES=0 \
+            CODEXBAR_TEST_SHARD_INDEX=${{ matrix.shard-index }} \
+            CODEXBAR_TEST_SHARD_COUNT=${{ matrix.shard-count }} \
+            ./Scripts/test.sh --direct-workers 2 --limit-groups 1
+
       - name: Provider plugin engine A/B goldens
         if: ${{ matrix.shard-index == 0 }}
         run: ./Scripts/test-plugin-engines.sh
 
       - name: Collect crash reports on failure
-        if: ${{ failure() }}
+        if: ${{ failure() || steps.direct-probe.outcome == 'failure' }}
         shell: bash
         run: |
-          set -uo pipefail
-          reports="$HOME/Library/Logs/DiagnosticReports"
-          found=0
-          if [[ -d "$reports" ]]; then
-            while IFS= read -r file; do
-              found=1
-              echo "::group::crash report $(basename "$file")"
-              cat "$file"
-              echo "::endgroup::"
-            done < <(find "$reports" \( -name '*.ips' -o -name '*.crash' \) -newer .git/HEAD -print 2>/dev/null | head -5)
+          if [[ -f "$RUNNER_TEMP/codexbar-tests-started" ]]; then
+            python3 Scripts/swift_test_diagnostics.py --since "$RUNNER_TEMP/codexbar-tests-started"
           fi
-          [[ "$found" == 1 ]] || echo "no fresh crash reports under $reports"
 
       - name: Summarize macOS shard
         if: ${{ always() }}
@@ -209,6 +209,38 @@ jobs:
             printf '| Runs lint-macos | `%s` |\n' "$RUNS_LINT_MACOS"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  swift-build-macos-compatibility:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos-tests == 'true' }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select Xcode 26.3
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer" >> "$GITHUB_ENV"
+          [[ "$(/usr/bin/xcodebuild -version)" == Xcode\ 26.3* ]]
+          /usr/bin/xcodebuild -version
+
+      - name: Restore SwiftPM build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-macos15-xcode26.3-arm64-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: |
+            swiftpm-macos15-xcode26.3-arm64-
+
+      - name: Build app, CLI, and tests with Swift 6.2
+        run: |
+          set -euo pipefail
+          swift --version
+          swift build --build-tests
+
   lint-build-test:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -216,11 +248,12 @@ jobs:
       - changes
       - lint
       - swift-test-macos
+      - swift-build-macos-compatibility
       - build-linux-musl-cli
       - build-linux-cli
     if: ${{ always() && !cancelled() }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify required CI jobs
         run: |
@@ -232,7 +265,8 @@ jobs:
             "${{ needs.changes.outputs.macos-tests-deferred }}" \
             "${{ needs.changes.outputs.linux-musl-build }}" \
             "${{ needs.build-linux-musl-cli.result }}" \
-            "${{ needs.build-linux-cli.result }}"
+            "${{ needs.build-linux-cli.result }}" \
+            "${{ needs.swift-build-macos-compatibility.result }}"
 
       - name: Summarize aggregate CI gate
         if: ${{ always() }}
@@ -244,6 +278,7 @@ jobs:
           MACOS_TESTS_DEFERRED: ${{ needs.changes.outputs.macos-tests-deferred }}
           MACOS_TESTS_REASON: ${{ needs.changes.outputs.macos-tests-reason }}
           MACOS_RESULT: ${{ needs.swift-test-macos.result }}
+          MACOS_COMPATIBILITY_RESULT: ${{ needs.swift-build-macos-compatibility.result }}
           LINUX_MUSL_BUILD: ${{ needs.changes.outputs.linux-musl-build }}
           LINUX_MUSL_BUILD_REASON: ${{ needs.changes.outputs.linux-musl-build-reason }}
           LINUX_MUSL_RESULT: ${{ needs.build-linux-musl-cli.result }}
@@ -264,6 +299,7 @@ jobs:
             printf '| macOS Swift tests deferred | `%s` |\n' "${MACOS_TESTS_DEFERRED:-<unset>}"
             printf '| macOS gate reason | %s |\n' "$reason"
             printf '| swift-test-macos result | `%s` |\n' "$MACOS_RESULT"
+            printf '| Swift 6.2 build result | `%s` |\n' "$MACOS_COMPATIBILITY_RESULT"
             printf '| Linux musl build required | `%s` |\n' "${LINUX_MUSL_BUILD:-<unset>}"
             printf '| Linux musl gate reason | %s |\n' "$musl_reason"
             printf '| build-linux-musl-cli result | `%s` |\n' "$LINUX_MUSL_RESULT"
@@ -276,16 +312,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      SWIFT_VERSION: 6.2.1
-      SWIFT_STATIC_LINUX_SDK: swift-6.2.1-RELEASE_static-linux-0.0.1
+      SWIFT_VERSION: 6.3.3
+      SWIFT_STATIC_LINUX_SDK: swift-6.3.3-RELEASE_static-linux-0.1.0
       SWIFT_STATIC_LINUX_SDK_TRIPLE: x86_64-swift-linux-musl
       SWIFT_STATIC_LINUX_SDK_ARCH: x86_64
-      SWIFT_STATIC_LINUX_SDK_URL: https://download.swift.org/swift-6.2.1-release/static-sdk/swift-6.2.1-RELEASE/swift-6.2.1-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
-      SWIFT_STATIC_LINUX_SDK_CHECKSUM: 08e1939a504e499ec871b36826569173103e4562769e12b9b8c2a50f098374ad
-      SQLITE_AMALGAMATION_VERSION: "3530300"
-      SQLITE_AMALGAMATION_SHA3_256: d45c688a8cb23f68611a894a756a12d7eb6ab6e9e2468ca70adbeab3808b5ab9
+      SWIFT_STATIC_LINUX_SDK_URL: https://download.swift.org/swift-6.3.3-release/static-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
+      SWIFT_STATIC_LINUX_SDK_CHECKSUM: 87c3eaf908e67c0e13a84367119e12273cec1d2cd3d81f7d74bb36722d6b607b
+      SQLITE_AMALGAMATION_VERSION: "3530400"
+      SQLITE_AMALGAMATION_SHA3_256: 628a44cfe82c66aed1ccbbe85a562d2e33ebe64b3288981ed76285612227934e
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Runner info
         run: |
@@ -344,7 +380,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          swift sdk install "$SWIFT_STATIC_LINUX_SDK_URL" --checksum "$SWIFT_STATIC_LINUX_SDK_CHECKSUM"
+          ./Scripts/install_swift_static_sdk.sh
           swift sdk list | grep -Fx "$SWIFT_STATIC_LINUX_SDK"
 
           sdk_root="$(
@@ -456,7 +492,7 @@ jobs:
             runs-on: ubuntu-24.04-arm
     runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Runner info
         run: |
@@ -528,7 +564,9 @@ jobs:
         run: swift build -c release --product CodexBarCLI --static-swift-stdlib
 
       - name: Swift Test (Linux only)
-        run: swift test --parallel
+        run: |
+          source Scripts/test_environment.sh
+          swift test --parallel
 
       - name: Smoke test CodexBarCLI
         shell: bash

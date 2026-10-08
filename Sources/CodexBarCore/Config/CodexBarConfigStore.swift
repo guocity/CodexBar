@@ -1,4 +1,11 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 
 public enum CodexBarConfigStoreError: LocalizedError {
     case invalidURL
@@ -32,10 +39,9 @@ public struct CodexBarConfigStore: @unchecked Sendable {
     public func load() throws -> CodexBarConfig? {
         guard self.fileManager.fileExists(atPath: self.fileURL.path) else { return nil }
         let data = try Data(contentsOf: self.fileURL)
-        let decoder = JSONDecoder()
+        guard !data.allSatisfy({ $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D }) else { return nil }
         do {
-            let decoded = try decoder.decode(CodexBarConfig.self, from: data)
-            return decoded.normalized()
+            return try CodexBarConfig.decode(from: data).normalized()
         } catch {
             throw CodexBarConfigStoreError.decodeFailed(error.localizedDescription)
         }
@@ -56,28 +62,59 @@ public struct CodexBarConfigStore: @unchecked Sendable {
     }
 
     public func encodedData(for config: CodexBarConfig) throws -> Data {
-        let normalized = config.normalized()
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         do {
-            return try encoder.encode(normalized)
+            return try config.normalized().encodedData()
         } catch {
             throw CodexBarConfigStoreError.encodeFailed(error.localizedDescription)
         }
     }
 
     public func saveEncodedData(_ data: Data) throws {
-        let directory = self.fileURL.deletingLastPathComponent()
-        if !self.fileManager.fileExists(atPath: directory.path) {
-            try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try self.withWriteLock {
+            try CredentialFileWriter.writePrivate(data, to: self.fileURL)
         }
-        try data.write(to: self.fileURL, options: [.atomic])
-        try self.applySecurePermissionsIfNeeded()
+    }
+
+    /// Best-effort refreshes must compare and publish under the same lock as ordinary config writes.
+    /// Skip contention rather than delaying an interactive writer or publishing a stale credential.
+    package func updateIfAvailable(_ update: (inout CodexBarConfig) throws -> Bool) throws {
+        try self.withWriteLock(wait: false) {
+            guard var config = try self.load(), try update(&config) else { return }
+            try CredentialFileWriter.writePrivate(self.encodedData(for: config), to: self.fileURL)
+        }
     }
 
     public func deleteIfPresent() throws {
         guard self.fileManager.fileExists(atPath: self.fileURL.path) else { return }
-        try self.fileManager.removeItem(at: self.fileURL)
+        try self.withWriteLock {
+            if self.fileManager.fileExists(atPath: self.fileURL.path) {
+                try self.fileManager.removeItem(at: self.fileURL)
+            }
+        }
+    }
+
+    private func withWriteLock(wait: Bool = true, _ body: () throws -> Void) throws {
+        try self.fileManager.createDirectory(
+            at: self.fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        // Keep this inode: unlinking the lock could give simultaneous writers different locks.
+        let descriptor = open(
+            self.fileURL.appendingPathExtension("lock").path,
+            O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK,
+            0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(descriptor) }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG), metadata.st_uid == geteuid()
+        else { throw POSIXError(.EINVAL) }
+        while flock(descriptor, LOCK_EX | (wait ? 0 : LOCK_NB)) != 0 {
+            if errno == EINTR { continue }
+            if !wait, errno == EWOULDBLOCK { return }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        try body()
     }
 
     public static func defaultURL(
@@ -120,13 +157,5 @@ public struct CodexBarConfigStore: @unchecked Sendable {
         }
 
         return xdgDefault
-    }
-
-    private func applySecurePermissionsIfNeeded() throws {
-        #if os(macOS) || os(Linux)
-        try self.fileManager.setAttributes([
-            .posixPermissions: NSNumber(value: Int16(0o600)),
-        ], ofItemAtPath: self.fileURL.path)
-        #endif
     }
 }

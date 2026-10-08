@@ -24,10 +24,133 @@ struct AntigravityLocalScanTests {
         limits.duration = 60
         let report = try fixture.report(limits: limits)
         #expect(report.coverage == (count <= 500 ? .complete : .partial))
-        #expect(report.statistics.files == min(count, 500))
+        #expect(report.statistics.files == (count <= 500 ? count : 0))
         #expect(report.statistics.rows == 0)
-        #expect(report.statistics.sqliteHandlesOpened == min(count, 500))
+        #expect(report.statistics.sqliteHandlesOpened == report.statistics.files)
         #expect(report.statistics.sqliteHandlesClosed == report.statistics.sqliteHandlesOpened)
+    }
+
+    @Test
+    func `exceeding the database cap with valid history withholds the truncated report`() throws {
+        let fixture = try Fixture()
+        try fixture.database("first", blobs: [Fixture.blob()])
+        var limits = AntigravityLocalReader.Limits()
+        limits.databases = 1
+        let exact = try fixture.report(limits: limits)
+        #expect(exact.coverage == .complete)
+        #expect(exact.report.summary?.totalTokens == 187)
+
+        try fixture.database("second", blobs: [Fixture.blob()])
+        let exceeded = try fixture.report(limits: limits)
+        #expect(exceeded.coverage == .partial)
+        #expect(exceeded.report.data.isEmpty)
+        #expect(exceeded.report.summary == nil)
+        #expect(exceeded.statistics.files == 0)
+        #expect(exceeded.statistics.sqliteHandlesOpened == 0)
+    }
+
+    @Test
+    func `the schema byte allowance applies to each database rather than the whole history`() throws {
+        let fixture = try Fixture()
+        try fixture.database("session-1", blobs: [Fixture.blob()])
+        let initial = try fixture.report(clock: { 0 })
+        #expect(initial.coverage == .complete)
+        #expect(initial.report.summary?.totalTokens == 187)
+
+        // Many small schemas together exceed one database's allowance without truncating the scan.
+        try fixture.database("session-2", blobs: [Fixture.blob()])
+        try fixture.database("session-3", blobs: [Fixture.blob()])
+        var limits = AntigravityLocalReader.Limits()
+        limits.schemaBytes = initial.statistics.schemaBytes
+        let report = try fixture.report(limits: limits, clock: { 0 })
+        #expect(report.coverage == .complete)
+        #expect(report.report.summary?.totalTokens == 561)
+        #expect(report.statistics.files == 3)
+        #expect(report.statistics.schemaBytes > limits.schemaBytes)
+    }
+
+    @Test(arguments: ["session-0", "session-2", "session-4"])
+    func `an oversized schema withholds only its own database and keeps the other rows as partial history`(
+        oversizedSession: String) throws
+    {
+        let fixture = try Fixture()
+        try fixture.database("session-1", blobs: [Fixture.blob()])
+        let initial = try fixture.report(clock: { 0 })
+        #expect(initial.coverage == .complete)
+
+        // Catalogue entries before gen_metadata are inspected, so this schema is larger than session-1's.
+        let url = try fixture.database(oversizedSession)
+        let database = try Fixture.open(url)
+        defer { sqlite3_close(database) }
+        try Fixture.execute(database, """
+        DROP TABLE gen_metadata;
+        CREATE TABLE an_unrelated_table_with_a_long_name (value);
+        CREATE TABLE gen_metadata (idx INTEGER, data BLOB);
+        """)
+        try Fixture.insert(database, row: 0, blob: Fixture.blob())
+        try fixture.database("session-3", blobs: [Fixture.blob()])
+        var limits = AntigravityLocalReader.Limits()
+        limits.schemaBytes = initial.statistics.schemaBytes
+        let partial = try fixture.report(limits: limits, clock: { 0 })
+        #expect(partial.coverage == .partial)
+        #expect(partial.report.summary?.totalTokens == 374)
+        #expect(partial.statistics.files == 3)
+        #expect(partial.statistics.rows == 2)
+        #expect(partial.statistics.sqliteHandlesOpened == partial.statistics.sqliteHandlesClosed)
+    }
+
+    @Test
+    func `generation and step table inspection share one database schema allowance`() throws {
+        let fixture = try Fixture()
+        let stepUUID = "schema-budget-step"
+        try fixture.database(
+            blobs: [Fixture.blobWithRootEnvelope(stepUUID: stepUUID, seconds: nil)],
+            stepBlobs: [Fixture.stepMetadataBlob(stepUUID: stepUUID, seconds: 1_787_832_000)])
+        let complete = try fixture.report(clock: { 0 })
+        #expect(complete.coverage == .complete)
+        #expect(complete.report.summary?.totalTokens == 187)
+
+        var limits = AntigravityLocalReader.Limits()
+        limits.schemaBytes = complete.statistics.schemaBytes - 1
+        let partial = try fixture.report(limits: limits, clock: { 0 })
+        #expect(partial.coverage == .partial)
+        #expect(partial.report.data.isEmpty)
+        #expect(partial.statistics.rows == 1)
+        #expect(partial.statistics.schemaBytes > limits.schemaBytes)
+        #expect(partial.statistics.sqliteHandlesOpened == partial.statistics.sqliteHandlesClosed)
+    }
+
+    @Test
+    func `hard row exhaustion across databases withholds the truncated report`() throws {
+        let fixture = try Fixture()
+        try fixture.database("first", blobs: [Fixture.blob()])
+        try fixture.database("second", blobs: [Fixture.blob()])
+        var limits = AntigravityLocalReader.Limits()
+        limits.rows = 1
+        let report = try fixture.report(limits: limits)
+        // Hard row exhaustion must withhold — the documented contract says newly truncated reports
+        // are unavailable, even though the first database produced valid rows.
+        #expect(report.coverage == .partial)
+        #expect(report.report.data.isEmpty)
+        #expect(report.report.summary == nil)
+        #expect(report.statistics.files == 2)
+    }
+
+    @Test
+    func `hard byte exhaustion across databases withholds the truncated report`() throws {
+        let fixture = try Fixture()
+        let blob = Fixture.blob()
+        try fixture.database("first", blobs: [blob])
+        try fixture.database("second", blobs: [blob])
+        var limits = AntigravityLocalReader.Limits()
+        limits.bytes = blob.count
+        let report = try fixture.report(limits: limits)
+        // Hard byte exhaustion must withhold — the documented contract says newly truncated reports
+        // are unavailable, even though the first database produced valid rows.
+        #expect(report.coverage == .partial)
+        #expect(report.report.data.isEmpty)
+        #expect(report.report.summary == nil)
+        #expect(report.statistics.files == 2)
     }
 
     @Test
@@ -147,6 +270,125 @@ struct AntigravityLocalScanTests {
         #expect(cumulative.coverage == .partial)
         #expect(cumulative.statistics.rows == 2)
         #expect(cumulative.statistics.materializedPayloadBytes == blob.count)
+    }
+
+    @Test
+    func `optional steps scan does not exhaust embedded timestamp usage rows`() throws {
+        let fixture = try Fixture()
+        let blob = Fixture.blobWithRootEnvelope(seconds: 1_787_832_000)
+        let url = try fixture.database(blobs: [blob], stepBlobs: [])
+        let database = try Fixture.open(url)
+        defer { sqlite3_close(database) }
+        try Fixture.execute(database, "INSERT INTO steps VALUES (0, zeroblob(40)), (1, zeroblob(40))")
+        var limits = AntigravityLocalReader.Limits()
+        limits.rowsPerDatabase = 1
+
+        let report = try fixture.report(limits: limits)
+
+        #expect(report.coverage == .complete)
+        #expect(report.statistics.rows == 1)
+        #expect(report.statistics.attemptedBytes == blob.count)
+    }
+
+    @Test
+    func `optional steps scan charges its rows and bytes against the shared job budget`() throws {
+        let fixture = try Fixture()
+        let stepUUID = "budgeted-step-uuid"
+        let genBlob = Fixture.blobWithRootEnvelope(stepUUID: stepUUID, seconds: nil)
+        let stepBlob = Fixture.stepMetadataBlob(stepUUID: stepUUID, seconds: 1_787_832_000)
+        try fixture.database(blobs: [genBlob], stepBlobs: [stepBlob])
+
+        #expect(try fixture.report().coverage == .complete)
+
+        var limits = AntigravityLocalReader.Limits()
+        limits.rows = 1
+        let rowBound = try fixture.report(limits: limits)
+        #expect(rowBound.coverage == .partial)
+        #expect(rowBound.statistics.rows == 2)
+
+        limits = AntigravityLocalReader.Limits()
+        limits.bytes = genBlob.count
+        let byteBound = try fixture.report(limits: limits)
+        #expect(byteBound.coverage == .partial)
+        #expect(byteBound.statistics.attemptedBytes == genBlob.count + stepBlob.count)
+
+        limits = AntigravityLocalReader.Limits()
+        limits.databaseBytes = genBlob.count + stepBlob.count - 1
+        let databaseByteBound = try fixture.report(limits: limits)
+        #expect(databaseByteBound.coverage == .partial)
+        #expect(databaseByteBound.statistics.attemptedBytes == genBlob.count + stepBlob.count)
+    }
+
+    @Test
+    func `step scan truncation cannot publish already recovered timestamps as complete`() throws {
+        let fixture = try Fixture()
+        let stepUUID = "bounded-step-uuid"
+        let genBlob = Fixture.blobWithRootEnvelope(stepUUID: stepUUID, seconds: nil)
+        let matchingStep = Fixture.stepMetadataBlob(stepUUID: stepUUID, seconds: 1_787_832_000)
+        let trailingStep = Fixture.stepMetadataBlob(stepUUID: "unrelated-step", seconds: 1_787_832_000)
+        try fixture.database(blobs: [genBlob], stepBlobs: [matchingStep, trailingStep])
+        var limits = AntigravityLocalReader.Limits()
+        limits.databaseBytes = genBlob.count + matchingStep.count
+
+        let report = try fixture.report(limits: limits)
+
+        #expect(report.coverage == .partial)
+        #expect(report.statistics.rows == 3)
+        #expect(report.statistics.attemptedBytes == genBlob.count + matchingStep.count + trailingStep.count)
+    }
+
+    @Test
+    func `secondary byte exhaustion cannot publish primary rows as partial history`() throws {
+        let fixture = try Fixture()
+        let stepUUID = "bounded-secondary-history"
+        let primary = Fixture.blob()
+        let pending = Fixture.blobWithRootEnvelope(stepUUID: stepUUID, seconds: nil)
+        let step = Fixture.stepMetadataBlob(stepUUID: stepUUID, seconds: 1_787_832_000)
+        try fixture.database(blobs: [primary, pending], stepBlobs: [step])
+        #expect(try fixture.report().coverage == .complete)
+
+        var limits = AntigravityLocalReader.Limits()
+        limits.databaseBytes = primary.count + pending.count
+        let report = try fixture.report(limits: limits)
+        #expect(report.coverage == .partial)
+        #expect(report.report.data.isEmpty)
+        #expect(report.report.summary == nil)
+        #expect(report.statistics.sqliteHandlesOpened == report.statistics.sqliteHandlesClosed)
+    }
+
+    @Test
+    func `step lookup reaches beyond the primary row cap within the shared budget`() throws {
+        let fixture = try Fixture()
+        let stepUUID = "sparse-step-uuid"
+        let genBlob = Fixture.blobWithRootEnvelope(stepUUID: stepUUID, seconds: nil)
+        let url = try fixture.database(blobs: [genBlob], stepBlobs: [])
+        let database = try Fixture.open(url)
+        defer { sqlite3_close(database) }
+        let unrelatedCount = 10001
+        let unrelated = Fixture.stepMetadataBlob(stepUUID: "unrelated-step", seconds: 1_787_832_000)
+        try Fixture.execute(database, "BEGIN")
+        do {
+            for index in 0..<unrelatedCount {
+                try Fixture.insertStep(database, row: Int64(index), blob: unrelated)
+            }
+            try Fixture.insertStep(
+                database,
+                row: Int64(unrelatedCount),
+                blob: Fixture.stepMetadataBlob(stepUUID: stepUUID, seconds: 1_787_832_000))
+            try Fixture.insertStep(database, row: Int64(unrelatedCount + 1), blob: unrelated)
+            try Fixture.execute(database, "COMMIT")
+        } catch {
+            try? Fixture.execute(database, "ROLLBACK")
+            throw error
+        }
+        var limits = AntigravityLocalReader.Limits()
+        limits.duration = 30
+
+        let report = try fixture.report(limits: limits)
+
+        #expect(report.coverage == .complete)
+        #expect(report.report.data.first?.date == "2026-08-27")
+        #expect(report.statistics.rows == unrelatedCount + 3)
     }
 
     @Test

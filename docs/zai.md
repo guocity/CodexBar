@@ -127,6 +127,7 @@ Copy each value once, on one line. Multi-line or duplicated IDs can make the API
   Organization ID and Project ID as required for team usage.
 
 ## Usage dashboard
+- Optional model analytics are omitted when charts exceed 120 positive points, labels fail the native detail rules, or token aggregates overflow. Required quota data remains available; valid bounded analytics retain their complete labels and values.
 - Global: `https://z.ai/manage-apikey/coding-plan/personal/my-plan`
 - BigModel China: `https://bigmodel.cn/coding-plan/personal/usage`
 - BigModel China team: `https://bigmodel.cn/coding-plan/team/usage-stats`
@@ -141,13 +142,17 @@ Copy each value once, on one line. Multi-line or duplicated IDs can make the API
   - A single Coding Plan limit becomes primary. With multiple limits, the first becomes primary and the last becomes secondary after sorting by duration; unknown durations sort last.
   - `TIME_LIMIT` → a separate MCP lane when a Coding Plan window is available, otherwise the primary MCP window; never a fabricated monthly Coding Plan window.
 - Usage percentage:
+  - Empty or wholly unrecognized quota limits show Coding Plan usage as unavailable and direct users to Usage Dashboard; they never imply 0% used. Unknown string limit types are skipped without requiring legacy window fields. Mixed responses retain recognized windows and explain that additional quota is unavailable. Malformed entries and unsupported response envelopes fail with Dashboard guidance. Reported zero usage, plan details, and optional analytics remain supported.
+  - `CREDIT_LIMIT` supports points-based quotas using the supplied counts. An unknown plan shape is not treated as verified GLM Coding Plan V3 compatibility.
   - An integer `percentage` is required. When a positive `usage` limit and a `currentValue` or `remaining` count are present, the counts determine the used percentage. The result is clamped to 0–100%.
 - Window duration:
   - Unit + number → minutes/hours/days.
 - Reset:
   - `nextResetTime` (epoch ms) → date.
+  - Five-hour Coding Plan resets more than five hours plus one minute of clock skew in the future are omitted, including incompatible cached resets. Usage percentages remain visible; no timezone correction is guessed. Weekly and MCP reset semantics are unchanged.
 - Usage details:
   - `usageDetails[]` per model (MCP usage list).
+  - Hourly and daily model token totals use compact M/B labels from one million upward; smaller totals remain exact. Chart points retain their full numeric values.
 
 ## Key files
 - `Sources/CodexBarCore/Resources/Plugins/zai.js` (quota parsing and window mapping)

@@ -53,6 +53,11 @@ If expiry is unavailable, the existing eight-day `last_refresh` rule applies; a 
 timestamp still requires refresh. This keeps a future-expiry token on the OAuth path, including
 its model-specific usage windows, even when the refresh timestamp is old (#3221, #3222).
 
+OAuth strategy reads allow three attempts, with cancellable 50-millisecond delays, to observe an owner publication
+that overlaps availability or usage fetching. Usage rereads native credentials inside the renewal window; this is
+not token redemption and does not alter the five-minute expiry margin. After the bounded retry, missing, unreadable,
+malformed, incomplete, and stale credentials retain their separate error categories. No credentials are written.
+
 The claim must be a signed integer JSON spelling within Codex's supported UTC date range
 (`-8334601228800...8210266876799` seconds). Booleans, strings, fractions, integral floating-point
 or exponent spellings, overflow, duplicate claims, and out-of-range dates fall back to age.
@@ -271,7 +276,7 @@ public enum CodexOAuthUsageFetcher {
             } catch {
                 throw CodexOAuthFetchError.invalidResponse
             }
-        case 401, 403:
+        case 401:
             throw CodexOAuthFetchError.unauthorized
         default:
             let body = String(data: data, encoding: .utf8)
@@ -312,6 +317,9 @@ implementation instead of copying an OAuth-only fetch example:
 4. Auto mode falls back to the CLI only for recoverable native OAuth or credential errors. Stale
    external sources, managed workspace scope, transient API errors, decode failures, and network
    failures remain visible instead of launching an unrelated or unscoped CLI recovery.
+
+HTTP 401 remains an authentication failure. HTTP 403 retains its status as a terminal API permission failure for
+OAuth and PAT requests, including reset-credit and spend-control endpoints; it does not trigger automatic CLI recovery.
 
 The key invariant is that the credential snapshot used for the usage request is also passed to
 reset-credit enrichment; reloading `auth.json` after a refresh would reintroduce the shared-file

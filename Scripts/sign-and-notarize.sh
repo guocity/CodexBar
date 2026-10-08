@@ -30,6 +30,16 @@ ARCHES_VALUE=${ARCHES:-"arm64 x86_64"}
 ZIP_NAME=$(codexbar_app_zip_name "$MARKETING_VERSION" "$ARCHES_VALUE")
 DSYM_ZIP=$(codexbar_dsym_zip_name "$MARKETING_VERSION" "$ARCHES_VALUE")
 
+NOTARYTOOL_OPTIONS=(--wait)
+case "${CODEXBAR_NOTARY_S3_ACCELERATION-1}" in
+  0) NOTARYTOOL_OPTIONS+=(--no-s3-acceleration) ;;
+  1) ;;
+  *)
+    echo "CODEXBAR_NOTARY_S3_ACCELERATION must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+
 # Notarization credentials: either a stored notarytool keychain profile
 # (CODEXBAR_NOTARY_KEYCHAIN_PROFILE, created via `xcrun notarytool store-credentials`)
 # or the App Store Connect API env vars. The keychain profile wins when set.
@@ -56,7 +66,7 @@ if [[ -z "$NOTARY_PROFILE" ]]; then
 fi
 
 ARCH_LIST=( ${ARCHES_VALUE} )
-ARCHES="${ARCHES_VALUE}" CODEXBAR_SIGNING=identity ./Scripts/package_app.sh release
+APP_IDENTITY="$APP_IDENTITY" ARCHES="${ARCHES_VALUE}" CODEXBAR_SIGNING=identity ./Scripts/package_app.sh release
 
 ENTITLEMENTS_DIR="$ROOT/.build/entitlements"
 APP_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBar.entitlements"
@@ -97,13 +107,13 @@ notarytool_submit() {
   if [[ -n "$NOTARY_PROFILE" ]]; then
     xcrun notarytool submit "$artifact" \
       --keychain-profile "$NOTARY_PROFILE" \
-      --wait
+      "${NOTARYTOOL_OPTIONS[@]}"
   else
     xcrun notarytool submit "$artifact" \
       --key "$API_KEY_PATH" \
       --key-id "$APP_STORE_CONNECT_KEY_ID" \
       --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
-      --wait
+      "${NOTARYTOOL_OPTIONS[@]}"
   fi
 }
 

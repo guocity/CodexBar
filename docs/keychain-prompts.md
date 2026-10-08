@@ -28,6 +28,30 @@ A user-initiated import or acknowledged Claude repair may attempt interactive au
 chosen to continue. Denials temporarily suppress repeated Chromium-family attempts so one browser cannot lead to a
 prompt storm across the others.
 
+Scheduled Chromium imports can recover during that denial cooldown when the current no-UI Safe Storage preflight
+explicitly confirms access. Interaction-required, missing, or failed preflights still suppress the import, and the
+actual read remains non-interactive. This recovery does not clear the user-initiated denial cooldown or override
+disabled Keychain access.
+
+An inconclusive no-UI preflight gets at most three attempts, with a 30 ms pause before each retry. Stable authorization
+decisions are never retried. Each distinct preflight can add two 30 ms waits plus the Security calls;
+repeated checks within one operation reuse the final result. This applies to generic-password preflights for
+browser storage, credential repair, and CodexBar caches, without changing their permission requirements.
+
+Concurrent preflights for the same trusted application and executable share an in-flight code-signature validation.
+For the running executable (or its own main app bundle), preflight checks the ACL's signing requirement against the
+process's dynamic code identity with default Security flags, avoiding sealed-resource hashing. A bundled CLI helper
+only validates its own identity; it cannot authorize its enclosing app. Other paths and ACLs without an available
+signing requirement keep the static validator. Requirement mismatches remain confirmed rejections; other dynamic
+errors stay inconclusive.
+Completed successful validations and transient failures are not retained process-wide: executable and app metadata
+cannot detect every change to a sealed resource. The existing short, explicit operation memo can still reuse a
+generic-password preflight within that operation; it does not span asynchronous refreshes or deferred work.
+The process-local validation memo holds at most 64 confirmed signature rejections for five minutes. Changes to the
+executable, enclosing app bundle metadata, bundle version, or main executable invalidate those rejections sooner.
+Outside the explicit operation memo, the current Keychain ACL and prompt selector are read on every preflight, and
+background secret reads remain non-interactive.
+
 Provider-owned child processes are a separate boundary. CodexBar may intentionally launch a provider CLI such as
 Claude for usage. That executable owns its credential behavior, which CodexBar cannot constrain or fully inspect.
 
@@ -41,6 +65,18 @@ when CodexBar itself has not changed.
 
 The item's accessibility class controls when its data is available, such as after the first unlock. It does not grant
 a changed executable access and does not repair a code-signature ACL mismatch.
+
+If a CodexBar-owned cache item's legacy ACL rejects the installed app, reads share a five-minute preflight cooldown.
+When fresh cache data becomes available, CodexBar can delete and recreate its own item using no-UI queries. A failed
+replacement is attempted at most once per cooldown; a failed retry starts another cooldown even if the old item is
+already gone. Successful replacement clears the rejection immediately, including when another first-party process wins
+the add race. Cache clearing honors an existing repair cooldown and uses no-UI deletion without requiring decrypt access.
+Signature validation during preflight has a bounded wait. If macOS stalls inside validation, preflight returns an
+inconclusive result so the caller can release its cache locks and the refresh cycle can finish. Timed-out validations
+retain their worker slots until they actually return; retries cannot create an unlimited queue of blocked workers.
+Foreign items are never recreated this way. A direct delete that is only temporarily unavailable stays retryable; it does
+not establish a stale ACL. A temporarily locked Keychain or an incomplete ACL preflight also remains retryable sooner and
+is not replaced.
 
 ## Allow Once and Always Allow
 

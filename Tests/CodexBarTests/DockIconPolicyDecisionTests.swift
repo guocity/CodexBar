@@ -4,16 +4,49 @@ import Testing
 struct DockIconPolicyDecisionTests {
     @Test
     func `settings window requires regular activation policy`() {
-        let settings = self.window(identifier: "com_apple_SwiftUI_Settings_window")
         let ownedSettings = self.window(identifier: SettingsWindowIdentity.identifier)
         let hostedSettings = self.window(identifier: "future-settings-identifier", isKnownSettingsWindow: true)
         let miniaturizedSettings = self.window(isVisible: false, isMiniaturized: true, isKnownSettingsWindow: true)
 
-        #expect(DockIconPolicyDecision.shouldUseRegularActivationPolicy(windows: [settings]))
         #expect(DockIconPolicyDecision.shouldUseRegularActivationPolicy(windows: [ownedSettings]))
         #expect(DockIconPolicyDecision.shouldUseRegularActivationPolicy(windows: [miniaturizedSettings]))
-        #expect(DockIconPolicyDecision.shouldPromoteForPresentedWindow(settings))
+        #expect(DockIconPolicyDecision.shouldPromoteForPresentedWindow(ownedSettings))
         #expect(DockIconPolicyDecision.shouldPromoteForPresentedWindow(hostedSettings))
+    }
+
+    @Test
+    func `launch placeholder never promotes or retains regular policy`() {
+        // On macOS 27, promotion can succeed while the getter still reports accessory and demotion fails.
+        // Avoid that transition even when the placeholder is visible before the launch sweep closes it.
+        for (visible, miniaturized) in [(true, false), (false, false), (false, true)] {
+            let placeholder = self.window(
+                identifier: "com_apple_SwiftUI_Settings_window",
+                isVisible: visible,
+                isMiniaturized: miniaturized)
+            #expect(!DockIconPolicyDecision.shouldPromoteForPresentedWindow(placeholder))
+            #expect(!DockIconPolicyDecision.shouldUseRegularActivationPolicy(windows: [placeholder]))
+        }
+    }
+
+    @Test
+    func `autosave-only placeholders cannot retain the Dock after a real dialog closes`() {
+        let placeholder = self.window(frameAutosaveName: "com_apple_SwiftUI_Settings_window")
+        let settings = self.window(isVisible: false, isKnownSettingsWindow: true)
+        #expect(!DockIconPolicyDecision.shouldPromoteForPresentedWindow(placeholder))
+        #expect(!DockIconPolicyDecision.shouldUseRegularActivationPolicy(windows: [placeholder, settings]))
+    }
+
+    @Test
+    func `registered Settings identity overrides placeholder naming`() {
+        for window in [
+            self.window(identifier: "com_apple_SwiftUI_Settings_window", isKnownSettingsWindow: true),
+            self.window(
+                identifier: SettingsWindowIdentity.identifier,
+                frameAutosaveName: "com_apple_SwiftUI_Settings_window"),
+        ] {
+            #expect(DockIconPolicyDecision.shouldPromoteForPresentedWindow(window))
+            #expect(DockIconPolicyDecision.shouldUseRegularActivationPolicy(windows: [window]))
+        }
     }
 
     @Test
@@ -136,6 +169,7 @@ struct DockIconPolicyDecisionTests {
 
     private func window(
         identifier: String? = nil,
+        frameAutosaveName: String = "",
         title: String = "Window",
         classNames: [String] = ["NSWindow"],
         width: Double = 600,
@@ -148,6 +182,7 @@ struct DockIconPolicyDecisionTests {
     {
         DockIconWindowDescriptor(
             identifier: identifier,
+            frameAutosaveName: frameAutosaveName,
             title: title,
             classNames: classNames,
             width: width,

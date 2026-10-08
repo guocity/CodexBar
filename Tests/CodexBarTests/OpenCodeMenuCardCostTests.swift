@@ -15,7 +15,6 @@ struct OpenCodeMenuCardCostTests {
             snapshot: snapshot,
             credits: nil,
             creditsError: nil,
-            dashboard: nil,
             dashboardError: nil,
             tokenSnapshot: nil,
             tokenError: nil,
@@ -67,5 +66,18 @@ struct OpenCodeMenuCardCostTests {
         let cost = try #require(model.providerCost)
         #expect(cost.spendLine == "Monthly: $15.00")
         #expect(cost.balanceLine == nil)
+    }
+
+    @Test
+    func `Console pay as you go card labels rolling spend without a monthly quota`() throws {
+        let model = try self.makeModel(
+            .init(monthlyUsageUSD: 15, monthlyLimitUSD: nil, balanceUSD: 12.5, period: .last30Days),
+            now: Date())
+
+        let cost = try #require(model.providerCost)
+        #expect(cost.spendLine == "Last 30 days: $15.00")
+        #expect(cost.balanceLine == "Balance: $12.50")
+        #expect(cost.percentUsed == nil)
+        #expect(cost.percentLine == nil)
     }
 }

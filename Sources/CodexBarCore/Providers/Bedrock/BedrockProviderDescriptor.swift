@@ -48,7 +48,7 @@ public enum BedrockProviderDescriptor {
             branding: ProviderBranding(
                 iconStyle: .init(provider: .bedrock),
                 iconResourceName: "ProviderIcon-bedrock",
-                color: ProviderColor(red: 1, green: 0.6, blue: 0),
+                color: ProviderColor(hex: 0x01A88D),
                 confettiPalette: [
                     ProviderColor(hex: 0x01A88D),
                     ProviderColor(hex: 0x232F3E),
@@ -83,7 +83,7 @@ public enum BedrockProviderDescriptor {
         if let configMode {
             environment[BedrockSettingsReader.authModeKey] = configMode.rawValue
         }
-        let baseMode = BedrockSettingsReader
+        let baseMode = SettingsValue
             .cleaned(base[BedrockSettingsReader.authModeKey])
             .flatMap { BedrockAuthMode(rawValue: $0.lowercased()) }
         let mergedAccessKey = config.sanitizedAPIKey ?? BedrockSettingsReader.accessKeyID(environment: base)

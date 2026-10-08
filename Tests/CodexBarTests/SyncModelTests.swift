@@ -24,6 +24,7 @@ struct SyncModelTests {
             region: "us",
             workspaceID: "workspace",
             tokenAccounts: .init(version: 1, accounts: [account], activeIndex: 0))
+        local.hiddenUsageItemIDs = ["metric:primary", "section:credits"]
         local.claudeSwapExecutablePath = "/machine/bin/cswap"
         local.codexActiveSource = .managedAccount(id: UUID())
         local.codexProfileHomePaths = ["/machine/codex"]
@@ -68,6 +69,27 @@ struct SyncModelTests {
         #expect(applied.awsAuthMode == "local-auth")
         #expect(applied.apiKey == "api-secret")
         #expect(applied.tokenAccounts?.accounts.first?.token == "account-secret")
+        #expect(applied.hiddenUsageItemIDs == ["metric:primary", "section:credits"])
+    }
+
+    @Test
+    func `usage item visibility sync preserves old clients and propagates explicit reset`() throws {
+        let oldPayload = try CanonicalSyncJSON.decode(
+            ProviderIntentPayload.self,
+            from: """
+            {"schemaVersion":1,"provider":"codex"}
+            """)
+        let local = ProviderConfig(
+            id: .codex,
+            hiddenUsageItemIDs: ["metric:primary", "section:credits"])
+
+        let preserved = try oldPayload.applying(to: local, secretFields: [:]) { _, _ in true }
+        #expect(preserved.hiddenUsageItemIDs == ["metric:primary", "section:credits"])
+
+        let resetPayload = ProviderIntentPayload(config: ProviderConfig(id: .codex, hiddenUsageItemIDs: []))
+        #expect(resetPayload.hiddenUsageItemIDs == [])
+        let reset = try resetPayload.applying(to: local, secretFields: [:]) { _, _ in true }
+        #expect(reset.hiddenUsageItemIDs == [])
     }
 
     @Test
@@ -174,6 +196,84 @@ struct SyncModelTests {
         #expect(decoded.recordName.hasSuffix("-device-id"))
         #expect(decoded.usage.primary?.usedPercent == 42)
         #expect(decoded.fetchedAt == usage.updatedAt)
+    }
+
+    @Test
+    func `Grok fleet snapshots omit live reset coupon details`() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let details = try [
+            ProviderDetailSection(rows: [
+                ProviderDetailSection.Row(
+                    label: "Limit Reset Credits",
+                    value: "1 available",
+                    secondaryValue: "Expires Sep 12"),
+                ProviderDetailSection.Row(
+                    label: "Plan",
+                    value: "SuperGrok"),
+            ]),
+        ]
+        let usage = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            details: details,
+            grokResetCredits: GrokRateLimitResetCreditsSnapshot(
+                expirations: [now.addingTimeInterval(86400)],
+                updatedAt: now),
+            updatedAt: now,
+            identity: ProviderIdentitySnapshot(
+                providerID: .grok,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: "SuperGrok"))
+        let payload = AccountSnapshotSyncPayload(
+            provider: .grok,
+            deviceID: "device-id",
+            accountIdentity: "grok-account",
+            displayLabel: "Grok",
+            usage: usage)
+        let decoded = try CanonicalSyncJSON.decode(
+            AccountSnapshotSyncPayload.self,
+            from: CanonicalSyncJSON.encode(payload))
+
+        #expect(payload.usage.grokResetCredits != nil)
+        #expect(payload.usage.detailRow(label: "Limit Reset Credits") != nil)
+        #expect(decoded.usage.grokResetCredits == nil)
+        #expect(decoded.usage.detailRow(label: "Limit Reset Credits") == nil)
+        #expect(decoded.usage.detailRow(label: "Plan")?.value == "SuperGrok")
+    }
+
+    @Test
+    func `non-Grok fleet snapshots preserve same-named reset detail`() throws {
+        let provider = try #require(ProviderInstanceID(rawValue: "example-plugin"))
+        let details = try [
+            ProviderDetailSection(rows: [
+                ProviderDetailSection.Row(
+                    label: "Limit Reset Credits",
+                    value: "Plugin-defined value"),
+            ]),
+        ]
+        let usage = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            details: details,
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            identity: ProviderIdentitySnapshot(
+                providerID: provider,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: nil))
+        let payload = AccountSnapshotSyncPayload(
+            provider: provider,
+            deviceID: "device-id",
+            accountIdentity: "plugin-account",
+            displayLabel: "Example plugin",
+            usage: usage)
+
+        let decoded = try CanonicalSyncJSON.decode(
+            AccountSnapshotSyncPayload.self,
+            from: CanonicalSyncJSON.encode(payload))
+
+        #expect(decoded.usage.detailRow(label: "Limit Reset Credits")?.value == "Plugin-defined value")
     }
 
     @Test
@@ -676,20 +776,22 @@ struct CloudSyncSnapshotMigrationSaveThenDeleteTests {
     }
 
     @Test
-    func `delayed delete retries do not resume on a replacement sync engine`() {
+    func `events and retries do not resume on a retired sync engine`() {
         let original = NSObject()
         #expect(
-            CloudSyncSnapshotMigration.shouldResumeDelayedRetry(
+            CloudSyncLifecycle.isCurrentEngine(
                 originatingEngine: ObjectIdentifier(original),
                 currentEngine: ObjectIdentifier(original)))
         #expect(
-            !CloudSyncSnapshotMigration.shouldResumeDelayedRetry(
+            !CloudSyncLifecycle.isCurrentEngine(
                 originatingEngine: ObjectIdentifier(original),
                 currentEngine: ObjectIdentifier(NSObject())))
         #expect(
-            !CloudSyncSnapshotMigration.shouldResumeDelayedRetry(
+            !CloudSyncLifecycle.isCurrentEngine(
                 originatingEngine: ObjectIdentifier(original),
                 currentEngine: nil))
+        #expect(!CloudSyncLifecycle.isCurrentEngine(originatingEngine: nil, currentEngine: ObjectIdentifier(original)))
+        #expect(!CloudSyncLifecycle.isCurrentEngine(originatingEngine: nil, currentEngine: nil))
     }
 
     private static func cloudKitError(_ code: CKError.Code, retryAfter: TimeInterval? = nil) -> CKError {

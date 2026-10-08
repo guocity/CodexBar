@@ -3,21 +3,24 @@ import Foundation
 extension AntigravityLocalReader {
     struct Context: Sendable {
         let home: URL
-        let environment: [String: String]
+        let additionalProfileHomes: [String]
+        @ProcessEnvironment private(set) var environment: [String: String]
 
-        init(environment: [String: String]) {
+        init(environment: [String: String], additionalProfileHomes: [String] = []) {
+            self.additionalProfileHomes = additionalProfileHomes
             self.environment = environment
             self.home = environment["HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
                 ?? FileManager.default.homeDirectoryForCurrentUser
         }
 
         var databaseRoots: [URL] {
-            let app = AntigravityOfflineStore.appDataDirectory(home: self.home, env: self.environment)
-            return [
-                AntigravityOfflineStore.conversationsDirectory(home: self.home, env: self.environment),
-                app,
-                app.appendingPathComponent("conversations", isDirectory: true),
-            ]
+            AntigravityOfflineStore.geminiHomeDirectories(
+                home: self.home, env: self.environment, additionalProfileHomes: self.additionalProfileHomes)
+                .flatMap { home in
+                    ["antigravity-cli/conversations", "antigravity", "antigravity/conversations"].map {
+                        home.appendingPathComponent($0, isDirectory: true)
+                    }
+                }
         }
 
         var cacheRoot: URL {
@@ -53,10 +56,17 @@ extension AntigravityLocalReader {
         var schemaBytes = 0
         var sqliteHandlesOpened = 0
         var sqliteHandlesClosed = 0
+        /// Sidecar-less WAL databases that the ordinary read-only open declined and an immutable open read.
+        var immutableFallbacks = 0
+        /// Databases in a declared root whose schema has no gen_metadata table; skipped without affecting coverage.
+        var foreignDatabases = 0
     }
 
     enum ScanFailure: Error {
         case exhausted
+        /// Schema-budget exhaustion (bytes, entries, or columns). Unlike hard row/byte/duration exhaustion,
+        /// schema exhaustion preserves already-decoded rows as partial history instead of withholding the report.
+        case schemaExhausted
         case invalid
     }
 
@@ -67,6 +77,9 @@ extension AntigravityLocalReader {
         let clock: () -> TimeInterval
         let started: TimeInterval
         var statistics = Statistics()
+        /// Schema text inspected in the current database. The schema allowance applies to each database,
+        /// like the entry and column limits, so a long history of small schemas never adds up to it.
+        private(set) var databaseSchemaBytes = 0
 
         init(
             limits: Limits,
@@ -97,11 +110,17 @@ extension AntigravityLocalReader {
             guard self.statistics.rows <= self.limits.rows else { throw ScanFailure.exhausted }
         }
 
+        func beginDatabase() {
+            self.databaseSchemaBytes = 0
+        }
+
         func chargeSchemaBytes(_ count: Int) throws {
             try self.check()
-            let (attempted, overflow) = self.statistics.schemaBytes.addingReportingOverflow(count)
-            self.statistics.schemaBytes = overflow ? Int.max : attempted
-            guard !overflow, attempted <= self.limits.schemaBytes else { throw ScanFailure.exhausted }
+            let (total, totalOverflow) = self.statistics.schemaBytes.addingReportingOverflow(count)
+            self.statistics.schemaBytes = totalOverflow ? Int.max : total
+            let (attempted, overflow) = self.databaseSchemaBytes.addingReportingOverflow(count)
+            self.databaseSchemaBytes = overflow ? Int.max : attempted
+            guard !overflow, attempted <= self.limits.schemaBytes else { throw ScanFailure.schemaExhausted }
         }
     }
 
@@ -148,8 +167,7 @@ extension AntigravityLocalReader {
                 }
                 guard !url.lastPathComponent.hasPrefix("."), url.pathExtension.lowercased() == suffix else { continue }
                 guard result.paths.count < budget.limits.databases else {
-                    result.isComplete = false
-                    return result
+                    throw ScanFailure.exhausted
                 }
                 do {
                     let values = try url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey])
@@ -166,5 +184,17 @@ extension AntigravityLocalReader {
         }
         result.paths.sort { $0.path < $1.path }
         return result
+    }
+}
+
+extension CostUsageFetcher {
+    package static func antigravityHistoryScope(
+        environment: [String: String], additionalProfileHomes: [String]) -> String
+    {
+        let context = AntigravityLocalReader.Context(
+            environment: environment, additionalProfileHomes: additionalProfileHomes)
+        return Set((context.databaseRoots + [context.cacheRoot])
+            .map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+            .sorted().joined(separator: "\0")
     }
 }

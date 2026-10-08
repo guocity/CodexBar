@@ -16,6 +16,7 @@ extension ProviderConfig {
         case tokenAccounts
         case quotaWarnings
         case accentColor
+        case hiddenUsageItemIDs
         case pluginSettings
         case pluginSecrets
     }
@@ -44,6 +45,9 @@ extension ProviderConfig {
             QuotaWarningConfig.self,
             forKey: .init(CodingKeys.quotaWarnings.rawValue))
         self.accentColor = try container.decodeIfPresent(String.self, forKey: .init(CodingKeys.accentColor.rawValue))
+        self.hiddenUsageItemIDs = try container.decodeIfPresent(
+            [String].self,
+            forKey: .init(CodingKeys.hiddenUsageItemIDs.rawValue))
         self.pluginSettings = try container.decodeIfPresent(
             [String: String].self,
             forKey: .init(CodingKeys.pluginSettings.rawValue))
@@ -74,6 +78,9 @@ extension ProviderConfig {
         try container.encodeIfPresent(self.tokenAccounts, forKey: .init(CodingKeys.tokenAccounts.rawValue))
         try container.encodeIfPresent(self.quotaWarnings, forKey: .init(CodingKeys.quotaWarnings.rawValue))
         try container.encodeIfPresent(self.accentColor, forKey: .init(CodingKeys.accentColor.rawValue))
+        try container.encodeIfPresent(
+            self.hiddenUsageItemIDs,
+            forKey: .init(CodingKeys.hiddenUsageItemIDs.rawValue))
         try container.encodeIfPresent(self.pluginSettings, forKey: .init(CodingKeys.pluginSettings.rawValue))
         try container.encodeIfPresent(self.pluginSecrets, forKey: .init(CodingKeys.pluginSecrets.rawValue))
         for (key, value) in self.extensionValues {
@@ -106,7 +113,7 @@ extension ProviderConfig {
     }
 }
 
-private struct ProviderConfigCodingKey: CodingKey {
+struct ProviderConfigCodingKey: CodingKey {
     let stringValue: String
     let intValue: Int? = nil
 
@@ -123,7 +130,8 @@ private struct ProviderConfigCodingKey: CodingKey {
     }
 }
 
-enum ProviderConfigExtensionValue: Codable, Sendable {
+enum ProviderConfigExtensionValue: Codable, Sendable, Equatable {
+    case null
     case bool(Bool)
     case integer(Int64)
     case number(Double)
@@ -133,7 +141,9 @@ enum ProviderConfigExtensionValue: Codable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
-        if let value = try? container.decode(Bool.self) {
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
             self = .bool(value)
         } else if let value = try? container.decode(Int64.self) {
             self = .integer(value)
@@ -151,6 +161,7 @@ enum ProviderConfigExtensionValue: Codable, Sendable {
     func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
+        case .null: try container.encodeNil()
         case let .bool(value): try container.encode(value)
         case let .integer(value): try container.encode(value)
         case let .number(value): try container.encode(value)
@@ -158,5 +169,20 @@ enum ProviderConfigExtensionValue: Codable, Sendable {
         case let .array(value): try container.encode(value)
         case let .object(value): try container.encode(value)
         }
+    }
+
+    func requiringExactNumbers() throws -> Self {
+        switch self {
+        case .integer, .number:
+            throw EncodingError.invalidValue("opaque number", .init(
+                codingPath: [],
+                debugDescription: "Use CodexBarConfig.decode(from:) and encodedData() for opaque JSON."))
+        case let .array(values):
+            _ = try values.map { try $0.requiringExactNumbers() }
+        case let .object(values):
+            _ = try values.mapValues { try $0.requiringExactNumbers() }
+        default: break
+        }
+        return self
     }
 }

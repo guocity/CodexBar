@@ -5,6 +5,7 @@ import FoundationNetworking
 
 public enum AntigravityRemoteFetchError: LocalizedError, Sendable, Equatable {
     case notLoggedIn
+    case reauthenticationRequired
     case permissionDenied(String)
     case apiError(String)
     case parseFailed(String)
@@ -13,6 +14,9 @@ public enum AntigravityRemoteFetchError: LocalizedError, Sendable, Equatable {
         switch self {
         case .notLoggedIn:
             "Antigravity Google auth not found. Use Antigravity login to authenticate."
+        case .reauthenticationRequired:
+            "This Antigravity account was signed in with an OAuth client that cannot read its quota. "
+                + "Sign in to it again."
         case let .permissionDenied(message):
             "Antigravity remote API permission denied: \(message)"
         case let .apiError(message):
@@ -26,19 +30,36 @@ public enum AntigravityRemoteFetchError: LocalizedError, Sendable, Equatable {
 public struct AntigravityRemoteUsageFetcher: Sendable {
     public var timeout: TimeInterval = 10.0
     public var homeDirectory: String
-    public var environment: [String: String]
+    @ProcessEnvironment public var environment: [String: String]
     public var dataLoader: @Sendable (URLRequest) async throws -> (Data, URLResponse)
     public var oauthClientResolver: @Sendable () -> AntigravityOAuthClient?
     public var credentialsUpdateHandler: @Sendable (AntigravityOAuthCredentials) async throws -> Void
 
     private static let log = CodexBarLog.logger(LogCategories.provider(.antigravity))
-    private static let userAgent = "antigravity"
     private static let baseURL = "https://cloudcode-pa.googleapis.com"
     private static let loadCodeAssistEndpoint = "\(baseURL)/v1internal:loadCodeAssist"
     private static let onboardUserEndpoint = "\(baseURL)/v1internal:onboardUser"
-    private static let fetchAvailableModelsEndpoint = "\(baseURL)/v1internal:fetchAvailableModels"
-    private static let retrieveUserQuotaEndpoint = "\(baseURL)/v1internal:retrieveUserQuota"
     private static let refreshSafetyWindow: TimeInterval = 60
+    private static let clientMetadata = [
+        "ideType": "ANTIGRAVITY",
+        "platform": "PLATFORM_UNSPECIFIED",
+        "pluginType": "GEMINI",
+    ]
+
+    /// Cloud Code requires the Hub client family for quota access; pin a shared compatibility identity.
+    private static let userAgent: String = {
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "amd64"
+        #endif
+        #if os(Linux)
+        let platform = "linux"
+        #else
+        let platform = "darwin"
+        #endif
+        return "antigravity/hub/2.9.1 \(platform)/\(architecture)"
+    }()
 
     private struct FetchContext {
         let timeout: TimeInterval
@@ -78,19 +99,10 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
 
     public func fetch() async throws -> AntigravityStatusSnapshot {
         let source = try Self.resolveCredentialSource(homeDirectory: self.homeDirectory, environment: self.environment)
-        guard let credentials = source.credentials else {
+        guard let initialCredentials = source.credentials else {
             throw AntigravityRemoteFetchError.notLoggedIn
         }
-        return try await self.fetchSnapshot(
-            using: credentials,
-            store: source.store)
-    }
-
-    private func fetchSnapshot(
-        using initialCredentials: AntigravityOAuthCredentials,
-        store: AntigravityOAuthCredentialsStore?) async throws
-        -> AntigravityStatusSnapshot
-    {
+        let store = source.store
         guard let storedAccessToken = initialCredentials.accessToken?.trimmedNonEmpty else {
             throw AntigravityRemoteFetchError.notLoggedIn
         }
@@ -103,7 +115,7 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
             dataLoader: self.dataLoader,
             oauthClientResolver: self.oauthClientResolver,
             credentialsUpdateHandler: self.credentialsUpdateHandler)
-        if Self.shouldRefresh(expiryDate: credentials.expiryDate, now: Date()) {
+        if let expiryDate = credentials.expiryDate, expiryDate.timeIntervalSinceNow <= Self.refreshSafetyWindow {
             guard let refreshToken = credentials.refreshToken?.trimmedNonEmpty else {
                 throw AntigravityRemoteFetchError.notLoggedIn
             }
@@ -124,6 +136,10 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
             accessToken: accessToken,
             timeout: self.timeout,
             dataLoader: self.dataLoader)
+        if credentials.projectID?.trimmedNonEmpty == nil, codeAssist.rejectsClientForConsumerTier {
+            // Quota endpoints would answer with a placeholder summary that reports every bucket at 100%.
+            throw AntigravityRemoteFetchError.reauthenticationRequired
+        }
         let projectId = try await Self.resolveProjectID(
             accessToken: accessToken,
             storedProjectID: credentials.projectID?.trimmedNonEmpty,
@@ -137,6 +153,25 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
                 Self.log.warning("Could not persist Antigravity project ID: \(error.localizedDescription)")
             }
         }
+        let plan = Self.resolvePlan(response: codeAssist, claims: claims)
+        do {
+            let response: AntigravityQuotaSummaryResponse = try await Self.fetchQuotaResponse(
+                method: "retrieveUserQuotaSummary",
+                accessToken: accessToken,
+                projectId: projectId,
+                timeout: min(self.timeout, 2),
+                dataLoader: self.dataLoader)
+            try Task.checkCancellation()
+            let summary = try response.snapshot(accountEmail: claims.email, accountPlan: plan, source: .remote)
+            if summary.hasKnownQuotaSummary { return summary }
+        } catch {
+            if error is CancellationError || (error as? URLError)?.code == .cancelled ||
+                (error as? AntigravityRemoteFetchError) == .notLoggedIn
+            {
+                throw error
+            }
+            try Task.checkCancellation()
+        }
         let models = try await Self.fetchModelQuotas(
             accessToken: accessToken,
             projectId: projectId,
@@ -146,13 +181,8 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         return AntigravityStatusSnapshot(
             modelQuotas: models,
             accountEmail: claims.email,
-            accountPlan: Self.resolvePlan(response: codeAssist, claims: claims),
+            accountPlan: plan,
             source: .remote)
-    }
-
-    private static func shouldRefresh(expiryDate: Date?, now: Date) -> Bool {
-        guard let expiryDate else { return false }
-        return expiryDate.timeIntervalSince(now) <= Self.refreshSafetyWindow
     }
 
     private static func loadCodeAssist(
@@ -161,27 +191,21 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         dataLoader: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)) async throws
         -> CodeAssistResponse
     {
-        let body = [
-            "metadata": [
-                "ideType": "ANTIGRAVITY",
-                "platform": "PLATFORM_UNSPECIFIED",
-                "pluginType": "GEMINI",
-            ],
-        ]
-        return try await Self.sendRequest(
-            endpoint: Self.loadCodeAssistEndpoint,
+        try await self.sendRequest(
+            endpoint: self.loadCodeAssistEndpoint,
             accessToken: accessToken,
-            body: body,
+            body: ["metadata": self.clientMetadata],
             timeout: timeout,
             dataLoader: dataLoader)
     }
 
-    private static func fetchAvailableModels(
+    private static func fetchQuotaResponse<Response: Decodable>(
+        method: String,
         accessToken: String,
         projectId: String?,
         timeout: TimeInterval,
         dataLoader: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)) async throws
-        -> FetchAvailableModelsResponse
+        -> Response
     {
         let body: [String: Any] = if let projectId = projectId?.trimmedNonEmpty {
             ["project": projectId]
@@ -189,7 +213,7 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
             [:]
         }
         return try await Self.sendRequest(
-            endpoint: Self.fetchAvailableModelsEndpoint,
+            endpoint: "\(Self.baseURL)/v1internal:\(method)",
             accessToken: accessToken,
             body: body,
             timeout: timeout,
@@ -204,7 +228,8 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         -> [AntigravityModelQuota]
     {
         do {
-            let response = try await Self.fetchAvailableModels(
+            let response: FetchAvailableModelsResponse = try await Self.fetchQuotaResponse(
+                method: "fetchAvailableModels",
                 accessToken: accessToken,
                 projectId: projectId,
                 timeout: timeout,
@@ -216,7 +241,7 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
                     projectId: projectId,
                     timeout: timeout,
                     dataLoader: dataLoader)
-                guard let quotaBuckets, Self.hasQuotaFractionData(quotaBuckets) else {
+                guard let quotaBuckets, quotaBuckets.contains(where: { $0.remainingFraction != nil }) else {
                     return []
                 }
                 return Self.mergeVerifiedQuotas(modelQuotas: modelQuotas, verifiedQuotas: quotaBuckets)
@@ -274,12 +299,6 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         }
     }
 
-    private static func hasQuotaFractionData(_ quotas: [AntigravityModelQuota]) -> Bool {
-        quotas.contains { quota in
-            quota.remainingFraction != nil
-        }
-    }
-
     private static func fetchQuotaBucketsIfPermitted(
         accessToken: String,
         projectId: String?,
@@ -288,7 +307,8 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         -> [AntigravityModelQuota]?
     {
         do {
-            let response = try await Self.retrieveUserQuota(
+            let response: RetrieveUserQuotaResponse = try await Self.fetchQuotaResponse(
+                method: "retrieveUserQuota",
                 accessToken: accessToken,
                 projectId: projectId,
                 timeout: timeout,
@@ -301,26 +321,6 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
             Self.log.info("Antigravity remote quota endpoint is not permitted for this account")
             return nil
         }
-    }
-
-    private static func retrieveUserQuota(
-        accessToken: String,
-        projectId: String?,
-        timeout: TimeInterval,
-        dataLoader: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)) async throws
-        -> RetrieveUserQuotaResponse
-    {
-        let body: [String: Any] = if let projectId = projectId?.trimmedNonEmpty {
-            ["project": projectId]
-        } else {
-            [:]
-        }
-        return try await Self.sendRequest(
-            endpoint: Self.retrieveUserQuotaEndpoint,
-            accessToken: accessToken,
-            body: body,
-            timeout: timeout,
-            dataLoader: dataLoader)
     }
 
     private static func resolveProjectID(
@@ -344,11 +344,7 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
 
         let onboardBody: [String: Any] = [
             "tierId": tierID,
-            "metadata": [
-                "ideType": "ANTIGRAVITY",
-                "platform": "PLATFORM_UNSPECIFIED",
-                "pluginType": "GEMINI",
-            ],
+            "metadata": Self.clientMetadata,
         ]
 
         do {
@@ -428,7 +424,7 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         let models = response.models ?? [:]
         return models.compactMap { modelID, model in
             guard let quotaInfo = model.quotaInfo else { return nil }
-            let resetTime = quotaInfo.resetTime.flatMap(Self.parseResetTime(_:))
+            let resetTime = ISO8601DateParser.parse(quotaInfo.resetTime)
             let label = model.displayName?.trimmedNonEmpty
                 ?? model.label?.trimmedNonEmpty
                 ?? modelID
@@ -451,20 +447,16 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         for bucket in buckets {
             guard let modelID = bucket.modelId?.trimmedNonEmpty else { continue }
             let next = (bucket.remainingFraction, bucket.resetTime)
-            if let existing = modelQuotaMap[modelID] {
-                let existingValue = existing.fraction ?? Double.greatestFiniteMagnitude
-                let nextValue = next.0 ?? Double.greatestFiniteMagnitude
-                if nextValue < existingValue {
-                    modelQuotaMap[modelID] = next
-                }
-            } else {
-                modelQuotaMap[modelID] = next
+            if let existing = modelQuotaMap[modelID],
+               (existing.fraction ?? .greatestFiniteMagnitude) <= (next.0 ?? .greatestFiniteMagnitude)
+            {
+                continue
             }
+            modelQuotaMap[modelID] = next
         }
 
-        return modelQuotaMap.keys.sorted().compactMap { modelID in
-            guard let info = modelQuotaMap[modelID] else { return nil }
-            let resetTime = info.resetTime.flatMap(Self.parseResetTime(_:))
+        return modelQuotaMap.sorted { $0.key < $1.key }.map { modelID, info in
+            let resetTime = ISO8601DateParser.parse(info.resetTime)
             return AntigravityModelQuota(
                 label: modelID,
                 modelId: modelID,
@@ -494,38 +486,11 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
     }
 
     private static func pickOnboardTier(from response: CodeAssistResponse) -> String? {
-        if let defaultTier = response.allowedTiers?
+        response.allowedTiers?
             .first(where: { $0.isDefault == true && $0.id?.trimmedNonEmpty != nil })?.id?.trimmedNonEmpty
-        {
-            return defaultTier
-        }
-        if let firstTier = response.allowedTiers?
-            .first(where: { $0.id?.trimmedNonEmpty != nil })?.id?.trimmedNonEmpty
-        {
-            return firstTier
-        }
-        if let paidTier = response.paidTier?.id?.trimmedNonEmpty {
-            return paidTier
-        }
-        if let currentTier = response.currentTier?.id?.trimmedNonEmpty {
-            return currentTier
-        }
-        return nil
-    }
-
-    private static func parseResetTime(_ value: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value) {
-            return date
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
-    }
-
-    private static func credentialsStore(homeDirectory: String) -> AntigravityOAuthCredentialsStore {
-        let homeURL = URL(fileURLWithPath: homeDirectory, isDirectory: true)
-        return AntigravityOAuthCredentialsStore(fileURL: AntigravityOAuthCredentialsStore.defaultURL(home: homeURL))
+            ?? response.allowedTiers?.first(where: { $0.id?.trimmedNonEmpty != nil })?.id?.trimmedNonEmpty
+            ?? response.paidTier?.id?.trimmedNonEmpty
+            ?? response.currentTier?.id?.trimmedNonEmpty
     }
 
     private static func resolveCredentialSource(
@@ -534,7 +499,9 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         credentials: AntigravityOAuthCredentials?,
         store: AntigravityOAuthCredentialsStore?)
     {
-        let primaryStore = Self.credentialsStore(homeDirectory: homeDirectory)
+        let homeURL = URL(fileURLWithPath: homeDirectory, isDirectory: true)
+        let primaryStore = AntigravityOAuthCredentialsStore(
+            fileURL: AntigravityOAuthCredentialsStore.defaultURL(home: homeURL))
         if let tokenValue = environment[AntigravityOAuthCredentialsStore.environmentCredentialsKey] {
             guard let credentials = AntigravityOAuthCredentialsStore.credentials(fromTokenAccountValue: tokenValue)
             else {
@@ -564,7 +531,7 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         request.httpMethod = "POST"
         request.timeoutInterval = context.timeout
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Self.formBody([
+        request.httpBody = FormURLEncoding.body([
             "client_id": oauthClient.clientID,
             "client_secret": oauthClient.clientSecret,
             "refresh_token": refreshToken,
@@ -614,21 +581,10 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         if let expiresIn = refreshResponse["expires_in"] as? Double {
             credentials.expiryDateMilliseconds = (Date().timeIntervalSince1970 + expiresIn) * 1000
         }
-        if let expiresIn = refreshResponse["expires_in"] as? Int {
-            credentials.expiryDateMilliseconds = (Date().timeIntervalSince1970 + Double(expiresIn)) * 1000
-        }
         if let idToken = refreshResponse["id_token"] as? String {
             credentials.idToken = idToken
         }
         return credentials
-    }
-
-    private static func formBody(_ values: [String: String]) -> Data? {
-        var components = URLComponents()
-        components.queryItems = values.map { key, value in
-            URLQueryItem(name: key, value: value)
-        }
-        return components.query?.data(using: .utf8)
     }
 
     private struct TokenClaims {
@@ -637,46 +593,10 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
     }
 
     private static func extractClaims(from credentials: AntigravityOAuthCredentials) -> TokenClaims {
-        let tokenClaims = Self.extractClaimsFromToken(credentials.idToken)
+        let claims = AntigravityOAuthCredentials.claims(fromIDToken: credentials.idToken)
         return TokenClaims(
-            email: tokenClaims.email ?? credentials.email?.trimmedNonEmpty,
-            hostedDomain: tokenClaims.hostedDomain)
-    }
-
-    private static func extractClaimsFromToken(_ idToken: String?) -> TokenClaims {
-        guard let idToken else {
-            return TokenClaims(email: nil, hostedDomain: nil)
-        }
-
-        let parts = idToken.components(separatedBy: ".")
-        guard parts.count >= 2 else {
-            return TokenClaims(email: nil, hostedDomain: nil)
-        }
-
-        var payload = parts[1]
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let remainder = payload.count % 4
-        if remainder > 0 {
-            payload += String(repeating: "=", count: 4 - remainder)
-        }
-
-        guard let data = Data(base64Encoded: payload, options: .ignoreUnknownCharacters),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return TokenClaims(email: nil, hostedDomain: nil)
-        }
-
-        return TokenClaims(
-            email: (json["email"] as? String)?.trimmedNonEmpty,
-            hostedDomain: (json["hd"] as? String)?.trimmedNonEmpty)
-    }
-}
-
-extension String {
-    fileprivate var trimmedNonEmpty: String? {
-        let trimmed = self.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+            email: (claims?["email"] as? String)?.trimmedNonEmpty ?? credentials.email?.trimmedNonEmpty,
+            hostedDomain: (claims?["hd"] as? String)?.trimmedNonEmpty)
     }
 }
 
@@ -706,10 +626,18 @@ private struct CodeAssistResponse: Decodable {
     let currentTier: TierInfo?
     let paidTier: TierInfo?
     let allowedTiers: [AllowedTier]?
+    let ineligibleTiers: [IneligibleTier]?
     let cloudaicompanionProject: ProjectReference?
 
     var projectID: String? {
-        self.cloudaicompanionProject?.value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.cloudaicompanionProject?.value?.trimmedNonEmpty
+    }
+
+    /// Consumer accounts are unonboarded when the token's OAuth client is not the consumer sign-in client.
+    var rejectsClientForConsumerTier: Bool {
+        self.currentTier == nil && self.projectID == nil && self.ineligibleTiers?.contains {
+            $0.reasonCode == "GOOGLE_TOS_NOT_SUPPORTED_BY_CLIENT"
+        } == true
     }
 }
 
@@ -727,11 +655,15 @@ private struct AllowedTier: Decodable {
     let isDefault: Bool?
 }
 
+private struct IneligibleTier: Decodable {
+    let reasonCode: String?
+}
+
 private struct OnboardResponse: Decodable {
     let response: OnboardInnerResponse?
 
     var projectID: String? {
-        self.response?.cloudaicompanionProject?.value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.response?.cloudaicompanionProject?.value?.trimmedNonEmpty
     }
 }
 
@@ -762,16 +694,4 @@ private struct AntigravityRemoteModel: Decodable {
 private struct AntigravityRemoteQuotaInfo: Decodable {
     let remainingFraction: Double?
     let resetTime: String?
-}
-
-extension String? {
-    fileprivate var trimmedNonEmpty: String? {
-        self?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-    }
-}
-
-extension String {
-    fileprivate var nilIfEmpty: String? {
-        self.isEmpty ? nil : self
-    }
 }

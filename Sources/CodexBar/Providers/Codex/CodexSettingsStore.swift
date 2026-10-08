@@ -217,15 +217,10 @@ extension SettingsStore {
             return self.openAIWebAccessEnabled ? resolved : .off
         }
         set {
-            self.updateProviderConfig(provider: .codex) { entry in
-                entry.cookieSource = newValue
-            }
-            self.logProviderModeChange(provider: .codex, field: "cookieSource", value: newValue.rawValue)
+            self.setCookieSource(newValue, provider: .codex)
             self.openAIWebAccessEnabled = newValue.isEnabled
         }
     }
-
-    func ensureCodexCookieLoaded() {}
 }
 
 extension SettingsStore {
@@ -468,7 +463,7 @@ private enum CodexManagedRemoteHomeTestingOverride {
         var unreadableStore: Bool = false
         var managedStoreURL: URL?
         var liveSystemAccount: ObservedSystemCodexAccount?
-        var reconciliationEnvironment: [String: String]?
+        @ProcessEnvironment var reconciliationEnvironment: [String: String]?
 
         var isEmpty: Bool {
             self.account == nil && self.homePath == nil && self.unreadableStore == false && self

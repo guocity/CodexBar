@@ -164,28 +164,11 @@ struct ClaudeOAuthDirectKeychainReadConsentTests {
             rawText: nil)
         let degraded = ClaudeOAuthFetchStrategy._snapshotForTesting(from: usage, dataConfidence: .percentOnly)
         #expect(degraded.dataConfidence == .percentOnly)
-        let card = UsageMenuCardView.Model.make(UsageMenuCardView.Model.Input(
-            provider: .claude,
-            metadata: ProviderDescriptorRegistry.descriptor(for: .claude).metadata,
-            snapshot: degraded,
-            credits: nil,
-            creditsError: nil,
-            dashboard: nil,
-            dashboardError: nil,
-            tokenSnapshot: nil,
-            tokenError: nil,
-            account: AccountInfo(email: nil, plan: nil),
-            isRefreshing: false,
-            lastError: nil,
-            usageBarsShowUsed: true,
-            resetTimeDisplayStyle: .countdown,
-            tokenCostUsageEnabled: false,
-            showOptionalCreditsAndExtraUsage: true,
-            hidePersonalInfo: false,
-            now: Date()))
-        #expect(card.usageNotes == [L("Usage via Claude CLI (limited detail)")])
+        let card = ClaudeUsageDetailTestSupport.model(snapshot: degraded)
+        #expect(card.usageNotes == [L("claude_limited_usage_detail")])
         let oauth = ClaudeOAuthFetchStrategy._snapshotForTesting(from: usage)
         #expect(oauth.dataConfidence == .unknown)
+        #expect(ClaudeUsageDetailTestSupport.model(snapshot: oauth).usageNotes.isEmpty)
     }
 
     // MARK: - Consent revocation invalidates cached credentials
@@ -203,36 +186,40 @@ struct ClaudeOAuthDirectKeychainReadConsentTests {
             syntheticTokenStore: NoopSyntheticTokenStore())
 
         let memory = ClaudeOAuthCredentialsStore.MemoryCacheStore()
-        ClaudeOAuthCredentialsStore.$taskMemoryCacheStoreOverride.withValue(memory) {
-            // Consent on: a credential read from Claude Code's Keychain lands in CodexBar's caches.
-            settings.claudeOAuthDirectKeychainReadAllowed = true
-            memory.record = ClaudeOAuthCredentialRecord(
-                credentials: ClaudeOAuthCredentials(
-                    accessToken: "cached-from-claude-keychain",
-                    refreshToken: nil,
-                    expiresAt: Date(timeIntervalSinceNow: 3600),
-                    scopes: ["user:profile"],
-                    rateLimitTier: nil),
-                owner: .claudeCLI,
-                source: .claudeKeychain)
-            memory.timestamp = Date()
-            memory.profileIdentifier = ClaudeOAuthCredentialsStore.credentialsProfileIdentifier(
-                environment: [:])
-            #expect(memory.record != nil)
+        let revocationStore = ClaudeOAuthCredentialsStore.DirectKeychainReadConsentRevocationMarkerStore()
+        ClaudeOAuthCredentialsStore.withDirectKeychainReadConsentRevocationMarkerStoreForTesting(revocationStore) {
+            ClaudeOAuthCredentialsStore.$taskMemoryCacheStoreOverride.withValue(memory) {
+                // Consent on: a credential read from Claude Code's Keychain lands in CodexBar's caches.
+                settings.claudeOAuthDirectKeychainReadAllowed = true
+                memory.record = ClaudeOAuthCredentialRecord(
+                    credentials: ClaudeOAuthCredentials(
+                        accessToken: "cached-from-claude-keychain",
+                        refreshToken: nil,
+                        expiresAt: Date(timeIntervalSinceNow: 3600),
+                        scopes: ["user:profile"],
+                        rateLimitTier: nil),
+                    owner: .claudeCLI,
+                    source: .claudeKeychain)
+                memory.timestamp = Date()
+                memory.profileIdentifier = ClaudeOAuthCredentialsStore.credentialsProfileIdentifier(
+                    environment: [:])
+                #expect(memory.record != nil)
 
-            // Consent off: the cached copy must not outlive the permission that obtained it.
-            settings.claudeOAuthDirectKeychainReadAllowed = false
-            #expect(memory.record == nil)
-            #expect(settings.claudeOAuthDirectKeychainReadAllowed == false)
+                // Consent off: the cached copy must not outlive the permission that obtained it.
+                settings.claudeOAuthDirectKeychainReadAllowed = false
+                #expect(revocationStore.marker != nil)
+                #expect(memory.record == nil)
+                #expect(settings.claudeOAuthDirectKeychainReadAllowed == false)
 
-            // The direct-read gate is closed again, and with no readable credential the explicit
-            // OAuth route hands off to the owner CLI usage fallback instead of reusing stale caches.
-            ClaudeOAuthDirectKeychainReadConsent.withTaskOverrideForTesting(false) {
-                #expect(ClaudeOAuthCredentialsStore.keychainAccessAllowed == false)
+                // The direct-read gate is closed again, and with no readable credential the explicit
+                // OAuth route hands off to the owner CLI usage fallback instead of reusing stale caches.
+                ClaudeOAuthDirectKeychainReadConsent.withTaskOverrideForTesting(false) {
+                    #expect(ClaudeOAuthCredentialsStore.keychainAccessAllowed == false)
+                }
+                #expect(ClaudeOAuthFetchStrategy().shouldFallback(
+                    on: ClaudeOAuthCredentialsError.notFound,
+                    context: self.makeContext(runtime: .app, sourceMode: .oauth)))
             }
-            #expect(ClaudeOAuthFetchStrategy().shouldFallback(
-                on: ClaudeOAuthCredentialsError.notFound,
-                context: self.makeContext(runtime: .app, sourceMode: .oauth)))
         }
     }
 

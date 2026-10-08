@@ -5,9 +5,9 @@ enum CodexCostCatchUpMode: String, Sendable {
     case automatic
     case accelerated
 
-    var scanDurationPerRefresh: TimeInterval {
+    func scanDurationPerRefresh(after activeDuration: TimeInterval? = nil) -> TimeInterval {
         switch self {
-        case .automatic: CodexCostCatchUpPolicy.automaticBurstDuration
+        case .automatic: max(0.001, CodexCostCatchUpPolicy.automaticBurstDuration - (activeDuration ?? 0))
         case .accelerated: 10
         }
     }
@@ -49,14 +49,22 @@ struct CodexCostCatchUpActivity: Sendable, Equatable {
         case complete
     }
 
-    let phase: Phase
+    var phase: Phase
     let mode: CodexCostCatchUpMode
     let processedBytes: Int64
     let totalBytes: Int64
     let completedFiles: Int
     let totalFiles: Int
-    let pauseReason: CodexCostCatchUpPauseReason?
+    var pauseReason: CodexCostCatchUpPauseReason?
     let staleSnapshotUpdatedAt: Date?
+
+    var requiresExplicitResume: Bool {
+        guard self.phase == .paused else { return false }
+        return switch self.pauseReason {
+        case .user, .noProgress, .error: true
+        case .lowPower, .thermal, .none: false
+        }
+    }
 
     var fractionCompleted: Double? {
         guard self.totalBytes > 0 else {
@@ -74,6 +82,7 @@ struct CodexCostCatchUpPolicy: Sendable {
         let powerSource: CodexCostCatchUpPowerSource
         let lowPowerModeEnabled: Bool
         let thermalState: ProcessInfo.ThermalState
+        var completedPasses: Int = 0
     }
 
     struct Decision: Sendable, Equatable {
@@ -96,14 +105,15 @@ struct CodexCostCatchUpPolicy: Sendable {
                 targetDutyCycle: nil)
         }
         if input.mode == .automatic {
-            if input.lowPowerModeEnabled {
-                return Decision(
-                    action: .pause(Self.constrainedRetryDelay, .lowPower),
-                    targetDutyCycle: nil)
-            }
+            // Report the stronger constraint when both pauses apply.
             if input.thermalState == .serious {
                 return Decision(
                     action: .pause(Self.constrainedRetryDelay, .thermal),
+                    targetDutyCycle: nil)
+            }
+            if input.lowPowerModeEnabled {
+                return Decision(
+                    action: .pause(Self.constrainedRetryDelay, .lowPower),
                     targetDutyCycle: nil)
             }
         }
@@ -118,7 +128,11 @@ struct CodexCostCatchUpPolicy: Sendable {
         case .battery: 0.00002
         case .unknown: 0.00005
         }
-        let activeDuration = max(0, input.previousActiveDuration ?? Self.automaticBurstDuration)
+        let activeDuration = max(0, input.previousActiveDuration ?? 0)
+        // Cheap discovery pages share one burst; readiness is still checked after every page.
+        if activeDuration < Self.automaticBurstDuration, input.completedPasses < 8 {
+            return Decision(action: .runAfter(0), targetDutyCycle: dutyCycle)
+        }
         let delay = activeDuration * (1 - dutyCycle) / dutyCycle
         return Decision(action: .runAfter(delay), targetDutyCycle: dutyCycle)
     }

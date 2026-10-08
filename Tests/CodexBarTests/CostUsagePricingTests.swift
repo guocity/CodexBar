@@ -19,6 +19,13 @@ struct CostUsagePricingTests {
         #expect(CostUsagePricing.normalizeCodexModel("openai/gpt-5.6-terra") == "gpt-5.6-terra")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.6-luna") == "gpt-5.6-luna")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.6") == "gpt-5.6-sol")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-reserve") == "gpt-5.6-luna")
+        #expect(CostUsagePricing.normalizeCodexModel("openai/gpt-reserve") == "gpt-5.6-luna")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-daybreak-blue-latest") == "gpt-5.6-sol")
+        #expect(CostUsagePricing.normalizeCodexModel("openai/gpt-daybreak-blue-latest") == "gpt-5.6-sol")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-daybreak-red-latest") == "gpt-5.6-cyber")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5.6-cyber") == "gpt-5.6-cyber")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5.5-cyber") == "gpt-5.5-cyber")
         // Fictitious dated suffixes only exercise normalize stripping (not released snapshot IDs).
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.6-sol-2099-01-01") == "gpt-5.6-sol")
         #expect(CostUsagePricing.normalizeCodexModel("openai/gpt-5.6-terra-2099-01-01") == "gpt-5.6-terra")
@@ -165,7 +172,8 @@ struct CostUsagePricingTests {
             model: "gpt-5.1-codex-max",
             inputTokens: 100,
             cachedInputTokens: 10,
-            outputTokens: 5)
+            outputTokens: 5,
+            modelsDevCatalog: ModelsDevCatalog(providers: [:]))
         #expect(cost != nil)
     }
 
@@ -175,7 +183,8 @@ struct CostUsagePricingTests {
             model: "gpt-5.3-codex",
             inputTokens: 100,
             cachedInputTokens: 10,
-            outputTokens: 5)
+            outputTokens: 5,
+            modelsDevCatalog: ModelsDevCatalog(providers: [:]))
         #expect(cost != nil)
     }
 
@@ -185,12 +194,14 @@ struct CostUsagePricingTests {
             model: "gpt-5.4-mini-2026-03-17",
             inputTokens: 100,
             cachedInputTokens: 10,
-            outputTokens: 5)
+            outputTokens: 5,
+            modelsDevCatalog: ModelsDevCatalog(providers: [:]))
         let nano = CostUsagePricing.codexCostUSD(
             model: "gpt-5.4-nano",
             inputTokens: 100,
             cachedInputTokens: 10,
-            outputTokens: 5)
+            outputTokens: 5,
+            modelsDevCatalog: ModelsDevCatalog(providers: [:]))
 
         #expect(mini != nil)
         #expect(nano != nil)
@@ -235,6 +246,12 @@ struct CostUsagePricingTests {
             cachedInputTokens: 10,
             outputTokens: 5,
             modelsDevCacheRoot: root)
+        let reserve = CostUsagePricing.codexCostUSD(
+            model: "gpt-reserve",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5,
+            modelsDevCacheRoot: root)
         let alias = CostUsagePricing.codexCostUSD(
             model: "gpt-5.6",
             inputTokens: 100,
@@ -242,11 +259,12 @@ struct CostUsagePricingTests {
             outputTokens: 5,
             modelsDevCacheRoot: root)
 
-        // Rates per token: Sol $5/$30 per 1M, Terra $2/$12, Luna $0.20/$1.20;
+        // Rates per token: Sol $4/$20 per 1M, Terra $2/$12, Luna $0.20/$1.20;
         // cache read is 10% of input. Non-cached input is 90 tokens.
-        #expect(sol == (90.0 * 5e-6) + (10.0 * 5e-7) + (5.0 * 3e-5))
+        #expect(sol == (90.0 * 4e-6) + (10.0 * 4e-7) + (5.0 * 2e-5))
         #expect(terra == (90.0 * 2e-6) + (10.0 * 2e-7) + (5.0 * 1.2e-5))
         #expect(luna == (90.0 * 2e-7) + (10.0 * 2e-8) + (5.0 * 1.2e-6))
+        #expect(reserve == luna)
         // Unsuffixed gpt-5.6 alias routes to Sol.
         #expect(alias == sol)
     }
@@ -378,7 +396,7 @@ struct CostUsagePricingTests {
 
         // Long-context (>272K) rates apply to the entire request. Total input contains 10 cached,
         // 20 cache-write, and 271,971 ordinary input tokens.
-        #expect(sol == (271_971.0 * 1e-5) + (10.0 * 1e-6) + (20.0 * 1.25e-5) + (10.0 * 4.5e-5))
+        #expect(sol == (271_971.0 * 8e-6) + (10.0 * 8e-7) + (20.0 * 1e-5) + (10.0 * 3e-5))
         #expect(terra == (271_971.0 * 4e-6) + (10.0 * 4e-7) + (20.0 * 5e-6) + (10.0 * 1.8e-5))
         #expect(luna == (271_971.0 * 4e-7) + (10.0 * 4e-8) + (20.0 * 5e-7) + (10.0 * 1.8e-6))
     }
@@ -395,7 +413,7 @@ struct CostUsagePricingTests {
             cacheWriteInputTokens: 20,
             modelsDevCacheRoot: root)
 
-        let expected = (70.0 * 5e-6) + (10.0 * 5e-7) + (20.0 * 6.25e-6) + (5.0 * 3e-5)
+        let expected = (70.0 * 4e-6) + (10.0 * 4e-7) + (20.0 * 5e-6) + (5.0 * 2e-5)
         #expect(sol == expected)
     }
 
@@ -422,7 +440,7 @@ struct CostUsagePricingTests {
             modelsDevCacheRoot: root)
 
         // Public API Fast rates are 2x Standard for GPT-5.6.
-        let expectedSol = 2.02
+        let expectedSol = 1.456
         let expectedTerra = 0.808
         let expectedLuna = 0.0808
         #expect(abs((sol ?? 0) - expectedSol) < 1e-12)
@@ -462,10 +480,10 @@ struct CostUsagePricingTests {
             outputTokens: 5,
             modelsDevCacheRoot: root)
 
-        let solInput = 70.0 * 5e-6
-        let solCached = 10.0 * 5e-7
-        let solWrite = 20.0 * 6.25e-6
-        let solOutput = 5.0 * 3e-5
+        let solInput = 70.0 * 4e-6
+        let solCached = 10.0 * 4e-7
+        let solWrite = 20.0 * 5e-6
+        let solOutput = 5.0 * 2e-5
         let expectedSol: Double = (solInput + solCached + solWrite + solOutput) * 2
         let terraInput = 70.0 * 2e-6
         let terraCached = 10.0 * 2e-7
@@ -747,25 +765,29 @@ struct CostUsagePricingTests {
     @Test
     func `codex aggregate pricing uses safe base rates and rejects aggregates above thresholds`() throws {
         let emptyRoot = try Self.cacheRoot()
-        let bundledBelowThreshold = CostUsagePricing.codexAggregateCostUSD(
+        let bundledBelowThreshold = CostUsagePricing.codexCostUSD(
+            aggregate: true,
             model: "gpt-5.6-sol",
             inputTokens: 200_000,
             cachedInputTokens: 0,
             outputTokens: 100,
             modelsDevCacheRoot: emptyRoot)
-        let bundledAtThreshold = CostUsagePricing.codexAggregateCostUSD(
+        let bundledAtThreshold = CostUsagePricing.codexCostUSD(
+            aggregate: true,
             model: "gpt-5.6-sol",
             inputTokens: 272_000,
             cachedInputTokens: 0,
             outputTokens: 100,
             modelsDevCacheRoot: emptyRoot)
-        let bundledAboveThreshold = CostUsagePricing.codexAggregateCostUSD(
+        let bundledAboveThreshold = CostUsagePricing.codexCostUSD(
+            aggregate: true,
             model: "gpt-5.6-sol",
             inputTokens: 400_000,
             cachedInputTokens: 0,
             outputTokens: 100,
             modelsDevCacheRoot: emptyRoot)
-        let linear = CostUsagePricing.codexAggregateCostUSD(
+        let linear = CostUsagePricing.codexCostUSD(
+            aggregate: true,
             model: "gpt-5.4-mini",
             inputTokens: 400_000,
             cachedInputTokens: 100_000,
@@ -788,21 +810,23 @@ struct CostUsagePricingTests {
           }
         }
         """)
-        let catalogAtThreshold = CostUsagePricing.codexAggregateCostUSD(
+        let catalogAtThreshold = CostUsagePricing.codexCostUSD(
+            aggregate: true,
             model: "aggregate-threshold-model",
             inputTokens: 200_000,
             cachedInputTokens: 0,
             outputTokens: 100,
             modelsDevCacheRoot: catalogThresholdRoot)
-        let catalogAboveThreshold = CostUsagePricing.codexAggregateCostUSD(
+        let catalogAboveThreshold = CostUsagePricing.codexCostUSD(
+            aggregate: true,
             model: "aggregate-threshold-model",
             inputTokens: 200_001,
             cachedInputTokens: 0,
             outputTokens: 100,
             modelsDevCacheRoot: catalogThresholdRoot)
 
-        #expect(bundledBelowThreshold == (200_000.0 * 5e-6) + (100.0 * 30e-6))
-        #expect(bundledAtThreshold == (272_000.0 * 5e-6) + (100.0 * 30e-6))
+        #expect(bundledBelowThreshold == (200_000.0 * 4e-6) + (100.0 * 20e-6))
+        #expect(bundledAtThreshold == (272_000.0 * 4e-6) + (100.0 * 20e-6))
         #expect(bundledAboveThreshold == nil)
         #expect(linear == (300_000.0 * 7.5e-7) + (100_000.0 * 7.5e-8) + (100.0 * 4.5e-6))
         #expect(catalogAtThreshold == (200_000.0 * 5e-6) + (100.0 * 30e-6))
@@ -857,7 +881,7 @@ extension CostUsagePricingTests {
             "models": {
               "gpt-5.6-sol": {
                 "id": "gpt-5.6-sol",
-                "cost": { "input": 5, "output": 30 }
+                "cost": { "input": 4, "output": 20 }
               }
             }
           }
@@ -870,7 +894,7 @@ extension CostUsagePricingTests {
             "models": {
               "gpt-5.6-sol": {
                 "id": "gpt-5.6-sol",
-                "cost": { "input": 5, "output": 30, "cache_read": 0, "cache_write": 0 }
+                "cost": { "input": 4, "output": 20, "cache_read": 0, "cache_write": 0 }
               }
             }
           }
@@ -892,8 +916,8 @@ extension CostUsagePricingTests {
             cacheWriteInputTokens: 20,
             modelsDevCacheRoot: explicitZeroRoot)
 
-        #expect(missing == (70.0 * 5e-6) + (10.0 * 5e-7) + (20.0 * 6.25e-6))
-        #expect(explicitZero == 70.0 * 5e-6)
+        #expect(missing == (70.0 * 4e-6) + (10.0 * 4e-7) + (20.0 * 5e-6))
+        #expect(explicitZero == 70.0 * 4e-6)
     }
 
     @Test
@@ -907,9 +931,9 @@ extension CostUsagePricingTests {
               "gpt-5.6-sol": {
                 "id": "gpt-5.6-sol",
                 "cost": {
-                  "input": 5,
-                  "output": 30,
-                  "cache_read": 0.5
+                  "input": 4,
+                  "output": 20,
+                  "cache_read": 0.4
                 }
               }
             }
@@ -924,9 +948,9 @@ extension CostUsagePricingTests {
             outputTokens: 10,
             modelsDevCacheRoot: root)
 
-        // Without bundled above-threshold fallback this would bill short rates ($5/$30) despite
+        // Without bundled above-threshold fallback this would bill short rates ($4/$20) despite
         // entering long-context mode via the bundled threshold.
-        #expect(cost == (272_001.0 * 1e-5) + (10.0 * 4.5e-5))
+        #expect(cost == (272_001.0 * 8e-6) + (10.0 * 3e-5))
     }
 
     @Test
@@ -1095,7 +1119,8 @@ extension CostUsagePricingTests {
             inputTokens: 10,
             cacheReadInputTokens: 0,
             cacheCreationInputTokens: 0,
-            outputTokens: 5)
+            outputTokens: 5,
+            modelsDevCatalog: ModelsDevCatalog(providers: [:]))
         #expect(cost != nil)
     }
 
@@ -1106,7 +1131,8 @@ extension CostUsagePricingTests {
             inputTokens: 10,
             cacheReadInputTokens: 0,
             cacheCreationInputTokens: 0,
-            outputTokens: 5)
+            outputTokens: 5,
+            modelsDevCatalog: ModelsDevCatalog(providers: [:]))
         #expect(cost != nil)
     }
 
@@ -1117,7 +1143,8 @@ extension CostUsagePricingTests {
             inputTokens: 10,
             cacheReadInputTokens: 0,
             cacheCreationInputTokens: 0,
-            outputTokens: 5)
+            outputTokens: 5,
+            modelsDevCatalog: ModelsDevCatalog(providers: [:]))
         let expected = (10.0 * 5e-6) + (5.0 * 2.5e-5)
         #expect(cost == expected)
     }
@@ -1292,7 +1319,8 @@ extension CostUsagePricingTests {
             inputTokens: 100,
             cacheReadInputTokens: 500,
             cacheCreationInputTokens: 0,
-            outputTokens: 40)
+            outputTokens: 40,
+            modelsDevCatalog: ModelsDevCatalog(providers: [:]))
         #expect(cost == nil)
     }
 

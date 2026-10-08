@@ -741,7 +741,7 @@ struct SpendDashboardControllerTests {
     }
 
     @Test
-    func `range selection persists only supported windows`() throws {
+    func `range selection persists the shared reporting period`() throws {
         let suite = "SpendDashboardControllerTests-days"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
@@ -754,18 +754,16 @@ struct SpendDashboardControllerTests {
                     force: mode.forcesLoader)
             })
 
-        #expect(controller.selectedDays == 30)
-        controller.selectDays(7)
-        #expect(controller.selectedDays == 7)
-        #expect(defaults.integer(forKey: "settingsSpendDashboardDays") == 7)
-        controller.selectDays(SpendDashboardSource.scanDays)
-        #expect(controller.selectedDays == SpendDashboardSource.scanDays)
-        #expect(defaults.integer(forKey: "settingsSpendDashboardDays") == SpendDashboardSource.scanDays)
-        controller.selectDays(9)
-        #expect(controller.selectedDays == 30)
-        controller.selectDays(90)
-        #expect(controller.selectedDays == 90)
-        #expect(defaults.integer(forKey: "settingsSpendDashboardDays") == 90)
+        #expect(controller.selectedPeriod == .rolling(days: 30))
+        controller.selectPeriod(.rolling(days: 7))
+        #expect(defaults.string(forKey: "settingsSpendDashboardPeriod") == "rolling:7")
+        controller.selectPeriod(.allTime)
+        #expect(defaults.string(forKey: "settingsSpendDashboardPeriod") == "all")
+        controller.selectPeriod(.monthToDate)
+        #expect(controller.selectedPeriod == .monthToDate)
+        #expect(defaults.string(forKey: "settingsSpendDashboardPeriod") == "month-to-date")
+        controller.selectPeriod(.rolling(days: 90))
+        #expect(controller.selectedPeriod == .rolling(days: 90))
     }
 
     private nonisolated static let fixtureNow = Date(timeIntervalSince1970: 1_784_179_200)
@@ -886,6 +884,78 @@ struct SpendDashboardControllerTests {
 }
 
 @MainActor
+extension SpendDashboardControllerTests {
+    @Test
+    func `capture keeps inclusive claude totals when pi source is absent`() async throws {
+        let settings = testSettingsStore(suiteName: "SpendDashboardControllerTests-pi-absent-projection")
+        settings.costUsageEnabled = true
+        for provider in UsageProvider.allCases {
+            guard let metadata = ProviderRegistry.shared.metadata[provider] else { continue }
+            settings.setProviderEnabled(provider: provider, metadata: metadata, enabled: provider == .claude)
+        }
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing,
+            environmentBase: [:])
+        let inclusive = Self.input(provider: .claude, cost: 9).snapshot
+        let native = Self.input(provider: .claude, cost: 4).snapshot
+        store._setSpendDashboardTokenSnapshotForTesting(
+            inclusive,
+            for: .claude,
+            accounting: .includesPi(scope: "pi-scope", native: native))
+
+        let request = await SpendDashboardSource.makeRequest(
+            settings: settings,
+            store: store,
+            mode: .captureOnly)
+
+        let captured = try #require(request.capturedInputs.first)
+        #expect(request.capturedInputs.count == 1)
+        #expect(captured.provider == .claude)
+        #expect(captured.snapshot.last30DaysCostUSD == inclusive.last30DaysCostUSD)
+    }
+
+    @Test
+    func `hidden pi source still owns pi rows in the claude projection`() async throws {
+        let settings = testSettingsStore(suiteName: "SpendDashboardControllerTests-pi-hidden-projection")
+        settings.costUsageEnabled = true
+        for provider in UsageProvider.allCases {
+            guard let metadata = ProviderRegistry.shared.metadata[provider] else { continue }
+            settings.setProviderEnabled(
+                provider: provider,
+                metadata: metadata,
+                enabled: provider == .claude || provider == .pi)
+        }
+        settings.spendDashboardHiddenSourceIDs = [UsageProvider.pi.rawValue]
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing,
+            environmentBase: [:])
+        let inclusive = Self.input(provider: .claude, cost: 9).snapshot
+        let native = Self.input(provider: .claude, cost: 4).snapshot
+        let pi = Self.input(provider: .pi, cost: 5).snapshot
+        store._setSpendDashboardTokenSnapshotForTesting(
+            inclusive,
+            for: .claude,
+            accounting: .includesPi(scope: "pi-scope", native: native))
+        store._setSpendDashboardTokenSnapshotForTesting(pi, for: .pi)
+
+        let request = await SpendDashboardSource.makeRequest(
+            settings: settings,
+            store: store,
+            mode: .captureOnly)
+
+        let claude = try #require(request.capturedInputs.first { $0.provider == .claude })
+        #expect(request.configuration.hiddenSourceIDs == [UsageProvider.pi.rawValue])
+        #expect(claude.snapshot.last30DaysCostUSD == native.last30DaysCostUSD)
+    }
+}
+
+@MainActor
 struct SpendDashboardRequestTimeTests {
     @Test
     func `default request time resolves after provider refresh boundary`() async throws {
@@ -964,6 +1034,7 @@ struct SpendDashboardControllerRevisionTests {
             ("history coverage", Self.completenessSnapshot(historyCoverageIsEstablished: false)),
             ("last 30 day tokens", Self.completenessSnapshot(last30DaysTokens: 1)),
             ("last 30 day cost", Self.completenessSnapshot(last30DaysCostUSD: 1)),
+            ("last 30 day requests", Self.completenessSnapshot(last30DaysRequests: 1)),
             ("entry input tokens", Self.completenessSnapshot(entryInputTokens: 1)),
             ("entry cache read tokens", Self.completenessSnapshot(entryCacheReadTokens: 1)),
             ("entry cache creation tokens", Self.completenessSnapshot(entryCacheCreationTokens: 1)),
@@ -1051,6 +1122,45 @@ struct SpendDashboardControllerRevisionTests {
         }
     }
 
+    @Test
+    func `cached request aggregate replacement reloads ledger availability`() async throws {
+        let baseline = Self.completenessSnapshot(entryRequestCount: 3)
+        let replacement = Self.completenessSnapshot(
+            last30DaysRequests: 99,
+            entryRequestCount: 3)
+        let (settings, store) = Self.revisionStore(
+            suiteName: "SpendDashboardControllerTests-request-aggregate-replacement")
+        let baselineConfiguration = Self.configuration(snapshot: baseline, settings: settings, store: store)
+        let baselineRevision = store.tokenSnapshotPublicationRevision(for: .claude)
+        let replacementConfiguration = Self.configuration(snapshot: replacement, settings: settings, store: store)
+        let gate = SpendDashboardLoaderGate()
+        let controller = Self.controller(gate: gate)
+
+        #expect(store.tokenSnapshotPublicationRevision(for: .claude) == baselineRevision)
+        #expect(baseline.daily == replacement.daily)
+        #expect(baselineConfiguration.sourceRevisions != replacementConfiguration.sourceRevisions)
+
+        controller.update(configuration: baselineConfiguration)
+        await Self.waitForPendingCount(1, gate: gate)
+        await gate.resume(at: 0, result: .init(
+            inputs: [Self.input(provider: .claude, snapshot: baseline)],
+            failedSourceIDs: []))
+        await Self.waitUntil { !controller.isRefreshing }
+        let baselineGroup = try #require(controller.model.groups.first)
+        #expect(baselineGroup.dailySummaries.contains { $0.requestCount == 3 })
+
+        controller.update(configuration: replacementConfiguration)
+        await Self.waitForPendingCount(1, gate: gate)
+        await gate.resume(at: 0, result: .init(
+            inputs: [Self.input(provider: .claude, snapshot: replacement)],
+            failedSourceIDs: []))
+        await Self.waitUntil { !controller.isRefreshing }
+
+        #expect(controller.generation == 2)
+        let replacementGroup = try #require(controller.model.groups.first)
+        #expect(replacementGroup.dailySummaries.allSatisfy { $0.requestCount == nil })
+    }
+
     private static func controller(gate: SpendDashboardLoaderGate) -> SpendDashboardController {
         let controllerBox = SpendDashboardControllerBox()
         let controller = SpendDashboardController(
@@ -1097,7 +1207,7 @@ struct SpendDashboardControllerRevisionTests {
         settings: SettingsStore,
         store: UsageStore) -> SpendDashboardConfiguration
     {
-        store._setTokenSnapshotForTesting(snapshot, provider: .claude)
+        store._setSpendDashboardTokenSnapshotForTesting(snapshot, for: .claude)
         return SpendDashboardSource.configuration(settings: settings, store: store)
     }
 
@@ -1114,6 +1224,7 @@ struct SpendDashboardControllerRevisionTests {
         historyCoverageIsEstablished: Bool = true,
         last30DaysTokens: Int? = 0,
         last30DaysCostUSD: Double? = 0,
+        last30DaysRequests: Int? = nil,
         entryInputTokens: Int? = nil,
         entryCacheReadTokens: Int? = nil,
         entryCacheCreationTokens: Int? = nil,
@@ -1150,6 +1261,7 @@ struct SpendDashboardControllerRevisionTests {
             sessionCostUSD: nil,
             last30DaysTokens: last30DaysTokens,
             last30DaysCostUSD: last30DaysCostUSD,
+            last30DaysRequests: last30DaysRequests,
             historyCoverageIsEstablished: historyCoverageIsEstablished,
             daily: [entry],
             updatedAt: Date(timeIntervalSince1970: 1_784_179_200))

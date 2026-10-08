@@ -37,8 +37,8 @@ enum CLICardsBriefRenderer {
 
     static func makeRows(cards: [CLICardModel]) -> [CLICardsBriefRow] {
         cards.map { card in
-            let metric = card.metrics.first
-            let usedPercent = metric.map { max(0, min(100, 100 - $0.remainingPercent)) }
+            let metric = card.usesLastKnownUsage ? nil : card.metrics.first
+            let usedPercent = metric.flatMap(\.remainingPercent).map { max(0, min(100, 100 - $0)) }
             let resetLabel = Self.briefResetLabel(metric?.resetText)
             return CLICardsBriefRow(
                 provider: card.provider,

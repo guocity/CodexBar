@@ -29,6 +29,8 @@ extension CodexBarCLI {
             print(Self.cardsHelp(version: version))
         case "usage":
             print(Self.usageHelp(version: version))
+        case "codex-accounts":
+            print(Self.codexAccountsHelp(version: version))
         case "cost":
             print(Self.costHelp(version: version))
         case "sessions", "focus":
@@ -82,7 +84,8 @@ extension CodexBarCLI {
         guard _NSGetExecutablePath(nil, &size) != 0 else { return nil }
         var buffer = [Int8](repeating: 0, count: Int(size))
         guard _NSGetExecutablePath(&buffer, &size) == 0 else { return nil }
-        return String(cString: buffer)
+        let bytes = buffer.map { UInt8(bitPattern: $0) }
+        return String(decodingCString: bytes, as: UTF8.self)
         #elseif os(Linux)
         let path = "/proc/self/exe"
         guard FileManager.default.fileExists(atPath: path) else { return nil }

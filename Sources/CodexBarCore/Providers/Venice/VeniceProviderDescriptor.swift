@@ -1,7 +1,9 @@
 import Foundation
 
 public enum VeniceProviderDescriptor {
-    public static let descriptor: ProviderDescriptor = Self.makeDescriptor()
+    public static let descriptor = Self.spec.makeDescriptor(
+        credentials: Self.credentials,
+        fetchPlan: Self.fetchPlan())
     private static let credentials = ProviderCredentialAdapter.apiKey(
         environmentKey: VeniceSettingsReader.apiKeyEnvironmentKey,
         resolve: VeniceSettingsReader.apiKey,
@@ -11,56 +13,38 @@ public enum VeniceProviderDescriptor {
             placeholder: "Paste API key…",
             injection: .environment(key: VeniceSettingsReader.apiKeyEnvironmentKey),
             requiresManualCookieSource: false,
-            cookieName: nil))
+            cookieName: nil,
+            passiveSourceModes: [.web]),
+        // A selected API token account is the credential authority: route it
+        // to the API script instead of fetching an ambient browser session
+        // that would be mislabeled as that account.
+        selectedAccountSourceModeResolver: { base, account, _ in account == nil ? base : .api })
 
-    static func makeDescriptor() -> ProviderDescriptor {
-        ProviderDescriptor(
-            id: .venice,
-            credentials: self.credentials,
-            metadata: ProviderMetadata(
-                id: .venice,
-                displayName: "Venice",
-                sessionLabel: "Balance",
-                weeklyLabel: "Balance",
-                opusLabel: nil,
-                supportsOpus: false,
-                supportsCredits: false,
-                creditsHint: "",
-                toggleTitle: "Show Venice usage",
-                cliName: "venice",
-                defaultEnabled: false,
-                widgetSelectable: false,
-                isPrimaryProvider: false,
-                usesAccountFallback: false,
-                debugLogUnavailableMessage: "Venice debug log not yet implemented",
-                browserCookieOrder: nil,
-                dashboardURL: "https://venice.ai/settings/api",
-                statusPageURL: nil,
-                statusLinkURL: nil),
-            branding: ProviderBranding(
-                iconStyle: .init(provider: .venice),
-                iconResourceName: "ProviderIcon-venice",
-                color: ProviderColor(red: 0.2, green: 0.6, blue: 1.0),
-                confettiPalette: [
-                    ProviderColor(hex: 0x0E2942),
-                    ProviderColor(hex: 0xF7F5ED),
-                    ProviderColor(hex: 0x3C8FDD),
-                ]),
-            tokenCost: ProviderTokenCostConfig(
-                supportsTokenCost: false,
-                noDataMessage: { "Venice per-day cost history is not available via API." }),
-            fetchPlan: self.fetchPlan(),
-            cli: ProviderCLIConfig(
-                name: "venice",
-                aliases: ["ven"],
-                versionDetector: nil))
-    }
+    public static let spec = PluginProviderSpec(
+        id: .venice,
+        displayName: "Venice",
+        sessionLabel: "Balance",
+        weeklyLabel: "Balance",
+        debugLogUnavailableMessage: "Venice debug log not yet implemented",
+        dashboardURL: "https://venice.ai/settings/api",
+        color: ProviderColor(hex: 0x3C8FDD),
+        confetti: [0x0E2942, 0xF7F5ED, 0x3C8FDD],
+        noDataMessage: "Venice per-day cost history is not available via API.",
+        aliases: ["ven"],
+        webSource: .init(
+            settingsSection: .init(VeniceProviderSettingsKey.self, cookieSettings: VeniceProviderSettings.self),
+            browserCookieOrder: BrowserCookieImportSupport.chromeOnly(
+                reason: "Preserve Chrome web sessions without unrelated Keychain prompts"),
+            mode: .sessionOrAPI,
+            // Auto uses the API key; only explicit web mode requires browser support.
+            browserSupportExemption: { sourceMode, _, _ in sourceMode == .auto },
+            field: .init(id: "venice-cookie", title: "", subtitle: "", placeholder: "Cookie: …")))
 
     private static func fetchPlan() -> ProviderFetchPlan {
         ProviderFetchPlan(
-            sourceModes: [.auto, .api],
-            pipeline: ProviderFetchPipeline(resolveStrategies: { _ in
-                [ScriptFetchStrategy(
+            sourceModes: [.auto, .api, .web],
+            pipeline: ProviderFetchPipeline(resolveStrategies: { context in
+                let script = ScriptFetchStrategy(
                     id: "venice.js",
                     provider: .venice,
                     bundledPlugin: "venice",
@@ -69,7 +53,12 @@ public enum VeniceProviderDescriptor {
                     resolveSecret: { environment in
                         self.credentials.resolveToken(environment: environment)?.token
                     },
-                    isEnabled: { _ in true })]
+                    isEnabled: { _ in true })
+                // Explicit web source uses only the cookie strategy so a
+                // missing session surfaces the sign-in error instead of
+                // silently falling back to the API key.
+                guard context.sourceMode == .web else { return [script] }
+                return [VeniceWebFetchStrategy(timeout: context.webTimeout)]
             }))
     }
 }

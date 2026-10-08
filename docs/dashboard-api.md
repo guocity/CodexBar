@@ -34,6 +34,20 @@ On the default loopback bind, `/usage` and `/cost` are unchanged and unauthentic
 
 The browser keeps the last successfully merged snapshot in localStorage under `codexbar.lastSnapshot` and paints that data immediately on the next load, preserving the identity detail served by the configured mode. It then fetches the config-only shell and streams concurrent per-provider snapshot updates into the page as they finish. Signing out clears both the token and cached snapshot.
 
+Usage labels and bar widths follow the app's **Usage bars fill** preference through `host.usageBarsShowUsed`: `true`
+shows used percentages; `false` shows remaining percentages. On macOS the server reads the preference for each request,
+so changes apply without restarting `serve`. The default is remaining when no preference exists, including on Linux;
+older browser-cached snapshots without this field also use remaining. Earlier web dashboards always showed used
+percentages. The numeric `usedPercent` and `remainingPercent` fields retain their existing meanings.
+
+The **Usage display** control defaults to **Follow server**. **Used** and **Remaining** override labels and bar widths
+only in this browser, persisted under `codexbar.dashboard.usageDisplay` in localStorage. Choosing **Follow server**
+removes the override. Unknown values or unavailable storage fall back to the server preference on load; if saving
+fails, selections still work for the current page. Warning and critical levels always use consumption, regardless
+of display mode. This preference does not change the API payload, identity policy, or provider data.
+The same control works for Linux servers and older cached snapshots without a host fill hint or remaining percentage;
+**Follow server** still defaults to remaining, deriving it from consumption when needed. The control adds no external assets.
+
 The UI does not change the transport threat model: `codexbar serve` is plain HTTP. Off-loopback, a token typed into the page transits the network in cleartext like every other request unless a TLS-terminating reverse proxy protects the connection.
 
 ## One-shot command semantics
@@ -51,6 +65,7 @@ The UI does not change the transport threat model: `codexbar serve` is plain HTT
 - `--timeout <seconds>` accepts `0...86400` and defaults to `30`; `0` disables the command deadline.
 - The one-shot payload reports `host.refreshIntervalSeconds` as `0` because it has no response cache.
   `staleAfterSeconds` keeps the schema's 180-second minimum.
+- Both transports include the fill preference in host metadata; one-shot snapshots resolve it when collected.
 
 ## Configuring the token
 
@@ -123,6 +138,8 @@ Content-Type: application/json; charset=utf-8
 Snapshot requests share the serve cache and coordination machinery used by `/usage` and `/cost`:
 
 - Responses are cached for `--refresh-interval` seconds, keyed by the loaded provider config, so toggling providers does not require a restart.
+- Dashboard response keys also include the resolved identity mode and usage-bar fill preference, preventing a cached
+  response for the other mode from overriding current host metadata.
 - Concurrent cache misses coalesce into one fetch; `--request-timeout` bounds each request with `504 Gateway Timeout`.
 - Slow builds keep running past the request deadline; the finished result is committed to the response cache and handed to any same-config request already waiting, so a 504 first load self-heals on retry (the built-in web UI retries automatically).
 - Authorization is checked before the cache, so unauthenticated requests can neither warm nor read it.
@@ -148,7 +165,8 @@ The snapshot is a stable display contract, not a raw dump of provider internals.
   "staleAfterSeconds": 180,
   "host": {
     "codexBarVersion": "0.37.2",
-    "refreshIntervalSeconds": 60
+    "refreshIntervalSeconds": 60,
+    "usageBarsShowUsed": false
   },
   "providers": [
     {
@@ -194,15 +212,30 @@ The snapshot is a stable display contract, not a raw dump of provider internals.
 }
 ```
 
-### Multi-account providers (claude-swap)
+### Multi-account providers
 
 When the claude-swap integration is enabled, the Claude provider row additionally includes an `accounts` array. This
 is an additive schema-v1 extension: other provider rows and Claude rows without the integration keep their existing
-shape. An account's `label` is its email when known and otherwise falls back to its slot label; `identity` is present
+shape. An account's `label` preserves its alias or disambiguated email/organization label, falling back to its slot label. The web dashboard prefers this projected label over the raw identity email; `identity` is present
 whenever claude-swap reports an email, independently of whether that account's usage fetch succeeds. Both fields follow
 the dashboard identity mode: full by default, or redacted with `--identity redacted`.
+When managed Codex accounts exist, the Codex row uses the same array on both `codexbar dashboard` and
+`GET /dashboard/v1/snapshot`. Entries follow the managed account store's order and have stable
+`codex-managed:<uuid>` IDs, independent of email, workspace labels, and the current selection. `active` identifies
+the managed account selected in CodexBar config; system and profile-home selections leave all managed entries inactive.
+The ambient Codex row remains available separately.
+
+Codex account windows, pace, plan, and `updatedAt` come from the app's last saved account usage, matched to the
+managed UUID, email, and selected workspace. This projection reads only account metadata and saved usage: it does
+not read credentials, refresh accounts, or switch authentication. Missing or mismatched usage leaves the account
+visible with empty windows, null pace/update time, and an account-local diagnostic. Saved refresh failures use a
+fixed diagnostic instead of exporting raw errors that may contain private paths. Refresh the account in CodexBar
+to update its saved usage. No managed accounts means no `accounts` field. The shared identity mode applies to every
+account email and label, including email addresses embedded in workspace labels.
+
 A failure limited to one account stays in that account's `error`; a failure of the whole adapter sets `accountsError`
-while leaving the ambient Claude row intact.
+while leaving the ambient provider row intact.
+The web dashboard retains local spend totals and the daily chart once per provider group, with provider diagnostics labeled separately. Account cards keep their own usage and errors; ambient account credits are not presented as shared balances.
 
 ```json
 {
@@ -241,6 +274,21 @@ while leaving the ambient Claude row intact.
 }
 ```
 
+A managed Codex entry in redacted mode (other account fields use the same shapes as above):
+
+```json
+{
+  "id": "codex-managed:9e122a52-b3db-4a7e-a7a7-c3b8fc9d01e9",
+  "label": "redacted@example.com — Work",
+  "active": true,
+  "identity": { "accountEmail": "redacted@example.com", "plan": "Plus" },
+  "windows": [{ "kind": "session", "label": "Session", "usedPercent": 40, "remainingPercent": 60, "resetAt": "2026-10-04T17:00:00Z" }],
+  "pace": null,
+  "error": null,
+  "updatedAt": "2026-10-04T12:00:00Z"
+}
+```
+
 ## Fields
 
 - `schemaVersion`: Dashboard API schema version.
@@ -248,6 +296,8 @@ while leaving the ambient Claude row intact.
 - `staleAfterSeconds`: Client-side staleness hint.
 - `host.codexBarVersion`: CodexBar version when available.
 - `host.refreshIntervalSeconds`: HTTP response cache interval, or `0` for the one-shot command.
+- `host.usageBarsShowUsed`: Display hint for usage labels and bar widths (`true`: used; `false`: remaining). Defaults
+  to false when the app preference is absent. This is an additive schema-v1 field; raw quota percentages do not change.
 - `providers[].id`: Provider identifier.
 - `providers[].name`: Provider display name.
 - `providers[].enabled`: Whether the provider is enabled in CodexBar config.
@@ -263,18 +313,25 @@ while leaving the ambient Claude row intact.
   menu, which hides an untouched Antigravity model family. Only the producer can set this: a zero `usedPercent` also
   stands for a lane whose usage the provider never reported, and the payload does not carry that distinction.
 - `providers[].credits`: Remaining credits or balance when available.
-- `providers[].cost`: Local cost data when available.
+  Grok's purchased wallet is currently exposed by `codexbar usage --provider grok --json` and `/usage` as
+  `usage.providerCost.balance` with `currencyCode: "USD"`, not by this dashboard projection. It is separate from
+  the included quota: zero is a known balance, absence is unknown, and balance-only `used`/`limit` values of zero
+  do not establish spend or a budget. See [Grok](grok.md#purchased-credits-in-cli-json).
+- `providers[].cost`: Local cost data when available, otherwise a provider's reported 30-day USD history.
+  Reported history preserves its aggregate, including a known zero, and leaves `todayUSD` null because its day
+  boundaries may differ from the host's local calendar. OpenRouter Activity covers completed UTC days; it must
+  not become local "Today" merely because a daily date string matches. Unsupported currencies or history-window
+  lengths remain unavailable in these USD/30-day fields. Existing local cost rows retain precedence.
 - `providers[].display`: UI hints for ordering and coloring.
 - `providers[].error`: Provider error payload when the latest fetch failed.
 - `providers[].updatedAt`: Best-known update timestamp for the provider row.
-- `providers[].accounts`: Ordered local multi-account entries when an integration supplies them; an enabled source
-  with no accounts emits `[]`.
-  - `id`: Stable source and slot identifier, such as `claude-swap:2`.
-  - `label`: Account email when known, otherwise a slot label such as `Account 2`; email labels follow the dashboard
-    identity mode.
+- `providers[].accounts`: Ordered local multi-account entries when an integration supplies them; an enabled claude-swap source
+  with no accounts emits `[]`; Codex omits the field when no managed accounts exist.
+  - `id`: Stable source and slot identifier, such as `claude-swap:2` or `codex-managed:<uuid>`.
+  - `label`: Projected alias or disambiguated email/organization label, otherwise a slot label such as `Account 2`; follows the dashboard identity mode and is preferred for display over `identity.accountEmail`.
   - `active`: Whether this is the source's active account.
-  - `identity`: Account email with a `null` plan whenever claude-swap reports one, even if usage fetching fails;
-    otherwise `null`. The email local part is hidden only in redacted mode.
+  - `identity`: Account email even when usage is unavailable; otherwise `null`. Claude-swap has a `null` plan;
+    Codex includes the saved plan when available. The email local part is hidden only in redacted mode.
   - `windows`: Account-local session, weekly, and scoped windows in the same shape as `providers[].windows`.
   - `pace`: Account-local primary, secondary, and tertiary pace values when computable. Each pace value contains
     `stage`, `deltaPercent`, `expectedUsedPercent`, `willLastToReset`, `etaSeconds`, `runOutProbability`, and `summary`.

@@ -1,7 +1,5 @@
-import AppKit
 import CodexBarCore
 import Foundation
-import SwiftUI
 
 struct OpenRouterProviderImplementation: ProviderImplementation {
     let id: UsageProvider = .openrouter
@@ -27,16 +25,9 @@ struct OpenRouterProviderImplementation: ProviderImplementation {
 
     @MainActor
     func isAvailable(context: ProviderAvailabilityContext) -> Bool {
-        if OpenRouterSettingsReader.apiToken(environment: context.environment) != nil {
-            return true
-        }
-        return !context.settings[providerConfig: .openrouter, field: .apiKey]
+        OpenRouterSettingsReader.apiToken(environment: context.environment) != nil ||
+            !context.settings[providerConfig: .openrouter, field: .apiKey]
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    @MainActor
-    func settingsPickers(context _: ProviderSettingsContext) -> [ProviderSettingsPickerDescriptor] {
-        []
     }
 
     @MainActor
@@ -45,15 +36,13 @@ struct OpenRouterProviderImplementation: ProviderImplementation {
             ProviderSettingsFieldDescriptor(
                 id: "openrouter-api-key",
                 title: "API key",
-                subtitle: "Stored in ~/.codexbar/config.json. "
-                    + "Get your key from openrouter.ai/settings/keys and set a key spending limit "
-                    + "there to enable API key quota tracking.",
+                subtitle: "Required. Enter a regular API key or a Management API key here. "
+                    + "Management keys also enable account Activity on the official OpenRouter API.",
                 kind: .secure,
                 placeholder: "sk-or-v1-...",
                 binding: context.providerConfigBinding(.apiKey),
                 actions: [],
-                isVisible: nil,
-                onActivate: nil),
+                isVisible: nil),
             ProviderSettingsFieldDescriptor(
                 id: "openrouter-api-url",
                 title: "API URL",
@@ -62,20 +51,20 @@ struct OpenRouterProviderImplementation: ProviderImplementation {
                 placeholder: "https://openrouter.ai/api/v1",
                 binding: context.providerConfigBinding(.endpoint),
                 actions: [],
-                isVisible: nil,
-                onActivate: nil),
+                isVisible: nil),
             ProviderSettingsFieldDescriptor(
                 id: "openrouter-management-api-key",
                 title: "Management API key",
-                subtitle: "Optional. Enables exact 30-day account spend from OpenRouter Activity.",
+                subtitle: "Optional additional key for account Activity. "
+                    + "Only needed to use a separate Management API key "
+                    + "from the one in the required API key field above.",
                 kind: .secure,
                 placeholder: "sk-or-v1-...",
                 binding: context.providerConfigSecretBinding(
                     key: OpenRouterSettingsReader.managementAPIKeyEnvironmentKey,
                     logField: "managementAPIKey"),
                 actions: [],
-                isVisible: nil,
-                onActivate: nil),
+                isVisible: nil),
         ]
     }
 }

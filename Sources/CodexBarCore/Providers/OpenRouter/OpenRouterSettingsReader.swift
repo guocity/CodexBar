@@ -12,19 +12,21 @@ public enum OpenRouterSettingsReader {
 
     /// Returns the API token from environment if present and non-empty
     public static func apiToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        self.cleaned(environment[self.envKey])
+        SettingsValue.cleaned(environment[self.envKey])
     }
 
     public static func managementAPIKey(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         configured: String? = nil) -> String?
     {
-        self.cleaned(configured) ?? self.cleaned(environment[self.managementAPIKeyEnvironmentKey])
+        SettingsValue.cleaned(configured) ?? SettingsValue.cleaned(environment[self.managementAPIKeyEnvironmentKey])
     }
 
     /// Returns the API URL, defaulting to production endpoint
     public static func apiURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if let override = self.validAPIURL(environment: environment) {
+        if let raw = SettingsValue.cleaned(environment[self.apiURLEnvironmentKey]),
+           let override = ProviderEndpointOverrideValidator.normalizedHTTPSURL(from: raw)
+        {
             return override
         }
         return URL(string: "https://openrouter.ai/api/v1")!
@@ -33,36 +35,16 @@ public enum OpenRouterSettingsReader {
     public static func validateEndpointOverrides(
         environment: [String: String] = ProcessInfo.processInfo.environment) throws
     {
-        guard let raw = self.cleaned(environment[self.apiURLEnvironmentKey]) else { return }
+        guard let raw = SettingsValue.cleaned(environment[self.apiURLEnvironmentKey]) else { return }
         guard ProviderEndpointOverrideValidator.normalizedHTTPSURL(from: raw) == nil else { return }
         throw OpenRouterSettingsError.invalidEndpointOverride(self.apiURLEnvironmentKey)
     }
 
     public static func httpReferer(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        self.cleaned(environment[self.httpRefererEnvironmentKey])
+        SettingsValue.cleaned(environment[self.httpRefererEnvironmentKey])
     }
 
     public static func clientTitle(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
-        self.cleaned(environment[self.clientTitleEnvironmentKey]) ?? self.defaultClientTitle
-    }
-
-    static func cleaned(_ raw: String?) -> String? {
-        guard var value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-            return nil
-        }
-
-        if (value.hasPrefix("\"") && value.hasSuffix("\"")) ||
-            (value.hasPrefix("'") && value.hasSuffix("'"))
-        {
-            value = String(value.dropFirst().dropLast())
-        }
-
-        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
-
-    private static func validAPIURL(environment: [String: String]) -> URL? {
-        guard let raw = self.cleaned(environment[self.apiURLEnvironmentKey]) else { return nil }
-        return ProviderEndpointOverrideValidator.normalizedHTTPSURL(from: raw)
+        SettingsValue.cleaned(environment[self.clientTitleEnvironmentKey]) ?? self.defaultClientTitle
     }
 }

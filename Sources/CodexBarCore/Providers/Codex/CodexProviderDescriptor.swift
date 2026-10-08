@@ -11,10 +11,6 @@ extension ProviderFetchContext {
 public enum CodexProviderDescriptor {
     public static let descriptor: ProviderDescriptor = Self.makeDescriptor()
 
-    /// PAT lives in Codex CLI `auth.json`, not ProviderConfig.apiKey.
-    private static let credentials = ProviderCredentialAdapter(
-        requiresAPIKeyForAPISource: false)
-
     /// Preserve the legacy prompt behavior before probing Chromium variants that may trigger Safe Storage prompts.
     private static var browserCookieOrder: BrowserCookieImportOrder? {
         #if os(macOS)
@@ -29,9 +25,10 @@ public enum CodexProviderDescriptor {
         ProviderDescriptor(
             id: .codex,
             menuBarMetrics: ProviderMenuBarMetricCapabilities(
-                supported: [.automatic, .primary, .secondary, .primaryAndSecondary]),
+                supported: [.automatic, .primary, .secondary, .primaryAndSecondary, .extraUsage]),
             settingsSection: .init(CodexProviderSettingsKey.self),
-            credentials: self.credentials,
+            // PAT lives in Codex CLI `auth.json`, not ProviderConfig.apiKey.
+            credentials: ProviderCredentialAdapter(requiresAPIKeyForAPISource: false),
             metadata: ProviderMetadata(
                 id: .codex,
                 displayName: "Codex",
@@ -62,7 +59,7 @@ public enum CodexProviderDescriptor {
                     errorSimulationOrder: 0),
                 browserCookieOrder: self.browserCookieOrder
                     ?? ProviderBrowserCookieDefaults.defaultImportOrder,
-                dashboardURL: "https://chatgpt.com/codex/settings/usage",
+                dashboardURL: "https://chatgpt.com/codex/cloud/settings/analytics#usage",
                 changelogURL: "https://github.com/openai/codex/releases",
                 statusPageURL: "https://status.openai.com/"),
             branding: ProviderBranding(
@@ -103,7 +100,24 @@ public enum CodexProviderDescriptor {
                     let display = CodexPlanFormatting.displayName(plan) ?? plan
                     return ProviderIdentityPresentation(badge: display, plan: display)
                 },
-                creditResolver: { $0.codexCreditLimit?.remaining ?? $0.remaining },
+                costPresenter: { snapshot in
+                    guard let cost = snapshot.providerCost,
+                          cost.currencyCode == CodexExtraUsageCost.currencyCode
+                    else {
+                        return ProviderCostPresentation()
+                    }
+                    let balances = cost.balance.map {
+                        [ProviderCostPresentation.Balance(
+                            label: "Extra usage balance",
+                            amount: $0,
+                            currencyCode: cost.currencyCode)]
+                    } ?? []
+                    return ProviderCostPresentation(
+                        showsGenericFallback: !(cost.used == 0 && cost.limit == 0),
+                        balances: balances,
+                        menuCardStyle: .creditsUsage)
+                },
+                creditResolver: { $0.displayRemaining },
                 iconWindowResolver: self.iconWindows,
                 iconDecorations: [.face],
                 automaticSelectionPrioritizesExhaustedWindow: false,
@@ -117,13 +131,15 @@ public enum CodexProviderDescriptor {
                 secondaryGloballyCapsPrimary: true,
                 menuCard: ProviderMenuCardPresentation(
                     creditsVisibility: .requiresValueOrError,
-                    supportsInlineTokenCostDashboard: true)),
+                    costVisibilityResolver: { $0.showOptionalUsage },
+                    supportsInlineTokenCostDashboard: true,
+                    showsQuotaWeekCost: true)),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .web, .cli, .oauth, .api],
                 pipeline: ProviderFetchPipeline(resolveStrategies: self.resolveStrategies)),
             cli: ProviderCLIConfig(
                 name: "codex",
-                binaryLocator: { BinaryLocator.resolveCodexBinary() },
+                binaryLocator: { BinaryLocator.resolveCodexBinary(env: $0) },
                 versionDetector: { _ in ProviderVersionDetector.codexVersion() },
                 supportsCostCommand: true,
                 prefersBinaryLocatorForWhich: true,
@@ -280,17 +296,19 @@ struct CodexCLIUsageStrategy: ProviderFetchStrategy {
             }
             // Credits refresh can succeed even when RPC omits rate-limit windows.
             return self.makeResult(
-                usage: UsageSnapshot(
-                    primary: nil,
-                    secondary: nil,
-                    updatedAt: credits.updatedAt,
-                    identity: snapshot.identity),
+                usage: CodexExtraUsageCost.attaching(
+                    to: UsageSnapshot(
+                        primary: nil,
+                        secondary: nil,
+                        updatedAt: credits.updatedAt,
+                        identity: snapshot.identity),
+                    credits: credits),
                 credits: credits,
                 sourceLabel: "codex-cli")
         }
         let credits = context.includeCredits ? snapshot.credits : nil
         return self.makeResult(
-            usage: usage,
+            usage: CodexExtraUsageCost.attaching(to: usage, credits: credits),
             credits: credits,
             sourceLabel: "codex-cli")
     }
@@ -362,25 +380,44 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
     let kind: ProviderFetchKind = .oauth
 
     func isAvailable(_ context: ProviderFetchContext) async -> Bool {
-        (try? CodexOAuthCredentialsStore.loadForUsage(
-            env: context.env,
-            allowExternalSources: context.settings?.codex?.allowExternalOAuthSources == true)) != nil
+        await (try? Self.loadCredentials(context, retryStale: false)) != nil
     }
 
     func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
-        let credentials = try CodexOAuthCredentialsStore.loadForUsage(
-            env: context.env,
-            allowExternalSources: context.settings?.codex?.allowExternalOAuthSources == true)
+        let credentials = try await Self.loadCredentials(context, retryStale: true)
         return try await Self.fetch(context: context, credentials: credentials)
+    }
+
+    private static func loadCredentials(
+        _ context: ProviderFetchContext,
+        retryStale: Bool) async throws -> CodexOAuthCredentials
+    {
+        var retriesRemaining = 2
+        while true {
+            try Task.checkCancellation()
+            do {
+                let credentials = try CodexOAuthCredentialsStore.loadForUsage(
+                    env: context.env,
+                    allowExternalSources: context.settings?.codex?.allowExternalOAuthSources == true)
+                if !retryStale || credentials.source != .codexHome || !credentials
+                    .needsRefresh || retriesRemaining == 0
+                {
+                    return credentials
+                }
+            } catch {
+                guard retriesRemaining > 0 else { throw error }
+            }
+            // The owner may be publishing replacement credentials. Reread without redeeming its token.
+            retriesRemaining -= 1
+            try await Task.sleep(for: .milliseconds(50))
+        }
     }
 
     private static func fetch(
         context: ProviderFetchContext,
         credentials initialCredentials: CodexOAuthCredentials) async throws -> ProviderFetchResult
     {
-        var credentials = try await Self.prepareCredentialsForUsage(
-            initialCredentials,
-            env: context.env)
+        var credentials = try Self.prepareCredentialsForUsage(initialCredentials)
         if let managedWorkspaceAccountID = context.settings?.codex?.managedWorkspaceAccountID,
            !managedWorkspaceAccountID.isEmpty
         {
@@ -409,10 +446,16 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
             resetCredits: resetCredits,
             credentials: credentials,
             updatedAt: updatedAt,
-            allowEmptyUsageForResetCreditEnrichment: Self.defersResetCreditFetchToApp(context),
+            includeCredits: context.includeCredits,
+            allowEmptyUsageForResetCreditEnrichment: context.runtime == .app,
             codexResetCreditsAttempted: resetCreditsAttempted)
-        let spendControlsResult = try await Self.applyingSpendControlsMonthlyLimit(
+        let workspaceBalanceResult = try await Self.applyingWorkspaceRemainingBalance(
             oauthResult,
+            usage: usage,
+            credentials: credentials,
+            context: context)
+        let spendControlsResult = try await Self.applyingSpendControlsMonthlyLimit(
+            workspaceBalanceResult,
             usage: usage,
             credentials: credentials,
             context: context)
@@ -420,21 +463,15 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
     }
 
     private static func prepareCredentialsForUsage(
-        _ credentials: CodexOAuthCredentials,
-        env _: [String: String]) async throws -> CodexOAuthCredentials
+        _ credentials: CodexOAuthCredentials) throws -> CodexOAuthCredentials
     {
         guard credentials.needsRefresh else { return credentials }
-        switch credentials.source {
-        case .codexHome:
-            // Codex CLI owns the native auth file and its refresh-token lifecycle. Do not redeem
-            // that shared token in-process: a rotated response would strand the CLI with the old
-            // refresh token because CodexBar deliberately never publishes it back to auth.json.
-            throw CodexOAuthCredentialsError.nativeRefreshRequired
-        case .legacyCodexHome, .openCode:
-            // External OAuth files are explicitly read-only and have no safe writer handoff.
-            // Failing closed avoids consuming a refresh token owned by another application.
-            throw CodexOAuthCredentialsError.readOnlySource
-        }
+        // Native Codex CLI and external applications own their refresh tokens. Redeeming a
+        // shared token without publishing the rotated response strands its owner with the old
+        // token. No source has a safe writer handoff from the usage path.
+        throw credentials.source == .codexHome
+            ? CodexOAuthCredentialsError.nativeRefreshRequired
+            : CodexOAuthCredentialsError.readOnlySource
     }
 
     private static func shouldFetchResetCredits(_ context: ProviderFetchContext) -> Bool {
@@ -490,83 +527,36 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
 
     private static func mapCredits(
         response: CodexUsageResponse,
-        updatedAt: Date) -> CreditsSnapshot?
+        updatedAt: Date,
+        includeCredits: Bool) -> CreditsSnapshot?
     {
         let balance = response.credits?.balance
         let creditLimit = response.resolvedIndividualLimit?.codexCreditLimitSnapshot(updatedAt: updatedAt)
-        guard balance != nil || creditLimit != nil else { return nil }
+        let creditsAvailable = response.credits.map { $0.hasCredits && !$0.unlimited }
+        guard balance != nil || creditLimit != nil || creditsAvailable == true else { return nil }
         return CreditsSnapshot(
             remaining: balance ?? 0,
             events: [],
             updatedAt: updatedAt,
-            codexCreditLimit: creditLimit)
+            codexCreditLimit: creditLimit,
+            // A cap-only response omits the balance entirely; that placeholder zero is unread, not spent.
+            balanceReadSucceeded: balance != nil,
+            // Usage-only refreshes skip the workspace lookup, so a missing amount is not a failed balance read.
+            creditsAvailable: includeCredits || balance != nil ? creditsAvailable : nil)
     }
 
-    private static func makeResult(
-        usageResponse: CodexUsageResponse,
-        resetCredits: CodexRateLimitResetCreditsSnapshot? = nil,
-        credentials: CodexOAuthCredentials,
-        updatedAt: Date,
-        allowEmptyUsageForResetCreditEnrichment: Bool = false,
-        codexResetCreditsAttempted: Bool = false) throws -> ProviderFetchResult
+    private static func replacingCredits(
+        in result: ProviderFetchResult,
+        with credits: CreditsSnapshot?) -> ProviderFetchResult
     {
-        let credits = Self.mapCredits(response: usageResponse, updatedAt: updatedAt)
-        let reconciled = CodexReconciledState.fromOAuth(
-            response: usageResponse,
-            credentials: credentials,
-            updatedAt: updatedAt)
-
-        if let reconciled {
-            let dataConfidence: UsageDataConfidence = usageResponse.rateLimit?.hasWindowDecodeFailure == true
-                || usageResponse.additionalRateLimitsDecodeFailed
-                ? .unknown
-                : .exact
-            let result = CodexOAuthFetchStrategy().makeResult(
-                usage: reconciled.toUsageSnapshot()
-                    .withCodexResetCredits(resetCredits)
-                    .withDataConfidence(dataConfidence),
-                credits: credits,
-                sourceLabel: "oauth")
-            return Self.markResetCreditsAttempted(result, attempted: codexResetCreditsAttempted)
-        }
-
-        guard credits != nil
-            || (resetCredits?.availableInventory(at: updatedAt).count ?? 0) > 0
-            || allowEmptyUsageForResetCreditEnrichment
-        else {
-            throw UsageError.noRateLimitsFound
-        }
-
-        // Credit balances and manual resets remain useful when OAuth omits
-        // rate-limit windows. Keep the partial result instead of discarding it.
-        let result = CodexOAuthFetchStrategy().makeResult(
-            usage: UsageSnapshot(
-                primary: nil,
-                secondary: nil,
-                tertiary: nil,
-                codexResetCredits: resetCredits,
-                updatedAt: updatedAt,
-                identity: CodexReconciledState.oauthIdentity(
-                    response: usageResponse,
-                    credentials: credentials)),
+        ProviderFetchResult(
+            usage: CodexExtraUsageCost.attaching(to: result.usage, credits: credits),
             credits: credits,
-            sourceLabel: "oauth")
-        return Self.markResetCreditsAttempted(result, attempted: codexResetCreditsAttempted)
-    }
-
-    private static func markResetCreditsAttempted(
-        _ result: ProviderFetchResult,
-        attempted: Bool) -> ProviderFetchResult
-    {
-        guard attempted else { return result }
-        return ProviderFetchResult(
-            usage: result.usage,
-            credits: result.credits,
             dashboard: result.dashboard,
             sourceLabel: result.sourceLabel,
             strategyID: result.strategyID,
             strategyKind: result.strategyKind,
-            codexResetCreditsAttempted: true,
+            codexResetCreditsAttempted: result.codexResetCreditsAttempted,
             codexMonthlyLimitEnrichmentFailed: result.codexMonthlyLimitEnrichmentFailed,
             diagnostic: result.diagnostic,
             claudeOAuthKeychainPersistentRefHash: result.claudeOAuthKeychainPersistentRefHash,
@@ -575,6 +565,108 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
             claudeOAuthKeychainCredentialMismatch: result.claudeOAuthKeychainCredentialMismatch,
             claudeOAuthKeychainCredentialAbsent: result.claudeOAuthKeychainCredentialAbsent,
             claudeOAuthKeychainCredentialUnavailable: result.claudeOAuthKeychainCredentialUnavailable)
+    }
+
+    private static func applyingWorkspaceRemainingBalance(
+        _ result: ProviderFetchResult,
+        usage: CodexUsageResponse,
+        credentials: CodexOAuthCredentials,
+        context: ProviderFetchContext,
+        fetcher: (@Sendable (String) async throws -> CodexWorkspaceRemainingBalanceResponse)? = nil) async throws
+        -> ProviderFetchResult
+    {
+        guard context.includeCredits,
+              usage.credits?.hasCredits == true,
+              usage.credits?.unlimited != true,
+              usage.credits?.balance == nil,
+              let accountId = self.firstNonEmptyAccountId(usage.accountId)
+        else { return result }
+
+        if let credentialAccount = self.firstNonEmptyAccountId(credentials.accountId), credentialAccount != accountId {
+            return result
+        }
+
+        let fetcher = fetcher ?? { accountId in
+            try await CodexOAuthUsageFetcher.fetchWorkspaceRemainingBalance(
+                accessToken: credentials.accessToken,
+                accountId: accountId,
+                env: context.env)
+        }
+        do {
+            guard let balance = try await fetcher(accountId).balance else { return result }
+            let existing = result.credits
+            let credits = CreditsSnapshot(
+                remaining: balance,
+                events: existing?.events ?? [],
+                updatedAt: Date(),
+                codexCreditLimit: existing?.codexCreditLimit,
+                balanceReadSucceeded: true,
+                creditsAvailable: true,
+                balanceIsWorkspace: true)
+            return self.replacingCredits(in: result, with: credits)
+        } catch {
+            if error is CancellationError || Task.isCancelled {
+                throw CancellationError()
+            }
+            // This endpoint is owner-scoped. A member response or an endpoint change must not discard usage data.
+            return result
+        }
+    }
+
+    private static func makeResult(
+        usageResponse: CodexUsageResponse,
+        resetCredits: CodexRateLimitResetCreditsSnapshot? = nil,
+        credentials: CodexOAuthCredentials,
+        updatedAt: Date,
+        includeCredits: Bool,
+        allowEmptyUsageForResetCreditEnrichment: Bool = false,
+        codexResetCreditsAttempted: Bool = false) throws -> ProviderFetchResult
+    {
+        let credits = Self.mapCredits(
+            response: usageResponse,
+            updatedAt: updatedAt,
+            includeCredits: includeCredits)
+        let reconciled = CodexReconciledState.fromOAuth(
+            response: usageResponse,
+            credentials: credentials,
+            updatedAt: updatedAt)
+
+        let usage: UsageSnapshot
+        if let reconciled {
+            let dataConfidence: UsageDataConfidence = usageResponse.rateLimit?.hasWindowDecodeFailure == true
+                || usageResponse.additionalRateLimitsDecodeFailed
+                ? .unknown
+                : .exact
+            usage = reconciled.toUsageSnapshot()
+                .withCodexResetCredits(resetCredits)
+                .withDataConfidence(dataConfidence)
+        } else {
+            guard credits != nil
+                || (resetCredits?.availableInventory(at: updatedAt).count ?? 0) > 0
+                || allowEmptyUsageForResetCreditEnrichment
+            else {
+                throw UsageError.noRateLimitsFound
+            }
+            // Credit balances and manual resets remain useful when OAuth omits
+            // rate-limit windows. Keep the partial result instead of discarding it.
+            usage = UsageSnapshot(
+                primary: nil,
+                secondary: nil,
+                codexResetCredits: resetCredits,
+                updatedAt: updatedAt,
+                identity: CodexReconciledState.oauthIdentity(
+                    response: usageResponse,
+                    credentials: credentials))
+        }
+        let strategy = Self()
+        return ProviderFetchResult(
+            usage: CodexExtraUsageCost.attaching(to: usage, credits: credits),
+            credits: credits,
+            dashboard: nil,
+            sourceLabel: "oauth",
+            strategyID: strategy.id,
+            strategyKind: strategy.kind,
+            codexResetCreditsAttempted: codexResetCreditsAttempted)
     }
 
     private static func replacingWithCLIMonthlyLimitIfAvailable(
@@ -601,20 +693,16 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
               self.identitiesAreCompatible(oauth: oauthResult.usage.identity, cli: cliResult.usage.identity),
               let oauthCredits = oauthResult.credits
         else { return oauthResult }
-        return ProviderFetchResult(
-            usage: oauthResult.usage,
-            credits: CreditsSnapshot(
+        return Self.replacingCredits(
+            in: oauthResult,
+            with: CreditsSnapshot(
                 remaining: oauthCredits.remaining,
                 events: oauthCredits.events,
                 updatedAt: oauthCredits.updatedAt,
-                codexCreditLimit: cliLimit),
-            dashboard: oauthResult.dashboard,
-            sourceLabel: oauthResult.sourceLabel,
-            strategyID: oauthResult.strategyID,
-            strategyKind: oauthResult.strategyKind,
-            codexResetCreditsAttempted: oauthResult.codexResetCreditsAttempted,
-            codexMonthlyLimitEnrichmentFailed: oauthResult.codexMonthlyLimitEnrichmentFailed,
-            diagnostic: oauthResult.diagnostic)
+                codexCreditLimit: cliLimit,
+                balanceReadSucceeded: oauthCredits.balanceReadSucceeded,
+                creditsAvailable: oauthCredits.creditsAvailable,
+                balanceIsWorkspace: oauthCredits.balanceIsWorkspace))
     }
 
     private static func applyingSpendControlsMonthlyLimit(
@@ -663,12 +751,17 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
                     remaining: $0.remaining,
                     events: $0.events,
                     updatedAt: $0.updatedAt,
-                    codexCreditLimit: limit)
+                    codexCreditLimit: limit,
+                    balanceReadSucceeded: $0.balanceReadSucceeded,
+                    creditsAvailable: $0.creditsAvailable,
+                    balanceIsWorkspace: $0.balanceIsWorkspace)
             } ?? CreditsSnapshot(
                 remaining: 0,
                 events: [],
                 updatedAt: updatedAt,
-                codexCreditLimit: limit)
+                codexCreditLimit: limit,
+                // Spend controls supply only the cap, so this snapshot carries no balance reading.
+                balanceReadSucceeded: false)
             return Self.replacingCredits(in: result, with: credits)
         } catch {
             if error is CancellationError || Task.isCancelled {
@@ -687,28 +780,6 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
         return nil
     }
 
-    private static func replacingCredits(
-        in result: ProviderFetchResult,
-        with credits: CreditsSnapshot) -> ProviderFetchResult
-    {
-        ProviderFetchResult(
-            usage: result.usage,
-            credits: credits,
-            dashboard: result.dashboard,
-            sourceLabel: result.sourceLabel,
-            strategyID: result.strategyID,
-            strategyKind: result.strategyKind,
-            codexResetCreditsAttempted: result.codexResetCreditsAttempted,
-            codexMonthlyLimitEnrichmentFailed: result.codexMonthlyLimitEnrichmentFailed,
-            diagnostic: result.diagnostic,
-            claudeOAuthKeychainPersistentRefHash: result.claudeOAuthKeychainPersistentRefHash,
-            claudeOAuthHistoryOwnerIdentifier: result.claudeOAuthHistoryOwnerIdentifier,
-            claudeOAuthCredentialOwner: result.claudeOAuthCredentialOwner,
-            claudeOAuthKeychainCredentialMismatch: result.claudeOAuthKeychainCredentialMismatch,
-            claudeOAuthKeychainCredentialAbsent: result.claudeOAuthKeychainCredentialAbsent,
-            claudeOAuthKeychainCredentialUnavailable: result.claudeOAuthKeychainCredentialUnavailable)
-    }
-
     private static func fetchResetCreditsIfRequested(
         context: ProviderFetchContext,
         credentials: CodexOAuthCredentials) async throws -> CodexRateLimitResetCreditsSnapshot?
@@ -722,13 +793,6 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
                     accountId: credentials.accountId,
                     env: context.env)
             })
-    }
-
-    private static func defersResetCreditFetchToApp(_ context: ProviderFetchContext) -> Bool {
-        if case .app = context.runtime {
-            return true
-        }
-        return false
     }
 
     private static func fetchResetCreditsIfRequested(
@@ -785,10 +849,9 @@ extension CodexOAuthFetchStrategy {
     }
 
     static func _prepareCredentialsForTesting(
-        _ credentials: CodexOAuthCredentials,
-        env: [String: String] = [:]) async throws -> CodexOAuthCredentials
+        _ credentials: CodexOAuthCredentials) async throws -> CodexOAuthCredentials
     {
-        try await self.prepareCredentialsForUsage(credentials, env: env)
+        try self.prepareCredentialsForUsage(credentials)
     }
 
     static func _applySpendControlsMonthlyLimitForTesting(
@@ -800,6 +863,22 @@ extension CodexOAuthFetchStrategy {
         -> ProviderFetchResult
     {
         try await self.applyingSpendControlsMonthlyLimit(
+            result,
+            usage: usage,
+            credentials: credentials,
+            context: context,
+            fetcher: fetcher)
+    }
+
+    static func _applyWorkspaceRemainingBalanceForTesting(
+        _ result: ProviderFetchResult,
+        usage: CodexUsageResponse,
+        credentials: CodexOAuthCredentials,
+        context: ProviderFetchContext,
+        fetcher: @escaping @Sendable (String) async throws -> CodexWorkspaceRemainingBalanceResponse) async throws
+        -> ProviderFetchResult
+    {
+        try await self.applyingWorkspaceRemainingBalance(
             result,
             usage: usage,
             credentials: credentials,
@@ -837,7 +916,8 @@ extension CodexOAuthFetchStrategy {
         credentials: CodexOAuthCredentials,
         resetCredits: CodexRateLimitResetCreditsSnapshot? = nil,
         sourceMode: ProviderSourceMode = .oauth,
-        allowEmptyUsageForResetCreditEnrichment: Bool = false) throws -> ProviderFetchResult
+        allowEmptyUsageForResetCreditEnrichment: Bool = false,
+        includeCredits: Bool = true) throws -> ProviderFetchResult
     {
         let usageResponse = try JSONDecoder().decode(CodexUsageResponse.self, from: data)
         _ = sourceMode
@@ -846,6 +926,7 @@ extension CodexOAuthFetchStrategy {
             resetCredits: resetCredits,
             credentials: credentials,
             updatedAt: Date(),
+            includeCredits: includeCredits,
             allowEmptyUsageForResetCreditEnrichment: allowEmptyUsageForResetCreditEnrichment)
     }
 

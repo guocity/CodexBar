@@ -8,6 +8,7 @@
 "ollama_browser_cookie_decryption_disabled" = "%@ cookie decryption is disabled in CodexBar; enable Keychain access and refresh.";
 "claude_oauth_keychain_access_revoked" = "Claude Keychain access was revoked by Claude Code's token rotation. Click Refresh to re-grant access, or switch Claude Usage source to CLI/Web.";
 "claude_showing_last_known_usage" = "Showing last-known usage captured %@.";
+"claude_limited_usage_detail" = "Limited usage detail";
 
 " providers" = " providers";
 "(System)" = "(System)";
@@ -55,6 +56,8 @@
 "Average (\\(metadata.sessionLabel) + \\(metadata.weeklyLabel))" = "Average (\\(metadata.sessionLabel) + \\(metadata.weeklyLabel))";
 "Avoid Keychain prompts" = "Avoid Keychain prompts";
 "Balance" = "Balance";
+"Cloud credits" = "Cloud credits";
+"Expired" = "Expired";
 "Battery Saver" = "Battery Saver";
 "Bordered" = "Bordered";
 "Build" = "Build";
@@ -108,6 +111,10 @@
 "Cookie: …" = "Cookie: …";
 "CopilotDeviceFlow" = "CopilotDeviceFlow";
 "Cost" = "Cost";
+"Token history" = "Token history";
+"Local token history · dollar costs unavailable" = "Local token history · dollar costs unavailable";
+"Partial local history · recorded token subtotal" = "Partial local history · recorded token subtotal";
+"Local token history is unavailable or incomplete." = "Local token history is unavailable or incomplete.";
 "Could not add Codex account" = "Could not add Codex account";
 "Could not open Terminal for Gemini" = "Could not open Terminal for Gemini";
 "Could not start claude /login" = "Could not start claude /login";
@@ -458,6 +465,7 @@
 "cost_summary_style_inline_help" = "Shows the cost summary directly in the main menu.";
 "cost_summary_style_submenu_help" = "Shows the detailed Cost submenu instead.";
 "cost_summary_style_both_help" = "Shows both the main menu summary and detailed Cost submenu.";
+"Month to date" = "Month to date";
 "cost_history_window_title" = "History window";
 "cost_history_window_help" = "Sets how many days of local usage logs appear in the menu.";
 "cost_history_days_title" = "History window: %d days";
@@ -480,7 +488,6 @@
 "provider_accent_color_reset" = "Use default";
 "quota_warnings_title" = "Quota warnings";
 "quota_warning_session" = "session";
-"quota_warning_session_capitalized" = "Session";
 "quota_warning_weekly" = "weekly";
 "quota_warning_weekly_capitalized" = "Weekly";
 "quota_warning_notification_title" = "%1$@ %2$@ quota low";
@@ -501,6 +508,11 @@
 "session_depleted_notification_body" = "0% left. Will notify when it's available again.";
 "session_restored_notification_title" = "%@ session restored";
 "session_restored_notification_body" = "Session quota is available again.";
+"limit_reset_notifications_title" = "Reset notifications";
+"limit_reset_notifications_subtitle" = "Names the provider and window when a session or weekly limit resets.";
+"limit_reset_notification_title" = "%1$@ %2$@ limit reset";
+"limit_reset_notification_body" = "Fresh quota is available.";
+"limit_reset_notification_body_with_account" = "Account %@. Fresh quota is available.";
 "quota_warning_warn_at" = "Warn at";
 "quota_warning_global_threshold_subtitle" = "Remaining percentages for session and weekly windows unless a provider overrides them.";
 "quota_warning_sound" = "Play notification sound";
@@ -571,6 +583,7 @@
 "hooks_any_provider" = "Any provider";
 "hooks_threshold" = "Fire at usage ≥";
 "hooks_threshold_placeholder" = "90";
+"hooks_executable" = "Executable";
 "hooks_executable_placeholder" = "/usr/local/bin/my-command";
 "hooks_arguments_placeholder" = "Arguments";
 "hooks_argument_placeholder" = "Argument";
@@ -597,7 +610,7 @@
 "menu_bar_metric_subtitle" = "Choose which window drives the menu bar percent.";
 "menu_bar_metric_subtitle_deepseek" = "Shows the DeepSeek balance in the menu bar.";
 "menu_bar_metric_subtitle_moonshot" = "Shows the Moonshot / Kimi API balance in the menu bar.";
-"menu_bar_metric_subtitle_mistral" = "Choose Mistral API spend or Monthly Plan usage for the menu bar.";
+"menu_bar_metric_subtitle_mistral" = "Choose Mistral API spend or Monthly Plan usage for the menu bar and widgets.";
 "automatic" = "Automatic";
 "primary_api_key_limit" = "Primary (API key limit)";
 
@@ -622,6 +635,12 @@
 "cost_summary_off" = "Off";
 "merge_icons_title" = "Merge icons";
 "merge_icons_subtitle" = "Use a single menu bar icon with a provider switcher.";
+"merged_icon_style_title" = "Combined icon style";
+"merged_icon_style_subtitle" = "Switcher cycles through providers one at a time; Stacked shows two providers at once, one row each.";
+"merged_icon_style_switcher" = "Switcher";
+"merged_icon_style_stacked" = "Stacked";
+"merge_icon_stacked_top_provider_title" = "Top row";
+"merge_icon_stacked_bottom_provider_title" = "Bottom row";
 "show_most_used_provider_title" = "Show most-used provider";
 "show_most_used_provider_subtitle" = "Menu bar auto-shows the provider closest to its rate limit.";
 "display_mode_title" = "Display mode";
@@ -654,6 +673,8 @@
 "agent_sessions_title" = "Agent sessions";
 "agent_sessions_subtitle" = "Show local and SSH-discovered Codex and Claude Code sessions in the menu.";
 "agent_sessions_hosts_title" = "Additional SSH hosts";
+"agent_sessions_hide_unreachable_title" = "Hide unreachable hosts";
+"agent_sessions_hide_unreachable_subtitle" = "Hide hosts when fetching their sessions fails.";
 "agent_sessions_footer" = "Macs on your tailnet are discovered automatically. Local sessions refresh every 30 seconds; remote hosts every 60 seconds and when the menu opens.";
 "agent_session_labels_title" = "Session labels";
 "agent_session_labels_subtitle" = "Choose how agent sessions are named.";
@@ -844,7 +865,6 @@
 "No local data found" = "No local data found";
 "Credits unavailable; keep Codex running to refresh." = "Credits unavailable; keep Codex running to refresh.";
 "No available fetch strategy for minimax." = "No available fetch strategy for minimax.";
-"No Cursor session found. Please log in to cursor.com in Safari, Chrome, Microsoft Edge, Brave, Arc, Dia, ChatGPT Atlas, Chromium, Helium, Vivaldi, Yandex Browser, Firefox, Zen, Colibri, Sidekick, Opera, Opera GX, or Edge Canary. If you use Safari, grant CodexBar Full Disk Access in System Settings ▸ Privacy & Security. You can also sign in to Cursor from the CodexBar menu (Add / switch account)." = "No Cursor session found. Please log in to cursor.com in Safari, Chrome, Microsoft Edge, Brave, Arc, Dia, ChatGPT Atlas, Chromium, Helium, Vivaldi, Yandex Browser, Firefox, Zen, Colibri, Sidekick, Opera, Opera GX, or Edge Canary. If you use Safari, grant CodexBar Full Disk Access in System Settings ▸ Privacy & Security. You can also sign in to Cursor from the CodexBar menu (Add / switch account).";
 "No OpenCode session cookies found in browsers." = "No OpenCode session cookies found in browsers.";
 "No available fetch strategy for %@." = "No available fetch strategy for %@.";
 "Today" = "Today";
@@ -892,6 +912,12 @@
 "usage_percent_suffix_used" = "used";
 "Store multiple DeepSeek API keys." = "Store multiple DeepSeek API keys.";
 "This week" = "This week";
+"Current window" = "Current window";
+"Last week" = "Last week";
+"%d weeks ago" = "%d weeks ago";
+"Previous window" = "Previous window";
+"%d windows ago" = "%d windows ago";
+"Recent windows" = "Recent windows";
 "Week" = "Week";
 "Month" = "Month";
 "Models" = "Models";
@@ -952,6 +978,14 @@
 "Overage" = "Overage";
 "Activity" = "Activity";
 "Copied" = "Copied";
+"Managed by Homebrew" = "Managed by Homebrew";
+"Copy update command" = "Copy update command";
+"Update to %@" = "Update to %@";
+"CodexBar %@ is available" = "CodexBar %@ is available";
+"CodexBar is up to date" = "CodexBar is up to date";
+"Checking for updates…" = "Checking for updates…";
+"Updating with Homebrew…" = "Updating with Homebrew…";
+"Homebrew update failed. You can run this command in Terminal instead:" = "Homebrew update failed. You can run this command in Terminal instead:";
 "Copy error" = "Copy error";
 "Copy path" = "Copy path";
 "Extra usage spent" = "Extra usage spent";
@@ -1171,11 +1205,13 @@
 "Open Augment (Log Out & Back In)" = "Open Augment (Log Out & Back In)";
 "Open Codebuff Dashboard" = "Open Codebuff Dashboard";
 "Open Command Code Settings" = "Open Command Code Settings";
-"Open Crof dashboard" = "Open Crof dashboard";
 "Open Manus" = "Open Manus";
 "Open MiMo Balance" = "Open MiMo Balance";
 "Open Moonshot Console" = "Open Moonshot Console";
 "Open Ollama API Keys" = "Open Ollama API Keys";
+"Open llmman" = "Open llmman";
+"Stored in ~/.codexbar/config.json. Only needed when llmman serve requires API keys." = "Stored in ~/.codexbar/config.json. Only needed when llmman serve requires API keys.";
+"Address of llmman serve. Defaults to http://127.0.0.1:17434." = "Address of llmman serve. Defaults to http://127.0.0.1:17434.";
 "Open StepFun Platform" = "Open StepFun Platform";
 "Open T3 Chat Settings" = "Open T3 Chat Settings";
 "Open Volcengine Ark Console" = "Open Volcengine Ark Console";
@@ -1239,7 +1275,6 @@
 "Stored in ~/.codexbar/config.json. Requires an Anthropic Admin API key." = "Stored in ~/.codexbar/config.json. Requires an Anthropic Admin API key.";
 "Stored in ~/.codexbar/config.json. Used for /v1/quota-stats." = "Stored in ~/.codexbar/config.json. Used for /v1/quota-stats.";
 "Stored in ~/.codexbar/config.json. You can also provide CODEBUFF_API_KEY or let CodexBar read ~/.config/manicode/credentials.json (created by `codebuff login`)." = "Stored in ~/.codexbar/config.json. You can also provide CODEBUFF_API_KEY or let CodexBar read ~/.config/manicode/credentials.json (created by `codebuff login`).";
-"Stored in ~/.codexbar/config.json. You can also provide CROF_API_KEY." = "Stored in ~/.codexbar/config.json. You can also provide CROF_API_KEY.";
 "Stored in ~/.codexbar/config.json. You can also provide KILO_API_KEY or ~/.local/share/kilo/auth.json (kilo.access)." = "Stored in ~/.codexbar/config.json. You can also provide KILO_API_KEY or ~/.local/share/kilo/auth.json (kilo.access).";
 "T3 Chat cookie" = "T3 Chat cookie";
 "Team mode" = "Team mode";
@@ -1345,6 +1380,8 @@
 "Tracked tokens" = "Tracked tokens";
 "Subscriptions" = "Subscriptions";
 "By subscription" = "By subscription";
+"By source" = "By source";
+"%d of %d sources have spend" = "%d of %d sources have spend";
 "No model-level history" = "No model-level history";
 "Daily estimated spend" = "Daily estimated spend";
 "Hourly estimated spend" = "Hourly estimated spend";
@@ -1358,6 +1395,9 @@
 "Cache write" = "Cache write";
 "Reasoning" = "Reasoning";
 "Sessions" = "Sessions";
+"Independent chats" = "Independent chats";
+"Independent chat" = "Independent chat";
+"Chat %d" = "Chat %d";
 "Projects" = "Projects";
 "Plan metered" = "Plan metered";
 "List-price equivalent" = "List-price equivalent";
@@ -1421,7 +1461,6 @@
 "menu_bar_layout_gap_tight" = "Tight";
 "menu_bar_layout_gap_regular" = "Regular";
 "menu_bar_layout_vertical_adjustment" = "Vertical";
-"menu_bar_layout_keyboard_hint" = "Delete removes the selected token";
 "menu_bar_layout_sample_account" = "account";
 "menu_bar_layout_sample_runs_out" = "runs out Fri";
 "menu_bar_layout_token_icon" = "Icon";
@@ -1459,6 +1498,33 @@
 "Cost today unavailable" = "Cost today unavailable";
 "30-day cost unavailable" = "30-day cost unavailable";
 "Resets" = "Resets";
+"codex_workspaces_cost_unavailable" = "Cost unavailable";
+"codex_workspaces_elevated_usage" = "Elevated usage";
+"codex_workspaces_estimated_cost_short" = "Est. cost";
+"codex_workspaces_estimated_cost_value" = "est. %@";
+"codex_workspaces_estimated_local_logs" = "Estimated from local Codex logs";
+"codex_workspaces_failed_read_logs" = "Failed to read Codex logs";
+"codex_workspaces_high_usage" = "High usage";
+"codex_workspaces_indexing_local_logs" = "Indexing local Codex logs…";
+"codex_workspaces_indexing_projects" = "Indexing projects…";
+"codex_workspaces_local_codex_chat" = "Local Codex chat";
+"codex_workspaces_model" = "Model";
+"codex_workspaces_no_local_usage" = "No local Codex usage yet";
+"codex_workspaces_no_sessions" = "No sessions in this workspace";
+"codex_workspaces_normal_usage" = "Normal usage";
+"codex_workspaces_partial_data" = "Partial data";
+"codex_workspaces_refresh_usage_data" = "Refresh usage data";
+"codex_workspaces_retry" = "Retry";
+"codex_workspaces_saving_project_index" = "Saving project index…";
+"codex_workspaces_scanning_logs" = "Scanning Codex logs…";
+"codex_workspaces_session" = "Session";
+"codex_workspaces_session_count" = "Sessions: %@";
+"codex_workspaces_sessions" = "Sessions";
+"codex_workspaces_started" = "Started";
+"codex_workspaces_title" = "Workspaces";
+"codex_workspaces_token_count_accessibility" = "%@ tokens";
+"codex_workspaces_tokens" = "Tokens";
+"codex_workspaces_top_model" = "Top model";
 "Finish now" = "Finish now";
 "Continue in background" = "Continue in background";
 
@@ -1487,6 +1553,8 @@
 
 "Cumulative" = "Cumulative";
 "Token activity" = "Token activity";
+"Earlier activity" = "Earlier activity";
+"More recent activity" = "More recent activity";
 "View" = "View";
 "in the last year" = "in the last year";
 "No activity in the last 12 months" = "No activity in the last 12 months";
@@ -1567,4 +1635,61 @@
 "menu_bar_layout_conditional_default_session_spent" = "Session nearly spent";
 "menu_bar_layout_conditional_default_either_high" = "Session or weekly running high";
 "menu_bar_layout_conditional_default_scoped_weekly" = "Scoped weekly over 60% used";
+"Visible usage items" = "Visible usage items";
+"Restore Defaults" = "Restore Defaults";
+"Choose which usage rows appear in this provider's menu, Settings preview, and Overview." = "Choose which usage rows appear in this provider's menu, Settings preview, and Overview.";
+"%@ (unavailable)" = "%@ (unavailable)";
 "Spending cap, not balance" = "Spending cap, not balance";
+
+"Color Pace Indicator" = "Color Pace Indicator";
+"Green pace indicator when behind pace, red when ahead of pace (risk of running out early)" = "Green pace indicator when behind pace, red when ahead of pace (risk of running out early)";
+"%@ weekly" = "%@ weekly";
+
+/* Overview share flow */
+"Share Usage Snapshot…" = "Share Usage Snapshot…";
+"Usage snapshot unavailable" = "Usage snapshot unavailable";
+"CodexBar couldn't prepare a shareable usage snapshot. Refresh Usage & Spend and try again." = "CodexBar couldn't prepare a shareable usage snapshot. Refresh Usage & Spend and try again.";
+"Incomplete" = "Incomplete";
+
+"Est. subtotal (%@): %@" = "Est. subtotal (%@): %@";
+
+"Excluded requests with missing final usage: %d" = "Excluded requests with missing final usage: %d";
+
+"overview_layout_title" = "Overview layout";
+"overview_layout_subtitle" = "Choose how much information Overview shows.";
+"overview_layout_detailed" = "Detailed";
+"overview_layout_compact" = "Compact";
+
+"section_widgets" = "Widgets";
+"account_widgets_title" = "Keep accounts updated for widgets";
+"account_widgets_description" = "Choose an account in each Account Usage widget. Refreshes up to six accounts per provider.";
+
+/* Spend time zone */
+"Statistics time zone" = "Statistics time zone";
+"Use Mac's current time zone" = "Use Mac's current time zone";
+"Daily usage uses a fixed time zone. Changing it may move usage to a different day." = "Daily usage uses a fixed time zone. Changing it may move usage to a different day.";
+
+/* Antigravity local cost estimates */
+"antigravity_cost_estimate_hint" = "Local usage × public API prices · not Antigravity charges or credits";
+"antigravity_quota_window_note" = "Window cost covers all models · window shown is the most constrained family";
+"antigravity_no_priced_token_history" = "No priced Antigravity token history is available.";
+"Supported browsers: %@. Use Manual for other browsers." = "Supported browsers: %@. Use Manual for other browsers.";
+"Paste the Cookie header from a Chrome request to www.workbuddy.cn/profile/plans-usage." = "Paste the Cookie header from a Chrome request to www.workbuddy.cn/profile/plans-usage.";
+"Reserved" = "Reserved";
+
+/* Selected browser profile */
+"Browser profile" = "Browser profile";
+"Unavailable profile: %@" = "Unavailable profile: %@";
+"Read only the selected %@ profile. Accounts are never selected automatically." = "Read only the selected %@ profile. Accounts are never selected automatically.";
+
+// Spend chart navigation and inspection
+"Recorded spend" = "Recorded spend";
+"Highest recorded spend" = "Highest recorded spend";
+"Previous day" = "Previous day";
+"Next day" = "Next day";
+"Click to isolate a source. Click again to show all." = "Click to isolate a source. Click again to show all.";
+"Recorded hourly spend" = "Recorded hourly spend";
+"Highest spend" = "Highest spend";
+"Models for this day" = "Models for this day";
+
+"Click a bar to explore. Use the menu below for exact amounts." = "Click a bar to explore. Use the menu below for exact amounts.";

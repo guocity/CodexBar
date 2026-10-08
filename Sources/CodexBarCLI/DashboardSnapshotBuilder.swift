@@ -1,7 +1,7 @@
 import CodexBarCore
 import Foundation
 
-struct DashboardClaudeSwapInput {
+struct DashboardAccountsInput: Sendable {
     let accounts: [ProviderAccountUsageSnapshot]?
     let adapterError: String?
     let weeklyWorkDays: Int?
@@ -26,19 +26,18 @@ enum DashboardSnapshotBuilder {
         generatedAt: Date,
         refreshInterval: TimeInterval,
         codexBarVersion: String?,
-        claudeSwap: DashboardClaudeSwapInput? = nil) -> DashboardSnapshotPayload
+        accountCollections: [UsageProvider: DashboardAccountsInput] = [:],
+        usageBarsShowUsed: Bool = false) -> DashboardSnapshotPayload
     {
         var costByProvider: [String: CostPayload] = [:]
         for cost in costPayloads {
             costByProvider[cost.provider] = cost
         }
-        var attachedClaudeSwap = false
+        var attachedProviders: Set<UsageProvider> = []
         let providers = usagePayloads.enumerated().map { index, payload in
-            var rowClaudeSwap: DashboardClaudeSwapInput?
-            // Provider-specific by design: claude-swap account data belongs only on the first Claude row.
-            if !attachedClaudeSwap, UsageProvider(rawValue: payload.provider) == .claude {
-                rowClaudeSwap = claudeSwap
-                attachedClaudeSwap = true
+            var rowAccounts: DashboardAccountsInput?
+            if let provider = UsageProvider(rawValue: payload.provider), attachedProviders.insert(provider).inserted {
+                rowAccounts = accountCollections[provider]
             }
             let presentation = self.providerPresentation(
                 id: payload.provider,
@@ -50,7 +49,7 @@ enum DashboardSnapshotBuilder {
                 presentation: presentation,
                 identityMode: identityMode,
                 generatedAt: generatedAt,
-                claudeSwap: rowClaudeSwap)
+                accountCollection: rowAccounts)
         }
 
         let refreshSeconds = self.dashboardRefreshSeconds(refreshInterval)
@@ -60,7 +59,8 @@ enum DashboardSnapshotBuilder {
             staleAfterSeconds: max(180, refreshSeconds * 3),
             host: DashboardHostPayload(
                 codexBarVersion: codexBarVersion,
-                refreshIntervalSeconds: refreshSeconds),
+                refreshIntervalSeconds: refreshSeconds,
+                usageBarsShowUsed: usageBarsShowUsed),
             providers: providers)
     }
 
@@ -69,7 +69,8 @@ enum DashboardSnapshotBuilder {
         providers requestedProviders: [UsageProvider]? = nil,
         generatedAt: Date,
         refreshInterval: TimeInterval,
-        codexBarVersion: String?) -> DashboardSnapshotPayload
+        codexBarVersion: String?,
+        usageBarsShowUsed: Bool = false) -> DashboardSnapshotPayload
     {
         let providers = requestedProviders
             ?? config.enabledProviders().compactMap(\.firstPartyProvider)
@@ -102,7 +103,8 @@ enum DashboardSnapshotBuilder {
             staleAfterSeconds: max(180, refreshSeconds * 3),
             host: DashboardHostPayload(
                 codexBarVersion: codexBarVersion,
-                refreshIntervalSeconds: refreshSeconds),
+                refreshIntervalSeconds: refreshSeconds,
+                usageBarsShowUsed: usageBarsShowUsed),
             providers: rows)
     }
 
@@ -113,19 +115,19 @@ enum DashboardSnapshotBuilder {
         presentation: ProviderPresentation,
         identityMode: DashboardIdentityMode,
         generatedAt: Date,
-        claudeSwap: DashboardClaudeSwapInput?) -> DashboardProviderPayload
+        accountCollection: DashboardAccountsInput?) -> DashboardProviderPayload
     {
         let provider = UsageProvider(rawValue: payload.provider)
         let descriptor = provider.map { ProviderDescriptorRegistry.descriptor(for: $0) }
         let metadata = descriptor?.metadata
 
         let error = payload.error ?? cost?.error
-        let accounts = claudeSwap?.adapterError == nil
-            ? claudeSwap?.accounts?.map { account in
-                self.makeClaudeSwapAccount(
+        let accounts = accountCollection?.adapterError == nil
+            ? accountCollection?.accounts?.filter { $0.provider == provider }.map { account in
+                self.makeAccount(
                     account,
                     identityMode: identityMode,
-                    weeklyWorkDays: claudeSwap?.weeklyWorkDays,
+                    weeklyWorkDays: accountCollection?.weeklyWorkDays,
                     generatedAt: generatedAt)
             }
             : nil
@@ -138,7 +140,9 @@ enum DashboardSnapshotBuilder {
             identity: self.makeIdentity(provider: provider, usage: payload.usage, mode: identityMode),
             windows: self.makeWindows(provider: provider, metadata: metadata, usage: payload.usage),
             credits: self.makeCredits(payload.credits),
-            cost: self.makeCost(cost, referenceDate: generatedAt),
+            cost: cost != nil
+                ? self.makeCost(cost, referenceDate: generatedAt)
+                : self.makeReportedCost(payload.usage?.costUsage),
             display: presentation.display,
             error: error,
             updatedAt: self.updatedAt(
@@ -147,7 +151,7 @@ enum DashboardSnapshotBuilder {
                 error: error,
                 generatedAt: generatedAt),
             accounts: accounts,
-            accountsError: claudeSwap?.adapterError)
+            accountsError: accountCollection?.adapterError)
     }
 
     private static func providerPresentation(
@@ -173,42 +177,44 @@ enum DashboardSnapshotBuilder {
                 priority: "normal"))
     }
 
-    private static func makeClaudeSwapAccount(
+    private static func makeAccount(
         _ account: ProviderAccountUsageSnapshot,
         identityMode: DashboardIdentityMode,
         weeklyWorkDays: Int?,
         generatedAt: Date) -> DashboardAccountPayload
     {
-        // Provider-specific by design: identity stays the source email; the card label may be an alias
-        // or an "email · org" disambiguation, and redaction rewrites only the email prefix.
+        // Source identity stays separate from aliases and disambiguated workspace labels.
         let sourceEmail: String? = {
             if let email = account.accountEmail, email.contains("@") { return email }
-            if let email = account.snapshot?.identity?.accountEmail, email.contains("@") { return email }
+            if let email = account.snapshot?.identity(for: account.provider.instanceID)?.accountEmail,
+               email.contains("@") { return email }
             return nil
         }()
         let presentedEmail = identityMode != .none && sourceEmail?.contains("@") == true
             ? self.dashboardEmail(sourceEmail, mode: identityMode)
             : nil
-        let identity = presentedEmail.map { DashboardIdentityPayload(accountEmail: $0, plan: nil) }
+        // Provider-specific by design: claude-swap has no plan; Codex retains its saved account plan.
+        let plan = account.provider == .codex
+            ? self.makeIdentity(provider: account.provider, usage: account.snapshot, mode: identityMode)?.plan : nil
+        let identity = presentedEmail.map { DashboardIdentityPayload(accountEmail: $0, plan: plan) }
         let trimmedLabel = account.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackLabel = trimmedLabel.isEmpty ? "Account \(account.id.opaqueID)" : trimmedLabel
-        let label = self.claudeSwapDashboardLabel(
+        let label = self.dashboardAccountLabel(
             displayLabel: fallbackLabel,
             sourceEmail: sourceEmail,
             presentedEmail: presentedEmail,
             accountID: account.id.opaqueID,
             identityMode: identityMode)
-        // Provider-specific by design: claude-swap account windows and pace use Claude's presentation semantics.
-        let metadata = ProviderDescriptorRegistry.descriptor(for: UsageProvider.claude).metadata
+        let metadata = ProviderDescriptorRegistry.descriptor(for: account.provider).metadata
         return DashboardAccountPayload(
             id: "\(account.id.source):\(account.id.opaqueID)",
             label: label,
             active: account.isActive,
             identity: identity,
-            windows: self.makeWindows(provider: .claude, metadata: metadata, usage: account.snapshot),
+            windows: self.makeWindows(provider: account.provider, metadata: metadata, usage: account.snapshot),
             pace: account.snapshot.flatMap {
                 CLIRenderer.providerPacePayload(
-                    provider: .claude,
+                    provider: account.provider,
                     snapshot: $0,
                     weeklyWorkDays: weeklyWorkDays,
                     now: generatedAt)
@@ -217,7 +223,7 @@ enum DashboardSnapshotBuilder {
             updatedAt: account.snapshot?.updatedAt)
     }
 
-    private static func claudeSwapDashboardLabel(
+    private static func dashboardAccountLabel(
         displayLabel: String,
         sourceEmail: String?,
         presentedEmail: String?,
@@ -246,11 +252,11 @@ enum DashboardSnapshotBuilder {
         guard let status else { return nil }
         return DashboardStatusPayload(
             level: self.dashboardStatusLevel(status.indicator),
-            label: status.indicator.label,
+            label: status.indicator.cliLabel,
             updatedAt: status.updatedAt)
     }
 
-    private static func dashboardStatusLevel(_ indicator: ProviderStatusPayload.ProviderStatusIndicator) -> String {
+    private static func dashboardStatusLevel(_ indicator: ProviderStatusIndicator) -> String {
         switch indicator {
         case .none:
             "ok"
@@ -477,26 +483,71 @@ enum DashboardSnapshotBuilder {
     }
 
     private static func makeCredits(_ credits: CreditsSnapshot?) -> DashboardCreditsPayload? {
-        guard let credits else { return nil }
+        guard let credits, credits.balanceReadSucceeded else { return nil }
         return DashboardCreditsPayload(remaining: credits.remaining, unit: "credits")
+    }
+
+    private static func makeReportedCost(_ snapshot: CostUsageTokenSnapshot?) -> DashboardCostPayload? {
+        guard let snapshot, snapshot.currencyCode == "USD", snapshot.historyDays == 30 else { return nil }
+        let incompleteCount = CostUsageIncompleteRequests.sum(snapshot.daily.map(\.incompleteRequestCount))
+        guard snapshot.last30DaysCostUSD != nil || incompleteCount > 0 else { return nil }
+        // Provider history can use completed UTC days; a matching date key does not establish local Today.
+        return DashboardCostPayload(
+            todayUSD: nil,
+            last30DaysUSD: snapshot.last30DaysCostUSD,
+            todayIncompleteRequestCount: nil,
+            last30DaysIncompleteRequestCount: incompleteCount > 0 ? incompleteCount : nil)
     }
 
     private static func makeCost(_ cost: CostPayload?, referenceDate: Date) -> DashboardCostPayload? {
         guard let cost else { return nil }
-        let todayUSD = self.todayCostUSD(cost, referenceDate: referenceDate)
-        guard todayUSD != nil || cost.last30DaysCostUSD != nil else { return nil }
+        let today = self.todayCostEntry(cost, referenceDate: referenceDate)
+        let todayUSD = today?.costUSD
+        let history = self.thirtyDayCost(cost, referenceDate: referenceDate)
+        guard todayUSD != nil || history.amount != nil ||
+            (today?.incompleteRequestCount ?? 0) > 0 || (history.incompleteCount ?? 0) > 0
+        else { return nil }
         return DashboardCostPayload(
             todayUSD: todayUSD,
-            last30DaysUSD: cost.last30DaysCostUSD)
+            last30DaysUSD: history.amount,
+            todayIncompleteRequestCount: today?.incompleteRequestCount,
+            last30DaysIncompleteRequestCount: history.incompleteCount)
     }
 
-    private static func todayCostUSD(_ cost: CostPayload, referenceDate: Date) -> Double? {
+    private static func thirtyDayCost(
+        _ cost: CostPayload,
+        referenceDate: Date) -> (amount: Double?, incompleteCount: Int?)
+    {
+        // Imported cost payloads may cover more than the dashboard's fixed 30-day metric.
+        // Narrow the monetary subtotal and exclusions together so they describe the same window.
+        guard (cost.historyDays ?? 30) > 30 else { return (cost.last30DaysCostUSD, cost.incompleteRequestCount) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let end = calendar.startOfDay(for: referenceDate)
+        guard let start = calendar.date(byAdding: .day, value: -29, to: end) else { return (nil, nil) }
+        let startKey = self.costDayKey(start, calendar: calendar)
+        let endKey = self.costDayKey(end, calendar: calendar)
+        let entries = cost.daily.filter {
+            let key = String($0.date.prefix(10))
+            return key >= startKey && key <= endKey
+        }
+        let amounts = entries.compactMap(\.costUSD)
+        let count = CostUsageIncompleteRequests.sum(entries.compactMap(\.incompleteRequestCount))
+        return (amounts.isEmpty ? nil : amounts.reduce(0, +), count > 0 ? count : nil)
+    }
+
+    private static func costDayKey(_ date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+    }
+
+    private static func todayCostEntry(_ cost: CostPayload, referenceDate: Date) -> CostDailyEntryPayload? {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
         let components = calendar.dateComponents([.year, .month, .day], from: referenceDate)
         guard let year = components.year, let month = components.month, let day = components.day else { return nil }
         let dayKey = String(format: "%04d-%02d-%02d", year, month, day)
-        return cost.daily.first { String($0.date.prefix(10)) == dayKey }?.costUSD
+        return cost.daily.first { String($0.date.prefix(10)) == dayKey }
     }
 
     private static func updatedAt(

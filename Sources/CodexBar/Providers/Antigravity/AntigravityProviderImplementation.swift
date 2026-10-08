@@ -1,13 +1,21 @@
 import CodexBarCore
 import Foundation
-import SwiftUI
 
 struct AntigravityProviderImplementation: ProviderImplementation {
     let id: UsageProvider = .antigravity
     let supportsLoginFlow: Bool = true
 
     @MainActor
+    func presentation(context _: ProviderPresentationContext) -> ProviderPresentation {
+        // Process detection is useful to diagnostics, but is not an installed version or a usage-source check.
+        ProviderPresentation(showsVersionInSettings: false) { context in
+            context.store.sourceLabel(for: context.provider)
+        }
+    }
+
+    @MainActor
     func observeSettings(_ settings: SettingsStore) {
+        _ = settings.antigravityAdditionalProfileHomes
         _ = settings.antigravityUsageDataSource
         _ = settings.antigravityPrioritizeExhaustedQuotas
         _ = settings.tokenAccountsData(for: .antigravity)
@@ -35,7 +43,7 @@ struct AntigravityProviderImplementation: ProviderImplementation {
                 title: "Prioritize exhausted quotas",
                 subtitle: "Optional. In Automatic mode, let exhausted five-hour or weekly lanes outrank " +
                     "still-usable model families. Applies to the menu bar and Overview ranking.",
-                binding: context.boolBinding(\.antigravityPrioritizeExhaustedQuotas),
+                binding: context.binding(\.antigravityPrioritizeExhaustedQuotas),
                 statusText: nil,
                 actions: [],
                 isVisible: nil,
@@ -47,22 +55,16 @@ struct AntigravityProviderImplementation: ProviderImplementation {
 
     @MainActor
     func settingsPickers(context: ProviderSettingsContext) -> [ProviderSettingsPickerDescriptor] {
-        let usageBinding = Binding(
-            get: { context.settings.antigravityUsageDataSource.rawValue },
-            set: { raw in
-                context.settings.antigravityUsageDataSource = AntigravityUsageDataSource(rawValue: raw) ?? .auto
-            })
-        let usageOptions = AntigravityUsageDataSource.allCases.map {
-            ProviderSettingsPickerOption(id: $0.rawValue, title: $0.displayName)
-        }
-        return [
+        [
             ProviderSettingsPickerDescriptor(
                 id: "antigravity-usage-source",
                 title: "Usage source",
-                subtitle: "Auto tries Antigravity app, agy CLI, then IDE; " +
-                    "OAuth follows for selected or signed-in accounts.",
-                binding: usageBinding,
-                options: usageOptions,
+                subtitle: "Auto skips agy reports without account identity for selected or injected Google accounts. " +
+                    "Try Local API / agy CLI to use the local app or agy's signed-in account, which may differ.",
+                binding: context.rawValueBinding(\.antigravityUsageDataSource, fallback: .auto),
+                options: AntigravityUsageDataSource.allCases.map {
+                    ProviderSettingsPickerOption(id: $0.rawValue, title: $0.displayName)
+                },
                 isVisible: nil,
                 onChange: nil,
                 trailingText: {
@@ -71,6 +73,16 @@ struct AntigravityProviderImplementation: ProviderImplementation {
                     return label == "auto" ? nil : label
                 }),
         ]
+    }
+
+    @MainActor
+    func settingsDirectoryLists(context: ProviderSettingsContext) -> [ProviderSettingsDirectoryListDescriptor] {
+        [ProviderSettingsDirectoryListDescriptor(
+            id: "antigravity-profile-homes",
+            title: "Additional Gemini profile homes",
+            subtitle: "Optional. Select each profile's .gemini folder to combine local token and cost history. " +
+                "The primary home is always included. Does not change sign-in or quotas.",
+            binding: context.binding(\.antigravityAdditionalProfileHomes))]
     }
 
     @MainActor
@@ -104,9 +116,6 @@ struct AntigravityProviderImplementation: ProviderImplementation {
     func detectVersion(context _: ProviderVersionContext) async -> String? {
         await AntigravityStatusProbe.detectVersion()
     }
-
-    @MainActor
-    func appendUsageMenuEntries(context _: ProviderMenuUsageContext, entries _: inout [ProviderMenuEntry]) {}
 
     @MainActor
     func loginMenuAction(context _: ProviderMenuLoginContext) -> (label: String, action: MenuDescriptor.MenuAction)? {

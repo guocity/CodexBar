@@ -16,21 +16,31 @@ read_when:
 - Authenticate: `gcloud auth application-default login`.
 - Project: `gcloud config set project PROJECT_ID`.
 - Fallback project env vars: `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`.
+- Refresh responses must contain a usable access token; malformed responses fail without extending the previous token's expiry.
+- gcloud retains ownership of credential-file updates; refreshed tokens are used in memory.
 
 ## API endpoints
 - Cloud Monitoring timeSeries:
   - Usage: `serviceruntime.googleapis.com/quota/allocation/usage`
   - Limit: `serviceruntime.googleapis.com/quota/limit`
   - Resource: `consumer_quota` with `service="aiplatform.googleapis.com"`.
+  - Each usage/limit query follows distinct page tokens only. A repeated token ends pagination after retaining
+    the current page, so no page is requested twice. Queries that still have a new token after 100 pages fail
+    instead of continuing indefinitely; a final page with no next token still succeeds at that boundary.
 
 ## Mapping
 - Matches usage + limit series by quota metric + limit name + location.
 - Reports the highest usage percent across matched series.
-- Displayed as "Quota usage" with period "Current quota".
+- The current provider snapshot publishes gcloud identity without quota windows; local token costs are fetched
+  separately. Recognized temporary network failures during token refresh or monitoring requests retain the last
+  successful identity snapshot and timestamp, including localized errors. Authentication and IAM failures keep their
+  existing behavior.
 
 ## Token Cost Tracking
 
 Vertex AI Claude usage is logged to the same local files as direct Anthropic API usage (`~/.claude/projects/`). CodexBar identifies Vertex AI entries using two methods:
+
+Regular cost refreshes retain `vertexai-v6.json`; the app's independent Usage & Spend refresh uses `vertexai-history-v6.json` and a separate report memo. App memos track that rows were selected for their current window; older unverified caches rebuild once, and changing the app window preserves cold-scan duplicate selection. Provider filtering, pricing, and other providers' shared cache locations remain unchanged.
 
 ### Detection Methods
 

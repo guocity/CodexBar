@@ -1,5 +1,33 @@
 import Foundation
 
+enum GrokProductUsageDetails {
+    static func sections(for products: [GrokProductUsage]) -> [ProviderDetailSection] {
+        let rows = products.enumerated()
+            .filter { $0.element.usedPercent.isFinite && $0.element.usedPercent > 0 }
+            .sorted {
+                $0.element.usedPercent == $1.element.usedPercent
+                    ? $0.offset < $1.offset
+                    : $0.element.usedPercent > $1.element.usedPercent
+            }
+            .map { _, usage in
+                let product = usage.product.trimmingCharacters(in: .whitespacesAndNewlines)
+                let label = switch product {
+                case "GrokBuild": "Grok Build"
+                case "GrokChat": "Grok Chat"
+                case "GrokImagine": "Grok Imagine"
+                case "GrokAppBuilder": "Grok App Builder"
+                default: product
+                }
+                return ProviderDetailSection.makeRow(
+                    id: "grok.product.\(product)",
+                    label: label,
+                    value: UsageFormatter.percentString(usage.usedPercent))
+            }
+        guard !rows.isEmpty else { return [] }
+        return [.makeSection(title: "Usage breakdown", rows: rows)]
+    }
+}
+
 public struct GrokUsageSnapshot: Sendable {
     public let billing: GrokBillingResponse?
     public let webBilling: GrokWebBillingSnapshot?
@@ -34,6 +62,7 @@ public struct GrokUsageSnapshot: Sendable {
         // Primary window: credit usage (against included limit) from the CLI RPC,
         // falling back to the web billing RPC used by grok.com when the agent surface lacks billing.
         var primary: RateWindow?
+        var details: [ProviderDetailSection] = []
         if let billing,
            let percent = billing.monthlyUsedPercent
         {
@@ -49,9 +78,10 @@ public struct GrokUsageSnapshot: Sendable {
             // monthly window near its reset would otherwise be misclassified as weekly.
             primary = RateWindow(
                 usedPercent: percent,
-                windowMinutes: nil,
+                windowMinutes: webBilling.windowMinutes,
                 resetsAt: webBilling.resetsAt,
                 resetDescription: nil)
+            details = GrokProductUsageDetails.sections(for: webBilling.productUsage)
         }
 
         let identity = ProviderIdentitySnapshot(
@@ -66,8 +96,18 @@ public struct GrokUsageSnapshot: Sendable {
             primary: primary,
             secondary: nil,
             tertiary: nil,
+            providerCost: self.webBilling?.prepaidBalanceUSD.map { balance in
+                ProviderCostSnapshot(
+                    used: 0,
+                    limit: 0,
+                    currencyCode: "USD",
+                    balance: balance,
+                    balanceUpdatedAt: self.updatedAt,
+                    updatedAt: self.updatedAt)
+            },
             costUsage: self.localSummary?.toCostUsageTokenSnapshot(
                 historyDays: GrokLocalSessionScanner.defaultLookbackDays),
+            details: details,
             updatedAt: self.updatedAt,
             identity: identity)
     }
@@ -78,6 +118,14 @@ public struct GrokStatusProbe: Sendable {
         "Grok team usage is unavailable from the current billing surface; identity is still available."
     public static let usageUnavailableMessage =
         "Grok usage is unavailable because its billing sources did not report a usage percentage."
+
+    var localSummary: @Sendable ([String: String]) async throws -> GrokLocalSessionSummary? = {
+        try await GrokLocalSessionScanner.summarizeOffMainThread(env: $0)
+    }
+
+    var settingsTransport: any ProviderHTTPTransport = ProviderHTTPClient.shared
+    var identityOnlyFallback: @Sendable (GrokCredentials?, Bool, Error?) -> Bool =
+        GrokStatusProbe.shouldUseIdentityOnlyFallback
 
     public init() {}
 
@@ -122,44 +170,32 @@ public struct GrokStatusProbe: Sendable {
             rpcError = error
         }
 
-        // Local fallback summary always succeeds (empty if no sessions yet).
-        let localSummary = try await GrokLocalSessionScanner.summarizeOffMainThread(env: env)
-        let cliVersion = Self.detectVersion(env: env)
-
-        // `localSummary` is *not* currently projected into a visible RateWindow or
-        // identity field, so a stale `~/.grok/sessions/` directory must not
-        // suppress the auth-required hint. CLI-only fetches need a billing
-        // response; the provider pipeline owns the separate web fallback.
-        if billing == nil,
-           let credentials,
-           Self.shouldUseIdentityOnlyFallback(
-               credentials: credentials,
-               billingAttempted: billingAttempted,
-               error: rpcError)
-        {
-            let subscriptionTier = try await Self.loadSettingsTier(credentials: credentials)
-            return Self.identityOnlySnapshot(
-                credentials: credentials,
-                localSummary: localSummary,
-                cliVersion: cliVersion,
-                subscriptionTier: subscriptionTier)
-        }
-
-        if billing == nil {
+        let isIdentityOnly = billing == nil && self.identityOnlyFallback(credentials, billingAttempted, rpcError)
+        // Terminal CLI failures must reach the provider's web fallback without scanning discarded history.
+        guard billing != nil || isIdentityOnly else {
             throw rpcError ?? GrokRPCError.notAuthenticated
         }
 
-        let subscriptionTier = try await Self.loadSettingsTier(credentials: credentials)
+        let localSummary = try await self.localSummary(env)
+        let cliVersion = Self.detectVersion(env: env)
+        // Preserve the original eligibility checkpoint after potentially slow local work.
+        if isIdentityOnly, !self.identityOnlyFallback(credentials, billingAttempted, rpcError) {
+            throw rpcError ?? GrokRPCError.notAuthenticated
+        }
+        let subscriptionTier = try await Self.loadSettingsTier(
+            credentials: credentials,
+            session: self.settingsTransport)
         return GrokUsageSnapshot(
             billing: billing,
             webBilling: nil,
-            credentials: Self.credentialsForSnapshot(
+            credentials: isIdentityOnly ? credentials : Self.credentialsForSnapshot(
                 credentials: credentials,
                 billing: billing,
                 webBilling: nil),
             localSummary: localSummary,
             cliVersion: cliVersion,
             updatedAt: Date(),
+            diagnostic: isIdentityOnly ? Self.teamUsageUnavailableMessage : nil,
             subscriptionTier: subscriptionTier)
     }
 
@@ -213,12 +249,11 @@ public struct GrokStatusProbe: Sendable {
 
     static func isBillingMethodUnavailable(_ error: Error?) -> Bool {
         guard let error,
-              case let GrokRPCError.requestFailed(message) = error
+              case let GrokRPCError.requestFailed(_, code) = error
         else {
             return false
         }
-        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized == "method not found" || normalized.hasPrefix("method not found:")
+        return code == -32601
     }
 
     static func shouldUseIdentityOnlyFallback(

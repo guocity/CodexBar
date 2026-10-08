@@ -11,7 +11,7 @@ read_when:
 `codexbar config` edits the same resolved config file used by the app's Settings → Providers pane.
 New installs use `~/.config/codexbar/config.json`; absolute `XDG_CONFIG_HOME` paths and `CODEXBAR_CONFIG` are
 supported, and existing `~/.codexbar/config.json` installs keep using the legacy file when no XDG config exists.
-The CLI writes the file with `0600` permissions.
+The CLI stages writes in a private `0700` directory on the destination volume, creates the file with `0600` permissions before writing any bytes, then syncs and atomically replaces the config.
 
 ## Providers
 
@@ -116,3 +116,7 @@ codexbar config dump --pretty
 ```
 
 `dump` prints normalized config, including providers omitted from a hand-written file.
+
+Missing, empty, or JSON-whitespace-only config files use defaults on macOS and Linux. `validate`, `dump`, and
+`usage` leave such files unchanged; the next `config enable`, `disable`, or `set-api-key` writes valid JSON.
+Malformed non-empty JSON still produces a config error and a nonzero exit without overwriting the file.

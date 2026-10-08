@@ -11,6 +11,55 @@ public enum CostUsageScanExecutor {
 
     private static let queue = DispatchQueue(label: queueLabel, qos: .utility)
 
+    package struct TimedResult<Value: Sendable>: Sendable {
+        package let value: Value
+        package let activeDuration: TimeInterval
+
+        package init(value: Value, activeDuration: TimeInterval) {
+            self.value = value
+            self.activeDuration = activeDuration
+        }
+    }
+
+    package static func runTimed<T: Sendable>(
+        _ work: @escaping @Sendable (_ checkCancellation: @escaping @Sendable () throws -> Void) throws -> T)
+        async throws -> TimedResult<T>
+    {
+        try await self.runTimed(on: self.queue, work)
+    }
+
+    static func runTimed<T: Sendable>(
+        on queue: DispatchQueue,
+        _ work: @escaping @Sendable (_ checkCancellation: @escaping @Sendable () throws -> Void) throws -> T)
+        async throws -> TimedResult<T>
+    {
+        try await self.run(on: queue) { checkCancellation in
+            // Queue contention must not become active-work debt in the caller's duty-cycle policy.
+            let start = ContinuousClock.now
+            let value = try work(checkCancellation)
+            let duration = (ContinuousClock.now - start).components
+            return TimedResult(
+                value: value,
+                activeDuration: Double(duration.seconds)
+                    + Double(duration.attoseconds) / 1_000_000_000_000_000_000)
+        }
+    }
+
+    final class LockedState<State>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var state: State
+
+        init(_ state: State) {
+            self.state = state
+        }
+
+        func withLock<Result>(_ body: (inout State) throws -> Result) rethrows -> Result {
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            return try body(&self.state)
+        }
+    }
+
     private final class RunState<Value: Sendable>: @unchecked Sendable {
         private enum Phase {
             case initial
@@ -111,6 +160,9 @@ public enum CostUsageScanExecutor {
         _ work: @escaping @Sendable (_ checkCancellation: @escaping @Sendable () throws -> Void) throws -> T)
         async throws -> T
     {
+        #if DEBUG
+        let storeTestHooks = CostUsageStoreTestHooks.current
+        #endif
         let state = RunState<T>()
         let checkCancellation: @Sendable () throws -> Void = {
             try state.checkCancellation()
@@ -120,7 +172,15 @@ public enum CostUsageScanExecutor {
                 guard state.install(continuation) else { return }
                 queue.async {
                     guard state.begin() else { return }
-                    state.complete(with: Result { try work(checkCancellation) })
+                    state.complete(with: Result {
+                        #if DEBUG
+                        try CostUsageStoreTestHooks.$current.withValue(storeTestHooks) {
+                            try work(checkCancellation)
+                        }
+                        #else
+                        try work(checkCancellation)
+                        #endif
+                    })
                 }
             }
         } onCancel: {

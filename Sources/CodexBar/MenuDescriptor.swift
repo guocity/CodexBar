@@ -38,6 +38,7 @@ struct MenuDescriptor {
 
     enum MenuActionSystemImage: String {
         case installUpdate = "arrow.down.circle"
+        case checkForUpdates = "arrow.triangle.2.circlepath.circle"
         case refresh = "arrow.clockwise"
         case dashboard = "chart.xyaxis.line"
         case statusPage = "waveform.path.ecg"
@@ -63,6 +64,7 @@ struct MenuDescriptor {
 
     enum MenuAction: Equatable {
         case installUpdate
+        case checkForUpdates
         case refresh
         case refreshAugmentSession
         case dashboard
@@ -77,6 +79,7 @@ struct MenuDescriptor {
         case openCodexWorkspaces
         case settings
         case stats
+        case providerSettings(UsageProvider)
         case about
         case quit
         case copyError(String)
@@ -93,10 +96,16 @@ struct MenuDescriptor {
         managedCodexAccountCoordinator: ManagedCodexAccountCoordinator? = nil,
         codexAccountPromotionCoordinator: CodexAccountPromotionCoordinator? = nil,
         updateReady: Bool,
+        availableUpdateVersion: String? = nil,
+        isInstallingUpdate: Bool = false,
+        canCheckForUpdates: Bool = false,
+        versionText: String = AppVersion.shortVersion,
         includeContextualActions: Bool = true,
         codexWorkspacesMenuEnabled: Bool = false,
+        isKeepingAwake: Bool = false,
         agentSessionsEnabled: Bool = false,
         agentSessionLabelStyle: AgentSessionLabelStyle = .project,
+        agentSessionsHideUnreachableHosts: Bool = false,
         localAgentSessions: [AgentSession] = [],
         remoteAgentHosts: [RemoteSessionHostResult] = [],
         now: Date = Date()) -> MenuDescriptor
@@ -151,14 +160,23 @@ struct MenuDescriptor {
                 sections.append(actions)
             }
         }
+        if isKeepingAwake {
+            sections.append(Section(entries: [.text("Stay Awake: local agent session is live", .secondary)]))
+        }
         if agentSessionsEnabled {
             sections.append(Self.agentSessionsSection(
                 localSessions: localAgentSessions,
                 remoteHosts: remoteAgentHosts,
                 labelStyle: agentSessionLabelStyle,
+                hideUnreachableHosts: agentSessionsHideUnreachableHosts,
                 now: now))
         }
-        sections.append(Self.metaSection(updateReady: updateReady))
+        sections.append(Self.metaSection(
+            updateReady: updateReady,
+            availableUpdateVersion: availableUpdateVersion,
+            isInstallingUpdate: isInstallingUpdate,
+            canCheckForUpdates: canCheckForUpdates,
+            versionText: versionText))
 
         return MenuDescriptor(sections: sections)
     }
@@ -167,9 +185,11 @@ struct MenuDescriptor {
         localSessions: [AgentSession],
         remoteHosts: [RemoteSessionHostResult],
         labelStyle: AgentSessionLabelStyle = .project,
+        hideUnreachableHosts: Bool = false,
         now: Date = Date()) -> Section
     {
-        let totalCount = localSessions.count + remoteHosts.reduce(0) { $0 + $1.sessions.count }
+        let visibleRemoteHosts = hideUnreachableHosts ? remoteHosts.filter(\.isReachable) : remoteHosts
+        let totalCount = localSessions.count + visibleRemoteHosts.reduce(0) { $0 + $1.sessions.count }
         var entries: [Entry] = [.text("Agent Sessions (\(totalCount))", .headline)]
 
         for session in localSessions {
@@ -177,7 +197,7 @@ struct MenuDescriptor {
                 self.agentSessionRowTitle(session, labelStyle: labelStyle, now: now),
                 .focusAgentSession(session, remoteHost: nil)))
         }
-        for remoteHost in remoteHosts {
+        for remoteHost in visibleRemoteHosts {
             if let error = remoteHost.error {
                 entries.append(.unavailable("\(remoteHost.host) — unreachable", error))
                 continue
@@ -234,13 +254,9 @@ struct MenuDescriptor {
     {
         let meta = store.metadata(for: provider)
         var entries: [Entry] = []
-        let headlineText: String = {
-            if let ver = Self.versionNumber(for: provider, store: store) {
-                return "\(meta.displayName) \(ver)"
-            }
-            return meta.displayName
-        }()
-        entries.append(.text(headlineText, .headline))
+        let versionSuffix = store.version(for: provider)?.firstMatch(of: /[0-9]+(?:\.[0-9]+)*/)
+            .map { " \($0.output)" } ?? ""
+        entries.append(.text("\(meta.displayName)\(versionSuffix)", .headline))
 
         if let snap = store.snapshot(for: provider.instanceID) {
             let resetStyle = settings.resetTimeDisplayStyle
@@ -248,39 +264,14 @@ struct MenuDescriptor {
             let presentation = ProviderDescriptorRegistry.descriptor(for: provider).presentation
             let paceVisible = settings.paceVisible && ProviderDescriptorRegistry.descriptor(for: provider).pace
                 .allowsPace(dataConfidence: snap.dataConfidence)
-            if let primary = snap.primary {
-                let primaryDetail = primary.resetDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let primaryDescriptionIsDetail = presentation.menu.usesPrimaryDescriptionAsDetail(snapshot: snap)
-                let primaryWindow = if primaryDescriptionIsDetail {
-                    // Some providers use resetDescription for non-reset detail
-                    // (e.g., "Unlimited", "X/Y credits"). Avoid rendering it as a "Resets ..." line.
-                    RateWindow(
-                        usedPercent: primary.usedPercent,
-                        windowMinutes: primary.windowMinutes,
-                        resetsAt: primary.resetsAt,
-                        resetDescription: nil)
-                } else {
-                    primary
-                }
+            if let primary = snap.primary?.measured {
                 Self.appendRateWindow(
                     entries: &entries,
                     title: labels.primary,
-                    window: primaryWindow,
+                    window: primary,
                     resetStyle: resetStyle,
-                    showUsed: settings.usageBarsShowUsed)
-                if primaryDescriptionIsDetail,
-                   let primaryDetail,
-                   !primaryDetail.isEmpty
-                {
-                    entries.append(.text(primaryDetail, .secondary))
-                }
-                if presentation.menu.duplicatesPrimaryDetailWhenResetDatePresent,
-                   primary.resetsAt != nil,
-                   let primaryDetail,
-                   !primaryDetail.isEmpty
-                {
-                    entries.append(.text(primaryDetail, .secondary))
-                }
+                    showUsed: settings.usageBarsShowUsed,
+                    descriptionIsDetail: presentation.menu.usesPrimaryDescriptionAsDetail(snapshot: snap))
                 if paceVisible,
                    presentation.menu.showsPrimaryWeeklyPace,
                    let pace = store.weeklyPace(provider: provider, window: primary, dataConfidence: snap.dataConfidence)
@@ -347,7 +338,8 @@ struct MenuDescriptor {
                     title: extra.title,
                     window: extra.window,
                     resetStyle: resetStyle,
-                    showUsed: settings.usageBarsShowUsed)
+                    showUsed: settings.usageBarsShowUsed,
+                    descriptionIsDetail: presentation.menuCard.extraRateWindowShowsResetDescriptionAsDetail(extra))
             }
 
             Self.appendProviderUsageSummaries(
@@ -625,16 +617,29 @@ struct MenuDescriptor {
         return Section(entries: entries)
     }
 
-    private static func metaSection(updateReady: Bool) -> Section {
+    static func metaSection(
+        updateReady: Bool,
+        availableUpdateVersion: String? = nil,
+        isInstallingUpdate: Bool = false,
+        canCheckForUpdates: Bool = false,
+        versionText: String = AppVersion.shortVersion) -> Section
+    {
         var entries: [Entry] = []
         if updateReady {
             entries.append(.action(L("Update ready, restart now?"), .installUpdate))
+        } else if isInstallingUpdate {
+            entries.append(.text(L("Updating with Homebrew…"), .secondary))
+        } else if let availableUpdateVersion {
+            entries.append(.action(String(format: L("Update to %@"), availableUpdateVersion), .installUpdate))
+        } else if canCheckForUpdates {
+            entries.append(.action(L("Check for Updates…"), .checkForUpdates))
         }
+        let aboutLabel = L("About CodexBar") + (versionText.isEmpty ? "" : " (v\(versionText))")
         entries.append(contentsOf: [
             .action(L("Refresh"), .refresh),
             .action(L("Settings..."), .settings),
             .action(L("Stats"), .stats),
-            .action(L("About CodexBar"), .about),
+            .action(aboutLabel, .about),
             .action(L("Quit"), .quit),
         ])
         return Section(entries: entries)
@@ -679,6 +684,18 @@ struct MenuDescriptor {
         {
             return true
         }
+        // CLI quota reads can succeed without identity. Retained history or failed refreshes do not prove this.
+        if target == .claude,
+           snapshot?.hasRateLimitWindows == true,
+           store.error(for: .claude) == nil,
+           store.lastSourceLabels[.claude] == "claude",
+           let attempt = store.fetchAttempts(for: .claude).last,
+           attempt.kind == .cli,
+           attempt.wasAvailable,
+           attempt.errorDescription == nil
+        {
+            return true
+        }
         let metadata = store.metadata(for: target)
         if metadata.usesAccountFallback,
            let fallback = account.email?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -694,6 +711,7 @@ struct MenuDescriptor {
         metadata: ProviderMetadata,
         snapshot: UsageSnapshot) -> (primary: String, secondary: String, tertiary: String, showsTertiary: Bool)
     {
+        let presentation = ProviderDescriptorRegistry.descriptor(for: provider).presentation
         if provider == .factory, snapshot.tertiary != nil {
             return (L("5-hour"), L("Weekly"), L("Monthly"), true)
         }
@@ -705,8 +723,6 @@ struct MenuDescriptor {
                 weeklyLabel: metadata.weeklyLabel)
         } else if provider == .grok {
             GrokProviderDescriptor.displayLabel(window: snapshot.primary) ?? metadata.sessionLabel
-        } else if provider == .crof {
-            CrofProviderDescriptor.primaryLabel(snapshot: snapshot)
         } else if provider == .doubao {
             DoubaoProviderDescriptor.primaryLabel(window: snapshot.primary) ?? metadata.sessionLabel
         } else if provider == .sub2api {
@@ -716,7 +732,7 @@ struct MenuDescriptor {
         } else if provider == .alibabatokenplan {
             AlibabaTokenPlanProviderDescriptor.primaryLabel(window: snapshot.primary) ?? metadata.sessionLabel
         } else {
-            metadata.sessionLabel
+            presentation.rateWindowLabels(metadata: metadata, snapshot: snapshot).primary
         }
         let secondaryLabel = if provider == .codex {
             CodexConsumerProjection.rateTitle(
@@ -744,26 +760,25 @@ struct MenuDescriptor {
         window: RateWindow,
         resetStyle: ResetTimeDisplayStyle,
         showUsed: Bool,
-        resetOverride: String? = nil)
+        resetOverride: String? = nil,
+        descriptionIsDetail: Bool = false)
     {
         let line = UsageFormatter
             .usageLine(remaining: window.remainingPercent, used: window.usedPercent, showUsed: showUsed)
         entries.append(.text("\(title): \(line)", .primary))
         if let resetOverride {
             entries.append(.text(resetOverride, .secondary))
-        } else if let reset = UsageFormatter.resetLine(for: window, style: resetStyle) {
+        } else if !descriptionIsDetail || window.resetsAt != nil,
+                  let reset = UsageFormatter.resetLine(for: window, style: resetStyle)
+        {
             entries.append(.text(reset, .secondary))
         }
-    }
-
-    private static func versionNumber(for provider: UsageProvider, store: UsageStore) -> String? {
-        guard let raw = store.version(for: provider) else { return nil }
-        let pattern = #"[0-9]+(?:\.[0-9]+)*"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
-        guard let match = regex.firstMatch(in: raw, options: [], range: range),
-              let r = Range(match.range, in: raw) else { return nil }
-        return String(raw[r])
+        if descriptionIsDetail,
+           let detail = window.resetDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !detail.isEmpty
+        {
+            entries.append(.text(detail, .secondary))
+        }
     }
 }
 
@@ -776,22 +791,18 @@ private enum AccountFormatter {
         }
         return cleaned.isEmpty ? text : cleaned
     }
-
-    static func email(_ text: String) -> String {
-        text
-    }
 }
 
 extension MenuDescriptor.MenuAction {
     var systemImageName: String? {
         switch self {
         case .installUpdate: MenuDescriptor.MenuActionSystemImage.installUpdate.rawValue
-        case .settings: MenuDescriptor.MenuActionSystemImage.settings.rawValue
+        case .checkForUpdates: MenuDescriptor.MenuActionSystemImage.checkForUpdates.rawValue
+        case .settings, .providerSettings: MenuDescriptor.MenuActionSystemImage.settings.rawValue
+        case .stats: MenuDescriptor.MenuActionSystemImage.stats.rawValue
         case .about: MenuDescriptor.MenuActionSystemImage.about.rawValue
         case .quit: MenuDescriptor.MenuActionSystemImage.quit.rawValue
-        case .stats: MenuDescriptor.MenuActionSystemImage.stats.rawValue
-        case .refresh: MenuDescriptor.MenuActionSystemImage.refresh.rawValue
-        case .refreshAugmentSession: MenuDescriptor.MenuActionSystemImage.refresh.rawValue
+        case .refresh, .refreshAugmentSession: MenuDescriptor.MenuActionSystemImage.refresh.rawValue
         case .dashboard: MenuDescriptor.MenuActionSystemImage.dashboard.rawValue
         case .statusPage: MenuDescriptor.MenuActionSystemImage.statusPage.rawValue
         case .changelog: MenuDescriptor.MenuActionSystemImage.changelog.rawValue

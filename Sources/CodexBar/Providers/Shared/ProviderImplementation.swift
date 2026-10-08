@@ -42,6 +42,10 @@ protocol ProviderImplementation: Sendable {
     @MainActor
     func settingsFields(context: ProviderSettingsContext) -> [ProviderSettingsFieldDescriptor]
 
+    /// Optional explicit filesystem roots rendered with a shared directory picker.
+    @MainActor
+    func settingsDirectoryLists(context: ProviderSettingsContext) -> [ProviderSettingsDirectoryListDescriptor]
+
     /// Optional provider-specific settings action rows to render in the Providers pane.
     @MainActor
     func settingsActions(context: ProviderSettingsContext) -> [ProviderSettingsActionsDescriptor]
@@ -109,7 +113,11 @@ extension ProviderImplementation {
 
     @MainActor
     func observeSettings(_ settings: SettingsStore) {
-        _ = settings
+        guard ProviderDescriptorRegistry.descriptor(for: self.id).settingsSection.cookieContribution != nil else {
+            return
+        }
+        _ = settings.resolvedCookieSource(provider: self.id, fallback: .auto)
+        _ = settings[providerConfig: self.id, field: .cookieHeader]
     }
 
     @MainActor
@@ -152,6 +160,11 @@ extension ProviderImplementation {
     }
 
     @MainActor
+    func settingsDirectoryLists(context _: ProviderSettingsContext) -> [ProviderSettingsDirectoryListDescriptor] {
+        []
+    }
+
+    @MainActor
     func settingsActions(context _: ProviderSettingsContext) -> [ProviderSettingsActionsDescriptor] {
         []
     }
@@ -177,10 +190,15 @@ extension ProviderImplementation {
     }
 
     @MainActor
-    func settingsSnapshot(context _: ProviderSettingsSnapshotContext)
+    func settingsSnapshot(context: ProviderSettingsSnapshotContext)
         -> ProviderSettingsSnapshotContribution?
     {
-        ProviderDescriptorRegistry.descriptor(for: self.id).settingsSection.defaultContribution
+        let section = ProviderDescriptorRegistry.descriptor(for: self.id).settingsSection
+        guard let contribution = section.cookieContribution else { return section.defaultContribution }
+        let settings: CookieProviderSettings = context.settings.resolvedCookieSettings(
+            provider: self.id,
+            tokenOverride: context.tokenOverride)
+        return contribution(settings)
     }
 
     @MainActor

@@ -6,15 +6,18 @@ from __future__ import annotations
 import argparse
 import ctypes
 import errno
+import fcntl
+import json
 import os
 from pathlib import Path
 import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,8 @@ class TestSelection:
 
 @dataclass
 class RunStats:
+    execution_mode: str = "serial SwiftPM"
+    workers: int = 1
     discovered_selections: int = 0
     selected_selections: int = 0
     selected_groups: int = 0
@@ -48,6 +53,8 @@ class RunStats:
             shard = f"{self.shard_index + 1}/{self.shard_count}"
         return [
             ("Shard", shard),
+            ("Execution mode", self.execution_mode),
+            ("Workers", str(self.workers)),
             ("Group size", str(self.group_size)),
             ("Discovered selections", str(self.discovered_selections)),
             ("Selected selections", str(self.selected_selections)),
@@ -78,6 +85,7 @@ def parse_args() -> argparse.Namespace:
         help="fail immediately when a group exits without timing out",
     )
     parser.add_argument("--list-only", action="store_true")
+    parser.add_argument("--direct-workers", type=int, help="opt-in macOS direct test groups (1-8 workers; required on CI when requested)")
     parser.add_argument("--swift-command", default="swift")
     parser.add_argument("--swift-command-arg", action="append", default=[])
     return parser.parse_args()
@@ -235,9 +243,11 @@ class TestProcessOwnership:
         self.process = process
         self.known = {root.pid: root.birth}
         self.sessions = {root.pid: root.birth} if root.session == root.pid else {}
+        self.pending_members: dict[int, TestProcess] = {}
+        self.pending_sessions: dict[int, set[int]] = {}
 
-    def refresh(self) -> dict[int, TestProcess]:
-        snapshot = test_process_snapshot(self.known.keys() | self.sessions.keys())
+    def refresh(self, *, observing: bool = False) -> dict[int, TestProcess]:
+        snapshot = test_process_snapshot(self.known.keys() | self.sessions.keys() | self.pending_members.keys())
         if self.process is not None:
             if self.process.returncode is not None:
                 raise RuntimeError("Test root was reaped before cleanup completed")
@@ -256,6 +266,7 @@ class TestProcessOwnership:
                 self.root.pid, self.root.parent, self.root.session, self.root.birth, exited)
         owned = {pid: info for pid, info in snapshot.items() if self.known.get(pid) == info.birth}
         checked_sessions = {}
+        replaced_sessions = set()
         while True:
             self.known.update({pid: info.birth for pid, info in owned.items()})
             self.sessions.update({pid: info.birth for pid, info in owned.items() if info.session == pid})
@@ -269,6 +280,8 @@ class TestProcessOwnership:
                 # Recheck AFTER enumeration: the leader might have been reaped during the snapshot.
                 current = test_process(sid) if anchor is not None and anchor.birth == birth else None
                 checked_sessions[sid] = current is not None and current.birth == birth
+                if (anchor is not None and anchor.birth != birth) or (current is not None and current.birth != birth):
+                    replaced_sessions.add(sid)
             additions = {
                 pid: info for pid, info in snapshot.items()
                 if pid not in owned and (
@@ -279,18 +292,53 @@ class TestProcessOwnership:
             if not additions:
                 break
             owned.update(additions)
+        # Uncertain members can change sessions. Retain their births until confirmed gone
+        # or independently attributed; keeping only the old SID could silently lose them.
+        pending_members = {
+            pid: info for pid, info in self.pending_members.items()
+            if pid in snapshot and snapshot[pid].birth == info.birth
+        }
         for sid in list(self.sessions):
             if checked_sessions[sid]:
                 continue
             members = {pid for pid, info in snapshot.items() if info.session == sid and not info.zombie}
             if members - owned.keys():
-                raise RuntimeError(
-                    f"Lost test session continuity for SID {sid}; "
-                    f"cannot attribute PIDs {sorted(members - owned.keys())}")
+                # A nested owner may still be draining its hidden, unreaped child's session.
+                # Observation retains uncertainty; cleanup never adopts or signals these PIDs.
+                if observing and self.process is not None and not exited and sid not in replaced_sessions:
+                    pending_members.update({pid: snapshot[pid] for pid in members - owned.keys()})
+                else:
+                    raise RuntimeError(
+                        f"Lost test session continuity for SID {sid}; "
+                        f"cannot attribute PIDs {sorted(members - owned.keys())}")
             if not members:
                 del self.sessions[sid]
+        pending_members = {pid: info for pid, info in pending_members.items() if pid not in owned}
+        # Uncertainty follows observed ancestry and live pending session leaders, without
+        # granting ownership. Use current sessions after migration; old SIDs are not anchors.
+        while True:
+            additions = {
+                pid: info for pid, info in snapshot.items()
+                if pid not in owned and pid not in pending_members and (
+                    (info.parent in pending_members and info.birth >= pending_members[info.parent].birth)
+                    or (info.session in pending_members and snapshot[info.session].session == info.session
+                        and not snapshot[info.session].zombie and info.birth >= pending_members[info.session].birth)
+                )
+            }
+            if not additions:
+                break
+            pending_members.update(additions)
+        # Matching zombies can still prove ancestry above, but do not themselves need draining.
+        pending_members = {pid: info for pid, info in pending_members.items() if not snapshot[pid].zombie}
+        pending_sessions: dict[int, set[int]] = {}
+        for pid, info in pending_members.items():
+            pending_sessions.setdefault(info.session, set()).add(pid)
+        if pending_sessions and (not observing or self.process is None or exited):
+            raise RuntimeError(f"Lost test session continuity; cannot attribute pending PIDs {sorted(pending_members)}")
         # Confirmed exits/replacements retire; unavailable known metadata raises before reaching here.
         self.known = {pid: info.birth for pid, info in owned.items()}
+        self.pending_members = pending_members
+        self.pending_sessions = pending_sessions
         return {pid: info for pid, info in owned.items() if not info.zombie}
 
     def send(self, info: TestProcess, sig: signal.Signals) -> None:
@@ -391,11 +439,29 @@ def stop_unreaped_child(process: subprocess.Popen) -> None:
     process.wait(timeout=2)
 
 
-def run_command(command: list[str], timeout: int | None = None) -> int:
+CONTAINMENT_CAPABILITIES = ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT")
+
+
+def containment_support_error(capabilities: object = os) -> str | None:
     if sys.platform != "darwin" and not sys.platform.startswith("linux"):
-        raise RuntimeError("Swift test process containment requires macOS or Linux")
-    if not all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT")):
-        raise RuntimeError("Swift test process containment requires waitid with WNOWAIT")
+        return f"Swift test process containment requires macOS or Linux, not {sys.platform}."
+    missing = [name for name in CONTAINMENT_CAPABILITIES if not hasattr(capabilities, name)]
+    if not missing:
+        return None
+    # A version number alone does not tell the reader which build of python3 to reach for.
+    version = ".".join(str(part) for part in sys.version_info[:3])
+    return (
+        "Swift test process containment requires waitid with WNOWAIT. "
+        f"{sys.executable} is Python {version} and does not provide: {', '.join(missing)}. "
+        "Run make test and make check with a python3 that provides them, "
+        "for example Homebrew python@3.14 placed first on PATH."
+    )
+
+
+def run_command(command: list[str], timeout: int | None = None) -> int:
+    error = containment_support_error()
+    if error is not None:
+        raise RuntimeError(error)
     print(f"+ {' '.join(command)}", flush=True)
     started = time.monotonic()
     ownership = None
@@ -413,7 +479,7 @@ def run_command(command: list[str], timeout: int | None = None) -> int:
         ownership = TestProcessOwnership(root, process)
         next_diagnostic = started + 30
         while True:
-            owned = ownership.refresh()
+            owned = ownership.refresh(observing=True)
             result = unreaped_exit_code(process)
             if result is not None:
                 return result
@@ -445,17 +511,88 @@ def run_command(command: list[str], timeout: int | None = None) -> int:
             signal.signal(signal.SIGINT, previous_interrupt)
 
 
-def swift_test_list(swift_command: list[str]) -> list[TestSelection]:
-    command = [*swift_command, "test", "list"]
+def is_missing_sparkle_runtime_failure(result: subprocess.CompletedProcess[str]) -> bool:
+    output = f"{result.stdout}\n{result.stderr}"
+    return (
+        "Library not loaded: @rpath/Sparkle.framework/Versions/B/Sparkle" in output
+        and "PackageFrameworks/Sparkle.framework" in output
+    )
+
+
+def valid_sparkle_runtime(path: Path) -> bool:
+    return path.is_dir() and any(
+        (path / "Versions" / version / "Sparkle").is_file()
+        for version in ("Current", "B")
+    )
+
+
+def sparkle_runtime_matches_source(destination: Path, source: Path) -> bool:
+    if not destination.is_symlink():
+        return False
     try:
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as error:
+        return destination.resolve(strict=True) == source.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+
+
+def repair_sparkle_test_runtime(swift_command: list[str]) -> bool:
+    result = subprocess.run(
+        [*swift_command, "build", "--show-bin-path"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(lines) != 1:
+        return False
+
+    bin_dir = Path(lines[0])
+    if not bin_dir.is_absolute():
+        bin_dir = Path.cwd() / bin_dir
+    source = bin_dir / "Sparkle.framework"
+    if not valid_sparkle_runtime(source):
+        return False
+
+    package_frameworks = bin_dir / "PackageFrameworks"
+    package_frameworks.mkdir(parents=True, exist_ok=True)
+    destination = package_frameworks / "Sparkle.framework"
+    lock_path = package_frameworks / ".sparkle-runtime.lock"
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        if sparkle_runtime_matches_source(destination, source):
+            return True
+        if destination.exists() and not destination.is_symlink():
+            return valid_sparkle_runtime(destination)
+
+        temporary = package_frameworks / f".Sparkle.framework.{os.getpid()}.{time.time_ns()}"
+        try:
+            temporary.symlink_to(Path("..") / "Sparkle.framework", target_is_directory=True)
+            os.replace(temporary, destination)
+        except IsADirectoryError:
+            return valid_sparkle_runtime(destination)
+        finally:
+            if temporary.is_symlink():
+                temporary.unlink()
+        return sparkle_runtime_matches_source(destination, source)
+
+
+def swift_test_list(swift_command: list[str], inventory: list[str] | None = None) -> list[TestSelection]:
+    command = [*swift_command, "test", "list"]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0 and is_missing_sparkle_runtime_failure(result):
+        if repair_sparkle_test_runtime(swift_command):
+            print("Recovered SwiftPM Sparkle test runtime; retrying discovery once.", flush=True)
+            result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
         print(f"+ {swift_command[0]} test list", flush=True)
-        if error.stdout:
-            print(error.stdout, end="" if error.stdout.endswith("\n") else "\n", flush=True)
-        if error.stderr:
-            print(error.stderr, end="" if error.stderr.endswith("\n") else "\n", file=sys.stderr, flush=True)
-        raise
+        if result.stdout:
+            print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", flush=True)
+        if result.stderr:
+            print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr, flush=True)
+        result.check_returncode()
+    if inventory is not None:
+        inventory.extend(line.strip() for line in result.stdout.splitlines() if line.strip())
     selections: set[TestSelection] = set()
     unknown: list[str] = []
     for line in result.stdout.splitlines():
@@ -514,9 +651,33 @@ def print_timing_summary(stats: RunStats) -> None:
         print(f"- {field}: {value}", flush=True)
 
 
-def chunks(items: list[TestSelection], size: int) -> Iterable[list[TestSelection]]:
-    for index in range(0, len(items), size):
-        yield items[index : index + size]
+ISOLATED_SUITES = {
+    "CodexBarTests.CostUsageBoundedProgressTests",
+    "CodexBarTests.CostUsageCacheWideMigrationTests",
+    "CodexBarTests.CostUsageFairSchedulingTests",
+    "CodexBarTests.CostUsagePerformanceGateTests",
+    "CodexBarTests.KiroStatusProbeTests",
+    "CodexBarTests.StatusMenuTests",
+    "CodexBarTests.TTYIntegrationTests",
+}
+
+
+def test_groups(items: list[TestSelection], size: int) -> Iterable[list[TestSelection]]:
+    # Measured slow suites keep their own deadline instead of forcing a whole batch to retry.
+    pending: list[TestSelection] = []
+    for item in items:
+        if item.suite_name in ISOLATED_SUITES:
+            if pending:
+                yield pending
+                pending = []
+            yield [item]
+            continue
+        pending.append(item)
+        if len(pending) == size:
+            yield pending
+            pending = []
+    if pending:
+        yield pending
 
 
 def shard_groups(groups: list[list[TestSelection]], shard_index: int | None, shard_count: int | None) -> list[list[TestSelection]]:
@@ -536,19 +697,6 @@ def prioritized_suites(suites: list[TestSelection]) -> list[TestSelection]:
     ordered = [suite for name in priority for suite in suites if suite.suite_name == name]
     ordered.extend(suite for suite in suites if suite.suite_name not in priority)
     return ordered
-
-
-def filtered_suites_for_environment(suites: list[TestSelection]) -> list[TestSelection]:
-    if os.environ.get("GITHUB_ACTIONS") != "true" or sys.platform != "darwin":
-        return suites
-
-    # SwiftPM hangs before suite output for this executable-target suite on the Intel macOS runner.
-    # Linux CI still runs it in the full Swift test lane, and local macOS runs it directly.
-    skipped = {"CodexBarTests.CLIEntryTests"}
-    filtered = [suite for suite in suites if suite.suite_name not in skipped]
-    if len(filtered) != len(suites):
-        print(f"Skipping macOS CI-only suites: {', '.join(sorted(skipped))}", flush=True)
-    return filtered
 
 
 def filter_for(suites: list[TestSelection]) -> str:
@@ -586,21 +734,33 @@ def main() -> int:
         shard_index=args.shard_index,
         shard_count=args.shard_count,
     )
+    if args.direct_workers is not None and not 1 <= args.direct_workers <= 8:
+        print("--direct-workers must be between 1 and 8", file=sys.stderr)
+        return 2
     if args.group_size < 1:
         print("--group-size must be positive", file=sys.stderr)
         return 2
+    # Discovery builds the package, so report an unusable interpreter before that cost.
+    # --list-only never runs a test command and keeps working without containment.
+    if not args.list_only:
+        error = containment_support_error()
+        if error is not None:
+            print(error, file=sys.stderr)
+            return 2
 
     swift_command = [args.swift_command, *args.swift_command_arg]
     result = 0
     try:
         discovery_started = time.monotonic()
         try:
-            suites = prioritized_suites(filtered_suites_for_environment(swift_test_list(swift_command)))
+            inventory: list[str] = []
+            discovered = swift_test_list(swift_command, inventory) if args.direct_workers is not None else swift_test_list(swift_command)
+            suites = prioritized_suites(discovered)
         finally:
             stats.discovery_seconds = time.monotonic() - discovery_started
         stats.discovered_selections = len(suites)
 
-        suite_groups = list(chunks(suites, args.group_size))
+        suite_groups = list(test_groups(suites, args.group_size))
         try:
             suite_groups = shard_groups(suite_groups, args.shard_index, args.shard_count)
         except ValueError as error:
@@ -629,6 +789,51 @@ def main() -> int:
         if not suite_groups:
             print("No test groups selected.", flush=True)
             return 0
+
+        # The same ordered manifest is printed for serial and direct execution.
+        for index, group in enumerate(suite_groups, start=1):
+            print(f"Selected group {index}: {json.dumps([selection.name for selection in group])}", flush=True)
+
+        if args.direct_workers is not None:
+            from direct_swift_test_groups import InventoryMismatch, pool_timeout, prepare_runtime
+            with tempfile.TemporaryDirectory(prefix="codexbar-direct-run-") as directory:
+                root = Path(directory)
+                groups = [[asdict(selection) for selection in group] for group in suite_groups]
+                try:
+                    runtime = prepare_runtime(swift_command, groups, inventory, root)
+                except InventoryMismatch as error:
+                    print(f"Direct mode refused: {error}", file=sys.stderr, flush=True)
+                    result = 2
+                    return result
+                except (ValueError, OSError, subprocess.SubprocessError) as error:
+                    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+                        print(f"Direct mode refused on CI: {error}", file=sys.stderr, flush=True)
+                        result = 2
+                        return result
+                    print(f"Direct mode unavailable: {error} Falling back to serial SwiftPM.", flush=True)
+                else:
+                    stats.execution_mode = "direct"
+                    stats.workers = args.direct_workers
+                    print(f"Direct runtime verified {len(inventory)} test methods; using {args.direct_workers} workers.", flush=True)
+                    manifest = root / "manifest.json"
+                    manifest.write_text(json.dumps({"runtime": runtime, "groups": groups,
+                        "timeout": args.timeout, "workers": args.direct_workers,
+                        "retry_non_timeout_failures": args.retry_non_timeout_failures}))
+                    execution_started = time.monotonic()
+                    result = run_command([sys.executable, str(Path(__file__).with_name("direct_swift_test_groups.py")),
+                                          str(manifest)], timeout=pool_timeout(
+                                              groups, args.timeout, args.retry_non_timeout_failures,
+                                              len(runtime["products"])))
+                    report = root / "results.json"
+                    if report.is_file():
+                        records = json.loads(report.read_text())
+                        stats.first_pass_successful_groups = sum(record["first_code"] == 0 for record in records)
+                        stats.first_pass_failed_groups = sum(record["first_code"] != 0 for record in records)
+                        stats.full_group_retries = sum(record["full_retries"] for record in records)
+                        stats.isolated_selection_retries = sum(record["isolated_retries"] for record in records)
+                        stats.timed_out_groups = sum(record["timed_out"] for record in records)
+                        stats.recovered_groups = sum(record["first_code"] != 0 and record["code"] == 0 for record in records)
+                    return result
 
         execution_started = time.monotonic()
         for group_index, group in enumerate(suite_groups, start=1):

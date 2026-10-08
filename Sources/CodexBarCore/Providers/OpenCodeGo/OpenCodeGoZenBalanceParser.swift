@@ -3,6 +3,26 @@ import Foundation
 enum OpenCodeGoZenBalanceParser {
     private static let billingScale = 100_000_000.0
 
+    static func parseConsoleBillingStatus(text: String) throws -> Double? {
+        guard let data = text.data(using: .utf8),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let billingMode = root["billingMode"] as? String,
+              ["prepaid", "legacy", "seat", "credit"].contains(billingMode),
+              let mode = root["mode"] as? String,
+              ["pay-as-you-go", "invoiceable"].contains(mode)
+        else { throw OpenCodeGoUsageError.parseFailed("Invalid Console billing payload.") }
+        guard billingMode == "prepaid", mode == "pay-as-you-go" else { return nil }
+        guard let raw = root["balanceMicroCents"] as? String else {
+            throw OpenCodeGoUsageError.parseFailed("Missing Console balance.")
+        }
+        let digits = raw.hasPrefix("-") ? raw.dropFirst() : raw[...]
+        guard !digits.isEmpty,
+              digits.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+              let balance = Double(raw), balance.isFinite
+        else { throw OpenCodeGoUsageError.parseFailed("Invalid Console balance.") }
+        return balance / self.billingScale
+    }
+
     static func parse(text: String) -> Double? {
         if let value = self.parseJSON(text: text) {
             return value
@@ -11,11 +31,11 @@ enum OpenCodeGoZenBalanceParser {
             #"(?i)(?:current\s+balance|zen\s+balance|現在の残高)"#,
             #"[^$]{0,80}\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)"#,
         ].joined()
-        if let value = self.extractDollarValue(pattern: localizedPattern, text: text) {
+        if let value = self.extractNumber(pattern: localizedPattern, text: text) {
             return value
         }
         let nearbyPattern = #"(?i)(?:balance|残高)[\s\S]{0,120}?\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)"#
-        return self.extractDollarValue(pattern: nearbyPattern, text: text)
+        return self.extractNumber(pattern: nearbyPattern, text: text)
     }
 
     static func parseBillingServerResponse(text: String) -> Double? {
@@ -44,27 +64,26 @@ enum OpenCodeGoZenBalanceParser {
         else {
             return nil
         }
-        return self.findBalanceValue(in: object, path: [])
+        return self.findBalanceValue(in: object)
     }
 
-    private static func findBalanceValue(in object: Any, path: [String]) -> Double? {
+    private static func findBalanceValue(in object: Any) -> Double? {
         if let dict = object as? [String: Any] {
             for (key, value) in dict {
-                let nextPath = path + [key]
                 if self.isExplicitBalanceAmountKey(key),
                    let number = self.doubleValue(from: value)
                 {
                     return number
                 }
-                if let found = self.findBalanceValue(in: value, path: nextPath) {
+                if let found = self.findBalanceValue(in: value) {
                     return found
                 }
             }
             return nil
         }
         if let array = object as? [Any] {
-            for (index, value) in array.enumerated() {
-                if let found = self.findBalanceValue(in: value, path: path + ["[\(index)]"]) {
+            for value in array {
+                if let found = self.findBalanceValue(in: value) {
                     return found
                 }
             }
@@ -118,10 +137,6 @@ enum OpenCodeGoZenBalanceParser {
             "balanceusd",
             "usdbalance",
         ].contains(normalized)
-    }
-
-    private static func extractDollarValue(pattern: String, text: String) -> Double? {
-        self.extractNumber(pattern: pattern, text: text)
     }
 
     private static func extractNumber(pattern: String, text: String) -> Double? {

@@ -16,7 +16,7 @@ private struct KimiStubClaudeFetcher: ClaudeUsageFetching {
     }
 }
 
-private func makeKimiFetchContext(
+func makeKimiFetchContext(
     sourceMode: ProviderSourceMode,
     environment: [String: String] = [:],
     settings: ProviderSettingsSnapshot? = nil) -> ProviderFetchContext
@@ -36,7 +36,7 @@ private func makeKimiFetchContext(
         browserDetection: BrowserDetection(cacheTTL: 0))
 }
 
-private func makeTemporaryKimiCodeHome() throws -> URL {
+func makeTemporaryKimiCodeHome() throws -> URL {
     let home = FileManager.default.temporaryDirectory
         .appendingPathComponent("CodexBar-KimiCode-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(
@@ -46,7 +46,7 @@ private func makeTemporaryKimiCodeHome() throws -> URL {
     return home
 }
 
-private func writeKimiCodeCredential(
+func writeKimiCodeCredential(
     home: URL,
     accessToken: String,
     refreshToken: String = "refresh",
@@ -57,16 +57,20 @@ private func writeKimiCodeCredential(
     var payload: [String: Any] = [
         "access_token": accessToken,
         "refresh_token": refreshToken,
+        "expires_in": 900,
+        "scope": "synthetic-scope",
+        "token_type": "Bearer",
     ]
     if let expiresAt {
         payload["expires_at"] = expiresAt
     }
     let url = credentials.appendingPathComponent("kimi-code.json")
-    try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]).write(to: url)
+    try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        .write(to: url, options: .atomic)
     return url
 }
 
-private actor KimiOrderedCredentialTransport: ProviderHTTPTransport {
+actor KimiOrderedCredentialTransport: ProviderHTTPTransport {
     private var headers: [String] = []
 
     func authorizationHeaders() -> [String] {
@@ -99,6 +103,52 @@ private actor KimiOrderedCredentialTransport: ProviderHTTPTransport {
 }
 
 struct KimiSettingsReaderTests {
+    @Test
+    func `international config rejects unscoped CLI credentials before a request`() async throws {
+        let home = try makeTemporaryKimiCodeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        _ = try writeKimiCodeCredential(
+            home: home,
+            accessToken: "synthetic-cli-token",
+            expiresAt: Date().addingTimeInterval(3600).timeIntervalSince1970)
+        let config = try JSONDecoder().decode(
+            ProviderConfig.self, from: Data(#"{"id":"kimi","region":"international","cookieSource":"off"}"#.utf8))
+        let contribution = try #require(KimiProviderDescriptor.descriptor.settingsSection.credentialContribution(
+            context: .init(config: config, account: nil)))
+        let context = makeKimiFetchContext(
+            sourceMode: .auto,
+            environment: ["KIMI_CODE_HOME": home.path],
+            settings: .init(contributions: [contribution]))
+        let transport = ProviderHTTPTransportStub { _ in
+            Issue.record("Unscoped CLI credentials must never reach an International request")
+            throw URLError(.cancelled)
+        }
+        let strategy = KimiCLICredentialFetchStrategy(transport: transport)
+        #expect(await strategy.isAvailable(context) == false)
+        await #expect(throws: KimiAPIError.expiredCodeCredential) { try await strategy.fetch(context) }
+        #expect(await transport.requests().isEmpty)
+    }
+
+    @Test
+    func `international config routes Code usage to kimi ai`() async throws {
+        let config = try JSONDecoder().decode(
+            ProviderConfig.self,
+            from: Data(#"{"id":"kimi","region":"international","cookieSource":"off"}"#.utf8))
+        let contribution = try #require(KimiProviderDescriptor.descriptor.settingsSection.credentialContribution(
+            context: .init(config: config, account: nil)))
+        let transport = ProviderHTTPTransportStub { request in
+            let url = try #require(request.url)
+            #expect(url.absoluteString == "https://api.kimi.ai/coding/v1/usages")
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            return (Data(#"{"usage":{"limit":"100","used":"25","remaining":"75"}}"#.utf8), response)
+        }
+        let context = makeKimiFetchContext(
+            sourceMode: .api,
+            environment: ["KIMI_CODE_API_KEY": "synthetic-key"],
+            settings: .init(contributions: [contribution]))
+        _ = try await KimiAPIFetchStrategy(transport: transport).fetch(context)
+    }
+
     @Test
     func `reads token from environment variable`() {
         let env = ["KIMI_AUTH_TOKEN": "test.jwt.token"]
@@ -343,7 +393,16 @@ struct KimiAPIFetchStrategyTests {
                     Data(#"{"usage":{"limit":"100","used":"25","remaining":"75"},"limits":[]}"#.utf8),
                     response)
             }
-            #expect(url.path.hasSuffix("/GetSubscriptionStats"))
+            if url.path.hasSuffix("/GetSubscription") {
+                return (
+                    Data(
+                        """
+                        {"subscription":{"active":true,"status":"SUBSCRIPTION_STATUS_ACTIVE",
+                        "goods":{"title":"Allegro"}}}
+                        """.utf8),
+                    response)
+            }
+            #expect(url.path.hasSuffix("/GetSubscriptionStats") || url.path.hasSuffix("/GetSubscription"))
             #expect(request.value(forHTTPHeaderField: "Cookie") == "kimi-auth=desktop-token")
             return (
                 Data(#"{"subscriptionBalance":{"feature":"FEATURE_OMNI","type":"SUBSCRIPTION","amountUsedRatio":0.42}}"#
@@ -361,8 +420,9 @@ struct KimiAPIFetchStrategyTests {
         let result = try await strategy.fetch(context)
         let monthly = result.usage.extraRateWindows?.first { $0.id == "kimi-monthly" }
 
+        #expect(result.usage.loginMethod(for: .kimi) == "Allegro")
         #expect(monthly?.window.usedPercent == 42)
-        #expect(await transport.requests().count == 2)
+        #expect(await transport.requests().count == 3)
     }
 
     @Test
@@ -472,23 +532,25 @@ struct KimiAPIFetchStrategyTests {
     }
 
     @Test
-    func `auto mode falls back from API response decoding failure`() {
+    func `auto mode falls back from API response decoding failure`() throws {
         let strategy = KimiAPIFetchStrategy()
         let context = makeKimiFetchContext(sourceMode: .auto)
-        let error = DecodingError.dataCorrupted(
-            DecodingError.Context(codingPath: [], debugDescription: "Unexpected Kimi payload"))
+        let error = #expect(throws: DecodingError.self) {
+            try KimiUsageFetcher.parseCodeAPIUsage(from: Data("{}".utf8))
+        }
 
-        #expect(strategy.shouldFallback(on: error, context: context))
+        #expect(try strategy.shouldFallback(on: #require(error), context: context))
     }
 
     @Test
-    func `explicit API mode surfaces response decoding failure`() {
+    func `explicit API mode surfaces response decoding failure`() throws {
         let strategy = KimiAPIFetchStrategy()
         let context = makeKimiFetchContext(sourceMode: .api)
-        let error = DecodingError.dataCorrupted(
-            DecodingError.Context(codingPath: [], debugDescription: "Unexpected Kimi payload"))
+        let error = #expect(throws: DecodingError.self) {
+            try KimiUsageFetcher.parseCodeAPIUsage(from: Data("{}".utf8))
+        }
 
-        #expect(strategy.shouldFallback(on: error, context: context) == false)
+        #expect(try strategy.shouldFallback(on: #require(error), context: context) == false)
     }
 
     @Test
@@ -624,9 +686,9 @@ struct KimiUsageResponseParsingTests {
         }
         """
 
-        let snapshot = try KimiUsageFetcher._parseCodeAPIUsageForTesting(Data(json.utf8))
-        #expect(snapshot.weekly.limit == "2048")
-        #expect(snapshot.weekly.used == "375")
+        let snapshot = try KimiUsageFetcher.parseCodeAPIUsage(from: Data(json.utf8))
+        #expect(snapshot.weekly?.limit == "2048")
+        #expect(snapshot.weekly?.used == "375")
         #expect(snapshot.rateLimit?.limit == "200")
         #expect(snapshot.rateLimit?.used == "19")
 
@@ -719,12 +781,12 @@ struct KimiUsageResponseParsingTests {
         }
         """
 
-        let snapshot = try KimiUsageFetcher._parseCodeAPIUsageForTesting(Data(json.utf8))
+        let snapshot = try KimiUsageFetcher.parseCodeAPIUsage(from: Data(json.utf8))
 
-        #expect(snapshot.weekly.limit == "1000")
-        #expect(snapshot.weekly.used == "40")
-        #expect(snapshot.weekly.remaining == "960")
-        #expect(snapshot.weekly.resetTime == "2026-01-09T15:23:13Z")
+        #expect(snapshot.weekly?.limit == "1000")
+        #expect(snapshot.weekly?.used == "40")
+        #expect(snapshot.weekly?.remaining == "960")
+        #expect(snapshot.weekly?.resetTime == "2026-01-09T15:23:13Z")
         #expect(snapshot.rateLimit?.limit == "100")
         #expect(snapshot.rateLimit?.used == nil)
         #expect(snapshot.rateLimit?.remaining == "99")
@@ -732,6 +794,26 @@ struct KimiUsageResponseParsingTests {
         #expect(snapshot.toUsageSnapshot().primary?.windowMinutes == KimiProviderDescriptor.weeklyWindowMinutes)
         #expect(snapshot.toUsageSnapshot().secondary?.windowMinutes == 300)
         #expect(snapshot.toUsageSnapshot().secondary?.resetDescription == "Rate: 1/100 per 5 hours")
+    }
+
+    @Test(arguments: [
+        ("9223372036854775807", "9223372036854775807"),
+        ("9223372036854775808", "9.223372036854776e+18"),
+        ("-9223372036854775808", "-9223372036854775808"),
+        ("1e20", "1e+20"),
+        ("40.5", "40.5"),
+    ])
+    func `decodes numeric usage at integer boundaries`(number: String, expected: String) throws {
+        let json = """
+        {"limit": \(number), "used": \(number), "remaining": \(number), "reset_at": \(number)}
+        """
+
+        let detail = try JSONDecoder().decode(KimiUsageDetail.self, from: Data(json.utf8))
+
+        #expect(detail.limit == expected)
+        #expect(detail.used == expected)
+        #expect(detail.remaining == expected)
+        #expect(detail.resetTime == expected)
     }
 
     @Test
@@ -748,7 +830,7 @@ struct KimiUsageResponseParsingTests {
         }
         """
 
-        let usage = try KimiUsageFetcher._parseCodeAPIUsageForTesting(Data(json.utf8)).toUsageSnapshot()
+        let usage = try KimiUsageFetcher.parseCodeAPIUsage(from: Data(json.utf8)).toUsageSnapshot()
 
         #expect(usage.secondary?.windowMinutes == 120)
         #expect(usage.secondary?.resetDescription == "Rate: 25/100 per 2 hours")
@@ -779,7 +861,7 @@ struct KimiUsageResponseParsingTests {
         }
         """
 
-        let usage = try KimiUsageFetcher._parseCodeAPIUsageForTesting(Data(json.utf8)).toUsageSnapshot()
+        let usage = try KimiUsageFetcher.parseCodeAPIUsage(from: Data(json.utf8)).toUsageSnapshot()
 
         #expect(usage.secondary?.windowMinutes == nil)
         #expect(usage.secondary?.resetDescription == "Rate: 25/100")
@@ -834,8 +916,8 @@ struct KimiUsageResponseParsingTests {
         #expect(response.ratelimitCode7d?.resetTime == "2026-07-09T06:56:36.876796734Z")
     }
 
-    @Test
-    func `subscription grace is a total budget for existing usage windows`() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func `usage windows return while subscription requests ignore cancellation`() async throws {
         let usageJSON = """
         {
           "usages": [
@@ -852,8 +934,9 @@ struct KimiUsageResponseParsingTests {
           ]
         }
         """
-        // Keep the cancellation-ignoring request slower than the scaled wall-clock guard.
-        let subscriptionDelaySeconds = 0.5 * TestTimingBudget.slowdownFactor
+        let subscription = KimiEnrichmentLatch()
+        let hangGuard = subscription.hangGuard()
+        defer { hangGuard.cancel() }
         let transport = ProviderHTTPTransportHandler { request in
             let url = try #require(request.url)
             let response = try #require(HTTPURLResponse(
@@ -862,38 +945,31 @@ struct KimiUsageResponseParsingTests {
                 httpVersion: nil,
                 headerFields: nil))
             if url.path.hasSuffix("/GetUsages") {
-                return await withCheckedContinuation { continuation in
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
-                        continuation.resume(returning: (Data(usageJSON.utf8), response))
-                    }
-                }
+                return (Data(usageJSON.utf8), response)
             }
 
-            return await withCheckedContinuation { continuation in
-                DispatchQueue.global().asyncAfter(deadline: .now() + subscriptionDelaySeconds) {
-                    continuation.resume(returning: (Data("{}".utf8), response))
-                }
-            }
+            await subscription.hold()
+            return (Data("{}".utf8), response)
         }
 
-        let startedAt = ContinuousClock.now
-        let snapshot = try await KimiUsageFetcher._fetchUsageForTesting(
-            authToken: "test-token",
-            transport: transport,
-            subscriptionGrace: .milliseconds(20))
-        let elapsed = startedAt.duration(to: .now)
+        let snapshot: KimiUsageSnapshot
+        do {
+            snapshot = try await KimiUsageFetcher.fetchUsage(
+                authToken: "test-token",
+                transport: transport,
+                subscriptionGrace: .milliseconds(20))
+        } catch {
+            await subscription.release()
+            throw error
+        }
+        #expect(await !subscription.released)
+        await subscription.release()
         let usage = snapshot.toUsageSnapshot()
 
         #expect(usage.primary?.usedPercent == 25)
         #expect(usage.primary?.windowMinutes == KimiProviderDescriptor.weeklyWindowMinutes)
         #expect(usage.secondary?.usedPercent == 25)
         #expect(usage.extraRateWindows == nil)
-        #expect(
-            elapsed < TestTimingBudget.scaled(.milliseconds(250)),
-            "Subscription enrichment outlived its total budget: \(elapsed)")
-
-        // Drain the deliberately cancellation-ignoring test request before the test exits.
-        try await Task.sleep(for: TestTimingBudget.scaled(.milliseconds(550)))
     }
 
     @Test
@@ -934,11 +1010,11 @@ struct KimiUsageResponseParsingTests {
             if url.path.hasSuffix("/GetUsages") {
                 return (Data(usageJSON.utf8), response)
             }
-            #expect(url.path.hasSuffix("/GetSubscriptionStats"))
+            #expect(url.path.hasSuffix("/GetSubscriptionStats") || url.path.hasSuffix("/GetSubscription"))
             return (Data(subscriptionJSON.utf8), response)
         }
 
-        let snapshot = try await KimiUsageFetcher._fetchUsageForTesting(
+        let snapshot = try await KimiUsageFetcher.fetchUsage(
             authToken: "test-token",
             transport: transport,
             subscriptionGrace: .seconds(1))
@@ -956,7 +1032,7 @@ struct KimiUsageResponseParsingTests {
     @Test
     func `builds default code API usage endpoint`() throws {
         let baseURL = try #require(URL(string: "https://api.kimi.com"))
-        let endpoint = KimiUsageFetcher._codeAPIUsageEndpointForTesting(baseURL: baseURL)
+        let endpoint = KimiUsageFetcher.codeAPIUsageEndpoint(baseURL: baseURL)
 
         #expect(endpoint.absoluteString == "https://api.kimi.com/coding/v1/usages")
     }
@@ -964,7 +1040,7 @@ struct KimiUsageResponseParsingTests {
     @Test
     func `appends code API path to custom proxy root`() throws {
         let baseURL = try #require(URL(string: "https://proxy.example.com/kimi"))
-        let endpoint = KimiUsageFetcher._codeAPIUsageEndpointForTesting(baseURL: baseURL)
+        let endpoint = KimiUsageFetcher.codeAPIUsageEndpoint(baseURL: baseURL)
 
         #expect(endpoint.absoluteString == "https://proxy.example.com/kimi/coding/v1/usages")
     }
@@ -972,7 +1048,7 @@ struct KimiUsageResponseParsingTests {
     @Test
     func `does not duplicate code API path when base URL already includes it`() throws {
         let baseURL = try #require(URL(string: "https://api.kimi.com/coding/v1"))
-        let endpoint = KimiUsageFetcher._codeAPIUsageEndpointForTesting(baseURL: baseURL)
+        let endpoint = KimiUsageFetcher.codeAPIUsageEndpoint(baseURL: baseURL)
 
         #expect(endpoint.absoluteString == "https://api.kimi.com/coding/v1/usages")
     }
@@ -980,7 +1056,7 @@ struct KimiUsageResponseParsingTests {
     @Test
     func `does not duplicate code API path with trailing slash`() throws {
         let baseURL = try #require(URL(string: "https://proxy.example.com/kimi/coding/v1/"))
-        let endpoint = KimiUsageFetcher._codeAPIUsageEndpointForTesting(baseURL: baseURL)
+        let endpoint = KimiUsageFetcher.codeAPIUsageEndpoint(baseURL: baseURL)
 
         #expect(endpoint.absoluteString == "https://proxy.example.com/kimi/coding/v1/usages")
     }
@@ -988,7 +1064,7 @@ struct KimiUsageResponseParsingTests {
     @Test
     func `does not duplicate coding path prefix`() throws {
         let baseURL = try #require(URL(string: "https://proxy.example.com/kimi/coding/"))
-        let endpoint = KimiUsageFetcher._codeAPIUsageEndpointForTesting(baseURL: baseURL)
+        let endpoint = KimiUsageFetcher.codeAPIUsageEndpoint(baseURL: baseURL)
 
         #expect(endpoint.absoluteString == "https://proxy.example.com/kimi/coding/v1/usages")
     }
@@ -1006,9 +1082,9 @@ struct KimiUsageResponseParsingTests {
 
     @Test
     func `maps code API authentication and permission errors separately`() {
-        #expect(KimiUsageFetcher._codeAPIErrorForTesting(statusCode: 401) == .invalidAPIKey)
+        #expect(KimiUsageFetcher.codeAPIError(statusCode: 401) == .invalidAPIKey)
         #expect(
-            KimiUsageFetcher._codeAPIErrorForTesting(statusCode: 403)
+            KimiUsageFetcher.codeAPIError(statusCode: 403)
                 == .apiError("HTTP 403 (permission or quota denied)"))
     }
 
@@ -1113,6 +1189,18 @@ struct KimiUsageSnapshotConversionTests {
         #expect(monthly.window.usedPercent == 100)
         #expect(monthly.window.windowMinutes == ProviderPaceCapability.monthlyWindowSentinelMinutes)
         #expect(monthly.window.resetsAt == Self.date("2026-07-23T00:00:00Z"))
+
+        let resolution = KimiProviderDescriptor.descriptor.presentation.menuBarWindow(context: .init(
+            metric: .automatic,
+            snapshot: usageSnapshot,
+            supportsAverage: false,
+            prioritizesExhaustedQuotas: false,
+            now: now))
+        guard case let .resolved(window) = resolution else {
+            Issue.record("Kimi automatic usage should resolve the exhausted membership pool")
+            return
+        }
+        #expect(window == monthly.window)
     }
 
     @Test
@@ -1482,22 +1570,5 @@ struct KimiTokenResolverTests {
             #expect(resolution?.token == "test.jwt.token")
             #expect(resolution?.source == .environment)
         }
-    }
-}
-
-struct KimiAPIErrorTests {
-    @Test
-    func `error descriptions are helpful`() {
-        #expect(KimiAPIError.missingToken.errorDescription?.contains("missing") == true)
-        #expect(KimiAPIError.invalidToken.errorDescription?.contains("invalid") == true)
-        #expect(KimiAPIError.missingAPIKey.errorDescription?.contains("Settings > Providers > Kimi") == true)
-        #expect(KimiAPIError.missingAPIKey.errorDescription?.contains("KIMI_CODE_API_KEY") == true)
-        #expect(KimiAPIError.expiredCodeCredential.errorDescription?.contains("does not refresh") == true)
-        #expect(KimiAPIError.invalidCodeCredential.errorDescription?.contains("Sign in again") == true)
-        #expect(KimiAPIError.invalidAPIKey.errorDescription?.contains("API key") == true)
-        #expect(KimiAPIError.invalidRequest("Bad request").errorDescription?.contains("Bad request") == true)
-        #expect(KimiAPIError.networkError("Timeout").errorDescription?.contains("Timeout") == true)
-        #expect(KimiAPIError.apiError("HTTP 500").errorDescription?.contains("HTTP 500") == true)
-        #expect(KimiAPIError.parseFailed("Invalid JSON").errorDescription?.contains("Invalid JSON") == true)
     }
 }

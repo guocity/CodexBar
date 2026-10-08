@@ -203,7 +203,7 @@ struct CodexConsumerProjection {
         let userFacingError: String?
 
         var remaining: Double? {
-            self.snapshot?.codexCreditLimit?.remaining ?? self.snapshot?.remaining
+            self.snapshot?.displayRemaining
         }
     }
 
@@ -265,6 +265,7 @@ struct CodexConsumerProjection {
     let canShowBuyCredits: Bool
     let hasUsageBreakdown: Bool
     let hasCreditsHistory: Bool
+    let extraUsageCost: ProviderCostSnapshot?
 
     private let rateWindowsByLane: [RateLane: RateWindow]
     private let codeReviewRemainingPercent: Double?
@@ -272,6 +273,7 @@ struct CodexConsumerProjection {
     private let evaluationTime: Date
 
     static func make(surface: Surface, context: Context) -> CodexConsumerProjection {
+        // Account cards can show their credit quota; standalone balance and dashboard sections stay hidden.
         let allowsLiveAdjuncts = surface != .overrideCard
         let dashboardVisibility = self.dashboardVisibility(surface: surface, context: context)
         let dashboard = allowsLiveAdjuncts && dashboardVisibility != .hidden ? context.liveDashboard : nil
@@ -282,11 +284,17 @@ struct CodexConsumerProjection {
         let visibleRateLanes = self.visibleRateLanes(from: rateWindowsByLane, snapshot: context.snapshot)
         let planUtilizationLanes = self.planUtilizationLanes(from: rateWindowsByLane)
 
+        let extraUsageCost = context.showOptionalCreditsAndExtraUsage
+            ? CodexExtraUsageCost.resolving(
+                liveCredits: context.liveCredits,
+                attached: context.snapshot?.providerCost)
+            : nil
         let creditsProjection: CreditsProjection? = if allowsLiveAdjuncts,
                                                        context.liveCredits != nil || context.rawCreditsError != nil
         {
             CreditsProjection(
-                snapshot: context.liveCredits,
+                snapshot: CodexExtraUsageCost.creditsForDisplay(
+                    context.liveCredits, attached: context.snapshot?.providerCost),
                 userFacingError: CodexUIErrorMapper.userFacingMessage(context.rawCreditsError))
         } else {
             nil
@@ -330,6 +338,7 @@ struct CodexConsumerProjection {
             canShowBuyCredits: canShowBuyCredits,
             hasUsageBreakdown: hasUsageBreakdown,
             hasCreditsHistory: hasCreditsHistory,
+            extraUsageCost: extraUsageCost,
             rateWindowsByLane: rateWindowsByLane,
             codeReviewRemainingPercent: dashboardVisibility == .attached ? dashboard?.codeReviewRemainingPercent : nil,
             codeReviewLimit: dashboardVisibility == .attached ? dashboard?.codeReviewLimit : nil,
@@ -461,7 +470,20 @@ struct CodexConsumerProjection {
         switch surface {
         case .menuBar, .overrideCard:
             guard context.showOptionalCreditsAndExtraUsage else { return nil }
-            return context.liveCredits?.codexCreditLimit
+            let live = context.liveCredits?.codexCreditLimit
+            guard let cost = CodexExtraUsageCost.resolving(
+                liveCredits: context.liveCredits, attached: context.snapshot?.providerCost),
+                cost.currencyCode == CodexExtraUsageCost.currencyCode, cost.limit > 0
+            else { return live }
+            if let live, live.updatedAt >= cost.updatedAt {
+                return live
+            }
+            return CodexCreditLimitSnapshot(
+                used: cost.used,
+                limit: cost.limit,
+                remainingPercent: max(0, 100 - cost.used / cost.limit * 100),
+                resetsAt: cost.resetsAt,
+                updatedAt: cost.updatedAt)
         case .liveCard, .widget:
             return nil
         }
@@ -534,10 +556,6 @@ struct CodexConsumerProjection {
         case .monthly:
             .monthly
         }
-    }
-
-    static func planUtilizationSeriesNames(snapshot: UsageSnapshot) -> Set<PlanUtilizationSeriesName> {
-        Set(self.rateWindowsByLane(snapshot: snapshot).keys.map { self.planUtilizationRole(for: $0) })
     }
 
     private enum SnapshotSlot {
@@ -704,7 +722,7 @@ extension UsageStore {
         case .secondary, .tertiary:
             return second ?? first
         case .extraUsage:
-            return first
+            return projection.extraUsageCost?.spendLimitWindow ?? first
         case .average:
             guard self.settings.menuBarMetricSupportsAverage(for: .codex),
                   let primary = first,

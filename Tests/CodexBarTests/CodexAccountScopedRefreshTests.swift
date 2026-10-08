@@ -53,7 +53,7 @@ struct CodexAccountScopedRefreshTests {
         #expect(store.lastCreditsSource == .none)
         #expect(store.openAIDashboard == nil)
         #expect(store.lastOpenAIDashboardSnapshot == nil)
-        #expect(store.tokenSnapshots[.codex] == tokenSnapshot)
+        #expect(store.tokenSnapshotPublications[.codex]?.snapshot == tokenSnapshot)
         #expect(widgetSnapshots.count == 1)
         #expect(widgetSnapshots[0].entries.contains(where: { $0.provider == .codex }) == false)
     }
@@ -158,6 +158,9 @@ struct CodexAccountScopedRefreshTests {
             errorMessage: "Network error: offline")
         { store, snapshotStore, priorSnapshots in
             await store.refreshCodexVisibleAccountsForMenu()
+            await store.refreshCodexVisibleAccountsForMenu()
+            #expect(store.snapshots[.codex]?.primary?.usedPercent == 17)
+            #expect(store.snapshots[.codex]?.updatedAt == priorSnapshots.first?.snapshot?.updatedAt)
 
             #expect(store.codexAccountSnapshots.count == priorSnapshots.count)
             #expect(store.codexAccountSnapshots.allSatisfy { $0.snapshot?.primary?.usedPercent == 17 })
@@ -201,6 +204,7 @@ struct CodexAccountScopedRefreshTests {
         store._setSnapshotForTesting(self.codexSnapshot(email: "alpha@example.com", usedPercent: 10), provider: .codex)
         store.lastCreditsSnapshot = cachedCredits
         store.lastCreditsSnapshotAccountKey = "alpha@example.com"
+        store.lastCreditsSnapshotOwnerGuard = store.freshCodexAccountScopedRefreshGuard()
         store._test_codexCreditsLoaderOverride = {
             throw TestRefreshError(message: "Codex credits data not available yet")
         }
@@ -274,7 +278,7 @@ struct CodexAccountScopedRefreshTests {
     }
 
     @Test
-    func `credits refresh returns quickly when no live codex account is available`() async {
+    func `credits refresh skips its loader when no live codex account is available`() async {
         let settings = self.makeSettingsStore(suite: "CodexAccountScopedRefreshTests-credits-no-live-account")
         let isolatedHome = CodexCredentialFixtures.root
             .appendingPathComponent("codex-credits-no-live-\(UUID().uuidString)", isDirectory: true)
@@ -295,12 +299,10 @@ struct CodexAccountScopedRefreshTests {
         }
         defer { store._test_codexCreditsLoaderOverride = nil }
 
-        let startedAt = ContinuousClock.now
         await store.refreshCreditsIfNeeded(minimumSnapshotUpdatedAt: Date())
-        let elapsed = startedAt.duration(to: .now)
 
         #expect(loaderCalled == false)
-        #expect(elapsed < .seconds(3))
+        #expect(store.credits == nil)
     }
 
     @Test
@@ -930,5 +932,25 @@ struct CodexAccountScopedRefreshTests {
         #expect(settings.codexActiveSource == .managedAccount(id: managedAccountID))
         #expect(store.snapshots[.codex]?.accountEmail(for: .codex) == "managed@example.com")
         #expect(store.credits?.remaining == 55)
+    }
+}
+
+extension CodexAccountScopedRefreshTests {
+    @Test
+    func `localized Codex transport errors retain the selected cached snapshot`() async throws {
+        try await self.withCodexVisibleAccountFailureStore(
+            suite: "CodexAccountScopedRefreshTests-localized-network",
+            errorMessage: "fixture")
+        { store, _, priorSnapshots in
+            self.installFailingCodexProvider(on: store, error: NSError(
+                domain: NSURLErrorDomain,
+                code: NSURLErrorCannotFindHost,
+                userInfo: [NSLocalizedDescriptionKey: "Verbindung fehlgeschlagen"]))
+            await store.refreshCodexVisibleAccountsForMenu()
+            await store.refreshCodexVisibleAccountsForMenu()
+            #expect(store.snapshots[.codex]?.primary?.usedPercent == 17)
+            #expect(store.snapshots[.codex]?.updatedAt == priorSnapshots.first?.snapshot?.updatedAt)
+            #expect(store.codexAccountSnapshots.allSatisfy { $0.snapshot?.primary?.usedPercent == 17 })
+        }
     }
 }
