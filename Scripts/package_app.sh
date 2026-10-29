@@ -100,6 +100,12 @@ source "$ROOT/version.env"
 source "$ROOT/Scripts/package_product_paths.sh"
 source "$ROOT/Scripts/sparkle_signing_paths.sh"
 
+# SwiftBuild can record the deployment target as the SDK, enabling legacy native UI.
+CODEXBAR_MACOS_SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
+SDK_VERSION=$(xcrun --sdk macosx --show-sdk-version)
+BUILD_ARGS=(--sdk "$CODEXBAR_MACOS_SDK_PATH"
+  -Xlinker -platform_version -Xlinker macos -Xlinker 14.0 -Xlinker "$SDK_VERSION")
+
 # Clean build only when explicitly requested (slower).
 if [[ "${CODEXBAR_FORCE_CLEAN:-0}" == "1" ]]; then
   if [[ -d "$ROOT/.build" ]]; then
@@ -194,13 +200,13 @@ KEYBOARD_SHORTCUTS_UTIL="$ROOT/.build/checkouts/KeyboardShortcuts/Sources/Keyboa
 build_swift_products() {
   local arch=$1
   if [[ "${CODEXBAR_ONLY_APP:-0}" == "1" ]]; then
-    swift build -c "$CONF" --arch "$arch" --product CodexBar
+    swift build "${BUILD_ARGS[@]}" -c "$CONF" --arch "$arch" --product CodexBar
   elif [[ "${CODEXBAR_SKIP_WIDGET:-0}" == "1" || "${SKIP_WIDGET:-0}" == "1" ]]; then
-    swift build -c "$CONF" --arch "$arch" --product CodexBar
-    swift build -c "$CONF" --arch "$arch" --product CodexBarCLI
-    swift build -c "$CONF" --arch "$arch" --product CodexBarClaudeWatchdog
+    swift build "${BUILD_ARGS[@]}" -c "$CONF" --arch "$arch" --product CodexBar
+    swift build "${BUILD_ARGS[@]}" -c "$CONF" --arch "$arch" --product CodexBarCLI
+    swift build "${BUILD_ARGS[@]}" -c "$CONF" --arch "$arch" --product CodexBarClaudeWatchdog
   else
-    swift build -c "$CONF" --arch "$arch"
+    swift build "${BUILD_ARGS[@]}" -c "$CONF" --arch "$arch"
   fi
 }
 
@@ -254,6 +260,14 @@ stage_build_products() {
     fi
     if ! binary_has_arch "$product" "$arch"; then
       echo "ERROR: ${product} does not contain required architecture: ${arch}" >&2
+      return 1
+    fi
+    if ! otool -arch "$arch" -l "$product" | awk -v sdk="$SDK_VERSION" '
+      $1 == "cmd" { build = ($2 == "LC_BUILD_VERSION") }
+      build && $1 == "minos" { minimum = ($2 == "14.0") }
+      build && $1 == "sdk" { valid = (minimum && $2 == sdk) }
+      END { exit !valid }'; then
+      echo "ERROR: Expected macOS 14.0 / SDK ${SDK_VERSION} for ${product} (${arch})." >&2
       return 1
     fi
     cp "$product" "$stage_dir/$name"
@@ -393,6 +407,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>SUFeedURL</key><string>${FEED_URL}</string>
     <key>SUPublicEDKey</key><string>${CODEXBAR_SU_PUBLIC_ED_KEY:-AGCY8w5vHirVfGGDGc8Szc5iuOqupZSh9pMj/Qs67XI=}</string>
     <key>SUEnableAutomaticChecks</key><${AUTO_CHECKS}/>
+    <key>SUAutomaticallyUpdate</key><true/>
     <key>CodexBuildTimestamp</key><string>${BUILD_TIMESTAMP}</string>
     <key>CodexGitCommit</key><string>${GIT_COMMIT}</string>
     <key>CodexBarTeamID</key><string>${APP_TEAM_ID}</string>

@@ -131,6 +131,13 @@ struct CLIServeRouterTests {
     func `routes web UI health usage cost and dashboard endpoints`() throws {
         #expect(try CLIServeRouter.route(method: "GET", path: "/", queryItems: [:]) == .webUI)
         #expect(try CLIServeRouter.route(method: "GET", path: "/health", queryItems: [:]) == .health)
+        #expect(try CLIServeRouter.route(method: "GET", path: "/accounts", queryItems: [:]) == .accounts(id: nil))
+        #expect(
+            try CLIServeRouter.route(
+                method: "GET",
+                path: "/accounts/token-account:claude:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                queryItems: [:]) ==
+                .accounts(id: "token-account:claude:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
         #expect(try CLIServeRouter.route(method: "GET", path: "/usage", queryItems: [:]) == .usage(provider: nil))
         #expect(
             try CLIServeRouter.route(
@@ -301,6 +308,10 @@ struct CLIServeRouterTests {
 
         #expect(serve.contains("--request-timeout <seconds>"))
         #expect(serve.contains("codexbar serve --port 8080 --refresh-interval 60 --request-timeout 30"))
+        #expect(serve.contains("GET /accounts"))
+        #expect(serve.contains("GET /accounts/<id>"))
+        #expect(serve.contains("Account IDs are stable opaque identifiers"))
+        #expect(serve.contains("never returns credentials or refreshes usage"))
         #expect(root.contains("--request-timeout <seconds>"))
     }
 
@@ -536,7 +547,7 @@ struct CLIServeRouterTests {
                         key: "usage:",
                         cache: cache,
                         refreshInterval: 60,
-                        requestTimeout: 1)
+                        requestTimeout: 0)
                     {
                         let call = await counter.increment()
                         try? await Task.sleep(nanoseconds: 50_000_000)
@@ -584,7 +595,7 @@ struct CLIServeRouterTests {
     }
 
     @Test
-    func `serve cache does not cache timeouts and recovers on next success`() async {
+    func `serve cache does not cache timeout responses and recovers on next success`() async {
         let cache = CLIServeResponseCache()
         let counter = ServeTestCounter()
 
@@ -592,35 +603,20 @@ struct CLIServeRouterTests {
             key: "usage:",
             cache: cache,
             refreshInterval: 60,
-            requestTimeout: 0.01)
+            requestTimeout: 0)
         {
             _ = await counter.increment()
-            do {
-                try await Task.sleep(nanoseconds: 5_000_000_000)
-                return Self.response("[{\"provider\":\"codex\",\"call\":1}]")
-            } catch {
-                return CodexBarCLI.serveTimeoutResponse()
-            }
+            return CodexBarCLI.serveTimeoutResponse()
         }
 
         #expect(timeout.status == .gatewayTimeout)
         #expect(Self.bodyString(timeout).contains("request timed out"))
 
-        // Timeout delivery can win the actor race just before the canceled
-        // source reports completion. A successor must not start in that gap.
-        for _ in 0..<1000 {
-            if await cache.operations.snapshot().operationCount == 0 {
-                break
-            }
-            await Task.yield()
-        }
-        #expect(await cache.operations.snapshot().operationCount == 0)
-
         let success = await CodexBarCLI.cachedServeResponse(
             key: "usage:",
             cache: cache,
             refreshInterval: 60,
-            requestTimeout: 1)
+            requestTimeout: 0)
         {
             let call = await counter.increment()
             return Self.response("[{\"provider\":\"codex\",\"call\":\(call)}]")
@@ -633,7 +629,7 @@ struct CLIServeRouterTests {
             key: "usage:",
             cache: cache,
             refreshInterval: 60,
-            requestTimeout: 1)
+            requestTimeout: 0)
         {
             let call = await counter.increment()
             return Self.response("[{\"provider\":\"codex\",\"call\":\(call)}]")

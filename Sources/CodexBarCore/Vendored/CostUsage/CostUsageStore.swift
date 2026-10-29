@@ -122,7 +122,24 @@ actor CostUsageStore {
         parserHash: CodexParserHash.value)
     static let cacheGeneration = "sqlite:\(CostUsageStore.schemaVersion)"
     static let compatiblePredecessorParserHashes: Set<String> = [
-        "7ff985e81e281a11", // 0.73.0 row-string sharing preserves every persisted value and checkpoint.
+        "4e1358d00a4a47b5", // Optional source ownership preserves existing native Codex rows and checkpoints.
+        "54a95e8fe7bd6ee9", // Validating inspection checkpoints leaves persisted rows and scan progress unchanged.
+        "455876ace937d42a", // Selected-session detail reads leave current-main native rows and checkpoints unchanged.
+        "4feea9e203d85529", // Replacing eager inspection with bounded reads preserves saved rows and checkpoints.
+        "d9542d1ef3ce1875", // Claude-only Mythos prices leave native Codex rows, checkpoints, and reports unchanged.
+        "a47b70abaf8ad86c", // Immutable trace-database reads leave native rows, checkpoints, and reports unchanged.
+        "3f88178bf03ad704", // Exact byte-marker searches preserve native rows, checkpoints, and reports.
+        "fc698834d6329beb", // Opt-in request observation defaults to nil; saved rows and cursors are unchanged.
+        "f406dae284de4a55", // Revision 13 reparses rows to record the session creator account for Auto-review.
+        "379b799bb4b91683", // Current main before tool inspection; stored rows and checkpoints are unchanged.
+        "7ce21041b7a36242", // Prior tool inspection stores survive upstream process cleanup.
+        "0d8f9504f8e63d0f", // On-demand tool inspection leaves current-main rows and checkpoints unchanged.
+        "c0f8e9be04d824c2", // Revision 11 billing survives stricter completion timing validation.
+        "89c0662767e633ea", // Current main row-string sharing survives bounded timing backfill.
+        "e1088fb29c221187", // Revision 11 timing survives value-preserving row-string sharing.
+        "7ff985e81e281a11", // Current main accounting survives bounded timing backfill.
+        "865cef15206ea5c0", // Revision 10 timing survives upstream accounting correction.
+        "d35c9fb00bee059b", // Revision 9 timing survives upstream accounting correction.
         "99d920977063318a", // Preserve the saved-pricing migration before revision 9 reparses mirrors.
         "ed735dc27ffa70d9", // 0.72.0 rows and checkpoints are kept; revision 9 reparses duplicate ledger mirrors.
         "029fe80aa98f27e8", // Revision 7 caches retain history during bounded JSON-fallback reparsing.
@@ -176,11 +193,12 @@ actor CostUsageStore {
         "5f8507161b23757c", // 0.54.2 tokscale parity + priority evidence; persisted row shape unchanged.
     ]
     static let incompatibleRetainedReportPredecessorParserHashes: Set<String> = [
+        "865cef15206ea5c0",
+        "d35c9fb00bee059b",
         "99d920977063318a",
         "dd19ffa2dcfa8d47",
         "2d17f4981b78d07f",
         "8050a4faf4fddb96",
-        "99d920977063318a",
         "ed735dc27ffa70d9",
     ]
 
@@ -223,15 +241,18 @@ actor CostUsageStore {
         parserHash: String = CodexParserHash.value,
         busyTimeoutMilliseconds: Int32 = 5000)
     {
-        let root = cacheRoot ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("CodexBar", isDirectory: true)
-        self.databaseURL = root
-            .appendingPathComponent("cost-usage", isDirectory: true)
-            .appendingPathComponent(Self.databaseFilename, isDirectory: false)
+        self.databaseURL = Self.databaseURL(cacheRoot: cacheRoot)
         self.executor = StoreSerialExecutor.shared(for: self.databaseURL)
         self.expectedSchemaVersion = schemaVersion
         self.expectedParserHash = parserHash
         self.busyTimeoutMilliseconds = busyTimeoutMilliseconds
+    }
+
+    static func databaseURL(cacheRoot: URL?) -> URL {
+        let root = cacheRoot ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("CodexBar", isDirectory: true)
+        return root.appendingPathComponent("cost-usage", isDirectory: true)
+            .appendingPathComponent(Self.databaseFilename, isDirectory: false)
     }
 
     static func combinedSchemaVersion(base: Int, parserHash: String) -> Int32 {
@@ -326,10 +347,11 @@ extension CostUsageStore {
 
     nonisolated func syncLoadCodexReadView(
         calendar: Calendar,
-        purpose: CostUsageStoreReadPurpose) -> CostUsageStoreReadView
+        purpose: CostUsageStoreReadPurpose,
+        sourceScope: OpenCodeLocalHistoryAdapter.ReadScope? = nil) -> CostUsageStoreReadView
     {
         self.syncWithStoreIsolation { store in
-            store.loadCodexReadView(calendar: calendar, purpose: purpose)
+            store.loadCodexReadView(calendar: calendar, purpose: purpose, sourceScope: sourceScope)
         }
     }
 

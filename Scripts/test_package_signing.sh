@@ -117,10 +117,7 @@ for team, configuration, signing, profile_present in itertools.product(
         identity_stub = f'security() {{ echo \'  1) {"A" * 40} "{env["APP_IDENTITY"]}"\'; }}'
         result = subprocess.run(['bash', '-eu', '-c', identity_stub + '\n' + helper + '\n' + generation + '\n' + embedding],
                                 env=env, capture_output=True, text=True)
-        cloudkit = team == 'Y5PE65HELJ' and configuration == 'release' and signing == 'identity'
-        if cloudkit and not profile_present:
-            assert result.returncode != 0 and 'Missing' in result.stderr, result.stderr
-            continue
+        cloudkit = team == 'Y5PE65HELJ' and configuration == 'release' and signing == 'identity' and profile_present
         assert result.returncode == 0, (team, configuration, signing, profile_present, result.stderr)
         bundle = 'com.steipete.codexbar' + ('.debug' if configuration == 'debug' else '')
         expected_group = f'{team}.{bundle}'
@@ -204,7 +201,7 @@ with tempfile.TemporaryDirectory(prefix='codexbar-identity-test-') as directory:
 print(f'{len(cases) * 2} direct identity cases passed without signing or Keychain access.')
 
 release_source = Path(sys.argv[2]).read_text()
-identity_assignment = next(line for line in release_source.splitlines() if line.startswith('APP_IDENTITY='))
+identity_assignment = '\n'.join(line for line in release_source.splitlines() if line.startswith(('DEFAULT_APP_IDENTITY=', 'export APP_IDENTITY=')))
 package_call = next(line for line in release_source.splitlines() if './Scripts/package_app.sh release' in line)
 with tempfile.TemporaryDirectory(prefix='codexbar-release-identity-test-') as directory:
     root = Path(directory)
@@ -214,9 +211,10 @@ with tempfile.TemporaryDirectory(prefix='codexbar-release-identity-test-') as di
     package_stub.chmod(0o755)
     for identity in [None, fork]:
         env = dict(os.environ, ARCHES_VALUE='arm64')
+        env.pop('CODEXBAR_APP_IDENTITY', None)
         env.pop('APP_IDENTITY', None)
         if identity is not None:
-            env['APP_IDENTITY'] = identity
+            env['CODEXBAR_APP_IDENTITY'] = identity
         result = subprocess.run(['bash', '-eu', '-c', identity_assignment + '\n' + package_call],
                                 cwd=root, env=env, capture_output=True, text=True)
         expected = identity or 'Developer ID Application: Peter Steinberger (Y5PE65HELJ)'

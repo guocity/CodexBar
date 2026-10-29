@@ -4,8 +4,7 @@ import SwiftUI
 /// Telemetry configuration page. Reached from the About pane in Settings.
 ///
 /// Kept in its own file (and its own window) so the feature is easy to carry across
-/// upstream merges. Strings are inline English rather than `L(...)` keys to avoid
-/// touching the shared Localizable.strings catalogs.
+/// upstream merges.
 @MainActor
 struct TelemetrySettingsView: View {
     private let service = TelemetryService.shared
@@ -28,18 +27,18 @@ struct TelemetrySettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Telemetry")
+                Text(L("Telemetry"))
                     .font(.title2).bold()
-                Text("Report anonymous usage metrics to your self-hosted telemetry server.")
+                Text(L("Report anonymous usage metrics to your self-hosted telemetry server."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
-            Toggle("Enable telemetry", isOn: self.$enabled)
+            Toggle(L("Enable telemetry"), isOn: self.$enabled)
                 .toggleStyle(.switch)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Server URL")
+                Text(L("Server URL"))
                     .font(.subheadline).bold()
                 TextField(TelemetryConstants.defaultServerURL, text: self.$serverURL)
                     .textFieldStyle(.roundedBorder)
@@ -51,21 +50,21 @@ struct TelemetrySettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Auth token")
+                Text(L("Auth token"))
                     .font(.subheadline).bold()
-                SecureField("tlm_…", text: self.$token)
+                SecureField(L("tlm_…"), text: self.$token)
                     .textFieldStyle(.roundedBorder)
                     .disabled(!self.enabled)
                     .onChange(of: self.token) { _, newValue in
                         self.service.storeToken(newValue)
                     }
-                Text("Sent as the HTTP Bearer token. Stored securely in your login keychain.")
+                Text(L("Sent as the HTTP Bearer token. Stored securely in your login keychain."))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 12) {
-                Button("Send latest usage now") {
+                Button(L("Send latest usage now")) {
                     self.sendNow()
                 }
                 .disabled(!self.enabled || self.testState == .sending)
@@ -77,7 +76,7 @@ struct TelemetrySettingsView: View {
 
             HStack {
                 Spacer()
-                Button("Done") { self.onClose?() }
+                Button(L("Done")) { self.onClose?() }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -96,7 +95,7 @@ struct TelemetrySettingsView: View {
         case .sending:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Sending…").font(.footnote).foregroundStyle(.secondary)
+                Text(L("Sending…")).font(.footnote).foregroundStyle(.secondary)
             }
         case let .success(message):
             Label(message, systemImage: "checkmark.circle.fill")

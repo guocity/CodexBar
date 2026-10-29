@@ -4,6 +4,55 @@ import Testing
 @testable import CodexBar
 
 struct UserFacingLocalizationCoverageTests {
+    @MainActor
+    @Test
+    func `shared provider error presentation follows the app language`() {
+        let settings = testSettingsStore(
+            suiteName: "ProviderErrorLocalization",
+            userDefaults: InMemoryUserDefaults(),
+            config: CodexBarConfig(providers: []))
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing)
+        store.errors[.parallel] = "Login failed"
+        CodexBarLocalizationOverride.$appLanguage.withValue("de") {
+            #expect(store.userFacingError(for: .parallel) == L("Login failed"))
+            #expect(store.userFacingError(for: .parallel) != "Login failed")
+        }
+    }
+
+    @Test
+    func `OpenAI credential scope captions are translated and preserve the account label`() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/CodexBar/Resources")
+        let accountKey = "Applies to the selected token account “%@”. Each account keeps its own limits."
+        let providerKey = "Applies to the OpenAI API key, not to token accounts."
+        let languages = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "lproj" }
+        #expect(languages.count == 23)
+        for language in languages {
+            let identifier = language.deletingPathExtension().lastPathComponent
+            let source = try String(contentsOf: language.appendingPathComponent("Localizable.strings"), encoding: .utf8)
+            #expect(source.contains("\"\(accountKey)\" ="))
+            #expect(source.contains("\"\(providerKey)\" ="))
+            CodexBarLocalizationOverride.$appLanguage.withValue(identifier) {
+                let account = L(accountKey, "Synthetic Account")
+                let provider = L(providerKey)
+                #expect(account.contains("Synthetic Account"))
+                #expect(!account.contains("%@"))
+                if identifier != "en" {
+                    #expect(account != accountKey.replacingOccurrences(of: "%@", with: "Synthetic Account"))
+                    #expect(provider != providerKey)
+                }
+            }
+        }
+    }
+
     @Test
     func `selected user-facing UI surfaces avoid raw English literals`() throws {
         let root = URL(fileURLWithPath: #filePath)
@@ -12,13 +61,13 @@ struct UserFacingLocalizationCoverageTests {
             .deletingLastPathComponent()
 
         let forbiddenMarkersByFile: [String: [String]] = [
-            "Sources/CodexBar/CostHistoryChartMenuView.swift": [
+            "Sources/CodexBar/Menu/CostHistoryChartMenuView.swift": [
                 ".value(\"Day\"",
                 ".value(\"Cost\"",
                 ".value(\"Cap start\"",
                 ".value(\"Cap end\"",
             ],
-            "Sources/CodexBar/CreditsHistoryChartMenuView.swift": [
+            "Sources/CodexBar/Menu/CreditsHistoryChartMenuView.swift": [
                 ".value(\"Day\"",
                 ".value(\"Credits used\"",
                 ".value(\"Cap start\"",
@@ -27,7 +76,7 @@ struct UserFacingLocalizationCoverageTests {
                 "\\(total) credits",
                 "\\(used) credits",
             ],
-            "Sources/CodexBar/PlanUtilizationHistoryChartMenuView.swift": [
+            "Sources/CodexBar/Menu/PlanUtilizationHistoryChartMenuView.swift": [
                 ".value(\"Series\"",
                 ".value(\"Capacity Start\"",
                 ".value(\"Capacity End\"",
@@ -39,7 +88,7 @@ struct UserFacingLocalizationCoverageTests {
                 "                \"Alternatively, set a custom path in Settings.\",",
                 "title: \"No JetBrains IDE detected\"",
             ],
-            "Sources/CodexBar/PreferencesCodexAccountsSection.swift": [
+            "Sources/CodexBar/Providers/Codex/PreferencesCodexAccountsSection.swift": [
                 "?? \"No system account\"",
                 "return \"Adding Account…\"",
                 "return \"Add Account\"",
@@ -55,22 +104,46 @@ struct UserFacingLocalizationCoverageTests {
                 "Text(\"(System)\")",
                 "Button(\"Remove\")",
             ],
-            "Sources/CodexBar/PreferencesProviderDetailView.swift": [
+            "Sources/CodexBar/Settings/PreferencesProviderDetailView.swift": [
                 ".help(\"Refresh\")",
                 "accessibilityLabel: \"Usage used\"",
             ],
-            "Sources/CodexBar/PreferencesProviderErrorView.swift": [
+            "Sources/CodexBar/Settings/PreferencesProviderErrorView.swift": [
                 ".help(\"Copy error\")",
             ],
-            "Sources/CodexBar/PreferencesSpendDashboardPane.swift": [
+            "Sources/CodexBar/Settings/PreferencesSpendDashboardPane.swift": [
                 "Text(\"Partial estimate\")",
             ],
-            "Sources/CodexBar/SpendDashboardProviderBreakdown.swift": [
+            "Sources/CodexBar/Settings/PreferencesMenuPane.swift": [
+                "title: \"Stay Awake\",",
+            ],
+            "Sources/CodexBar/Settings/PreferencesTransferSection.swift": [
+                "Text(\"Portable Preferences\")",
+                "Button(\"Export…\")",
+                "Button(\"Import…\")",
+                "Text(\"Shortcuts\")",
+            ],
+            "Sources/CodexBar/ShareStatsCardView.swift": [
+                "Text(\"LOCAL SNAPSHOT\")",
+                "Label(\"LOCAL · AGGREGATE ONLY\"",
+            ],
+            "Sources/CodexBarWidget/WidgetTiles.swift": [
+                "String(describing: Text(reset, style: .relative))",
+            ],
+            "Sources/CodexBar/Settings/PreferencesNotificationsPane.swift": [
+                "\"Credential expiry\"",
+                "\"Notify once when a provider account needs you to sign in again.\"",
+            ],
+            "Sources/CodexBar/UsageStore/UsageStore+CredentialNotifications.swift": [
+                " needs sign-in\"",
+                "\"Open CodexBar to review the account error and sign in again.\"",
+            ],
+            "Sources/CodexBar/SpendDashboard/SpendDashboardProviderBreakdown.swift": [
                 "Text(\"Model breakdown unavailable\")",
                 "Text(\"Partial model breakdown\")",
                 "Text(\"No model-level history\")",
             ],
-            "Sources/CodexBar/PreferencesProviderSettingsRows.swift": [
+            "Sources/CodexBar/Settings/PreferencesProviderSettingsRows.swift": [
                 "Text(self.title)",
                 "Text(self.toggle.title)",
                 "Text(self.toggle.subtitle)",
@@ -92,14 +165,14 @@ struct UserFacingLocalizationCoverageTests {
                 "Text(\"No organizations loaded. Click Refresh after setting your API key.\")",
                 "Button(\"Refresh organizations\")",
             ],
-            "Sources/CodexBar/PreferencesSidebar.swift": [
+            "Sources/CodexBar/Settings/PreferencesSidebar.swift": [
                 "\"Disabled —",
                 ".accessibilityLabel(\"Sort",
             ],
-            "Sources/CodexBar/StatusItemController+CostMenuCard.swift": [
+            "Sources/CodexBar/StatusItem/StatusItemController+CostMenuCard.swift": [
                 "static let costMenuTitle",
             ],
-            "Sources/CodexBar/UsageBreakdownChartMenuView.swift": [
+            "Sources/CodexBar/Menu/UsageBreakdownChartMenuView.swift": [
                 ".value(\"Day\"",
                 ".value(\"Credits used\"",
                 ".value(\"Service\"",
@@ -119,6 +192,38 @@ struct UserFacingLocalizationCoverageTests {
         #expect(
             violations.isEmpty,
             "Raw user-facing localization markers remain:\n\(violations.joined(separator: "\n"))")
+    }
+
+    @Test
+    func `credential expiry settings and alerts follow the selected language`() {
+        let translations = [
+            (
+                "en",
+                "Credential expiry",
+                "Notify once when a provider account needs you to sign in again.",
+                "Codex needs sign-in",
+                "Open CodexBar to review the account error and sign in again."),
+            (
+                "zh-Hans",
+                "登录凭据过期",
+                "当服务商账户需要重新登录时，发送一次通知。",
+                "Codex 需要重新登录",
+                "打开 CodexBar 查看账户错误并重新登录。"),
+            (
+                "zh-Hant",
+                "登入憑證過期",
+                "當服務商帳戶需要重新登入時，傳送一次通知。",
+                "Codex 需要重新登入",
+                "開啟 CodexBar 查看帳戶錯誤並重新登入。"),
+        ]
+        for (language, title, subtitle, alertTitle, alertBody) in translations {
+            CodexBarLocalizationOverride.$appLanguage.withValue(language) {
+                #expect(L("credential_expiry_notifications_title") == title)
+                #expect(L("credential_expiry_notifications_subtitle") == subtitle)
+                #expect(L("credential_expiry_notification_title", "Codex") == alertTitle)
+                #expect(L("credential_expiry_notification_body") == alertBody)
+            }
+        }
     }
 
     @Test
@@ -194,7 +299,8 @@ struct UserFacingLocalizationCoverageTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let source = try String(
-            contentsOf: root.appendingPathComponent("Sources/CodexBar/SpendDashboardProviderBreakdown.swift"),
+            contentsOf: root
+                .appendingPathComponent("Sources/CodexBar/SpendDashboard/SpendDashboardProviderBreakdown.swift"),
             encoding: .utf8)
 
         #expect(source.contains(#"L("Model breakdown unavailable")"#))

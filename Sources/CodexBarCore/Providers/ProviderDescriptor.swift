@@ -41,8 +41,7 @@ public struct ProviderTokenCostConfig: Sendable {
     public let showsRequestHistory: Bool
     public let hintPlacement: ProviderTokenCostHintPlacement
     public let chartEstimateDisclaimer: ProviderTokenCostHint?
-    /// Keep calendar slots for missing dates; coverage determines whether their costs are known.
-    public let preservesCalendarDaysInCharts: Bool
+    public let chartCalendar: Calendar?
     public let presentation: ProviderTokenHistoryPresentation
 
     public init(
@@ -59,7 +58,7 @@ public struct ProviderTokenCostConfig: Sendable {
         showsRequestHistory: Bool = true,
         hintPlacement: ProviderTokenCostHintPlacement = .afterRequestHistory,
         chartEstimateDisclaimer: ProviderTokenCostHint? = nil,
-        preservesCalendarDaysInCharts: Bool = false,
+        chartCalendar: Calendar? = nil,
         presentation: ProviderTokenHistoryPresentation = .costAndTokens)
     {
         self.supportsTokenCost = supportsTokenCost
@@ -75,7 +74,7 @@ public struct ProviderTokenCostConfig: Sendable {
         self.showsRequestHistory = showsRequestHistory
         self.hintPlacement = hintPlacement
         self.chartEstimateDisclaimer = chartEstimateDisclaimer
-        self.preservesCalendarDaysInCharts = preservesCalendarDaysInCharts
+        self.chartCalendar = chartCalendar
         self.presentation = presentation
     }
 }
@@ -127,15 +126,24 @@ public struct ProviderMenuBarMetricCapabilities: Sendable, Equatable {
     public let supported: Set<ProviderMenuBarMetric>
     public let tertiaryRequiresWindow: Bool
     public let namedExtras: [String: String]
+    /// Compact menu bar tags (e.g. `TP`) for lane percentages. Full lane titles stay in menus, editor
+    /// chips, and accessibility; lanes without a tag render bare.
+    public let laneShortLabels: [ProviderUsageLane: String]
+    /// Compact menu bar tags keyed like `namedExtras`; extras without a tag render their full title.
+    public let namedExtraShortLabels: [String: String]
 
     public init(
         supported: Set<ProviderMenuBarMetric>,
         tertiaryRequiresWindow: Bool = false,
-        namedExtras: [String: String] = [:])
+        namedExtras: [String: String] = [:],
+        laneShortLabels: [ProviderUsageLane: String] = [:],
+        namedExtraShortLabels: [String: String] = [:])
     {
         self.supported = supported
         self.tertiaryRequiresWindow = tertiaryRequiresWindow
         self.namedExtras = namedExtras
+        self.laneShortLabels = laneShortLabels
+        self.namedExtraShortLabels = namedExtraShortLabels
     }
 
     public func supports(_ metric: ProviderMenuBarMetric) -> Bool {
@@ -291,6 +299,8 @@ public struct ProviderPaceCapability: Sendable {
             windowMinutes: minutes,
             resetsAt: window.resetsAt,
             resetDescription: window.resetDescription,
+            quotaLimit: window.quotaLimit,
+            quotaUnit: window.quotaUnit,
             nextRegenPercent: window.nextRegenPercent,
             isSyntheticPlaceholder: window.isSyntheticPlaceholder)
     }
@@ -337,6 +347,7 @@ public struct ProviderDescriptor: Sendable {
     public let menuBarMetrics: ProviderMenuBarMetricCapabilities
     public let fetchPlan: ProviderFetchPlan
     public let cli: ProviderCLIConfig
+    public let nativeAppBundleIdentifiers: Set<String>
     private let configNormalizer: @Sendable (inout ProviderConfig) -> Void
 
     public init(
@@ -354,6 +365,7 @@ public struct ProviderDescriptor: Sendable {
         presentation: ProviderUsagePresentation = ProviderUsagePresentation(),
         fetchPlan: ProviderFetchPlan,
         cli: ProviderCLIConfig,
+        nativeAppBundleIdentifiers: Set<String> = [],
         configNormalizer: @escaping @Sendable (inout ProviderConfig) -> Void = { _ in })
     {
         self.id = id
@@ -370,6 +382,7 @@ public struct ProviderDescriptor: Sendable {
         self.menuBarMetrics = menuBarMetrics ?? (metadata.balanceOnly ? .automaticOnly : .standard)
         self.fetchPlan = fetchPlan
         self.cli = cli
+        self.nativeAppBundleIdentifiers = nativeAppBundleIdentifiers
         self.configNormalizer = configNormalizer
     }
 
@@ -447,7 +460,7 @@ public enum ProviderDescriptorRegistry {
     }
 
     public static var cliNameMap: [String: UsageProvider] {
-        var map: [String: UsageProvider] = [:]
+        var map = Dictionary(uniqueKeysWithValues: self.all.map { ($0.id.rawValue, $0.id) })
         for descriptor in self.all {
             map[descriptor.cli.name] = descriptor.id
             for alias in descriptor.cli.aliases {

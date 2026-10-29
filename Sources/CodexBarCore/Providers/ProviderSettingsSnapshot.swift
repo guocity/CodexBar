@@ -78,7 +78,13 @@ public struct ProviderSettingsSnapshotContribution: Sendable {
 }
 
 public struct ProviderSettingsSectionRegistration: Sendable {
-    public private(set) var selectedProfileBrowser: String?
+    public private(set) var supportsConfigCookieHeader = false
+    public private(set) var selectedProfileBrowsers: [String]?
+    public var selectedProfileBrowser: String? {
+        guard let browsers = self.selectedProfileBrowsers, browsers.count == 1 else { return nil }
+        return browsers[0]
+    }
+
     public let providerID: ProviderInstanceID
     let sectionTypeID: ObjectIdentifier
     public let defaultContribution: ProviderSettingsSnapshotContribution?
@@ -89,7 +95,10 @@ public struct ProviderSettingsSectionRegistration: Sendable {
     private let credentialContributionReader: @Sendable (
         ProviderCredentialSettingsContext) -> ProviderSettingsSnapshotContribution?
 
-    public init<Key: ProviderSettingsSectionKey>(_ key: Key.Type) {
+    public init<Key: ProviderSettingsSectionKey>(
+        _ key: Key.Type, supportsConfigCookieHeader: Bool = false)
+    {
+        self.supportsConfigCookieHeader = supportsConfigCookieHeader
         self.providerID = key.providerID
         self.sectionTypeID = ObjectIdentifier(Key.Section.self)
         self.defaultContribution = nil
@@ -100,13 +109,20 @@ public struct ProviderSettingsSectionRegistration: Sendable {
     public init<Key: ProviderSettingsSectionKey>(_ key: Key.Type, selectedProfileBrowser: String)
         where Key.Section == CookieProviderSettings
     {
+        self.init(key, selectedProfileBrowsers: [selectedProfileBrowser])
+    }
+
+    public init<Key: ProviderSettingsSectionKey>(_ key: Key.Type, selectedProfileBrowsers: [String])
+        where Key.Section == CookieProviderSettings
+    {
         self.init(key, cookieSettings: { $0 }, credentialSettings: { context in
             var settings = CookieProviderSettings(cookieSource: context.config?.cookieSource ?? .auto)
-            settings.selectedBrowserProfile = ProviderBrowserProfile(
-                browserID: selectedProfileBrowser, profileID: context.config?.browserProfileID ?? "")
+            settings.selectedBrowserProfile = ProviderBrowserProfile.selected(
+                in: context.config, browsers: selectedProfileBrowsers)
             return settings
         })
-        self.selectedProfileBrowser = selectedProfileBrowser
+        self.selectedProfileBrowsers = selectedProfileBrowsers
+        self.supportsConfigCookieHeader = false
     }
 
     public init<Key: ProviderSettingsSectionKey>(
@@ -117,6 +133,7 @@ public struct ProviderSettingsSectionRegistration: Sendable {
         self.providerID = key.providerID
         self.sectionTypeID = ObjectIdentifier(Key.Section.self)
         self.defaultContribution = nil
+        self.supportsConfigCookieHeader = true
         self.cookieSettingsReader = { snapshot in
             snapshot[key].flatMap(cookieSettings)
         }
@@ -127,9 +144,11 @@ public struct ProviderSettingsSectionRegistration: Sendable {
 
     public init<Key: ProviderSettingsSectionKey>(
         _ key: Key.Type,
+        supportsConfigCookieHeader: Bool = false,
         credentialSettings: @escaping @Sendable (ProviderCredentialSettingsContext) -> Key.Section?)
     {
         self.init(key, cookieSettings: { _ in nil }, credentialSettings: credentialSettings)
+        self.supportsConfigCookieHeader = supportsConfigCookieHeader
     }
 
     public init<Key: ProviderSettingsSectionKey>(

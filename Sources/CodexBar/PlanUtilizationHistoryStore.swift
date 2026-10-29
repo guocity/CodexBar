@@ -223,7 +223,6 @@ private struct ProviderHistoryDocument: Codable, Sendable {
     let sessionEquivalentWindowPairIdentities: [String: String]
 }
 
-
 struct PlanUtilizationHistoryStore: Sendable {
     /// v1: history-only / session-equivalent identities. v2: adds per-account `accountLabels`.
     fileprivate static let providerSchemaVersion = 2

@@ -4,10 +4,15 @@ public struct RateWindow: Codable, Equatable, Sendable {
     /// Provider usage value, intentionally not normalized globally. Pace and provider-specific diagnostics may
     /// preserve raw over-quota values; display-only projections should use `UsagePercent.displayClamped`.
     public let usedPercent: Double
+    /// Optional provider-supplied label for generic usage-window presentation.
+    public let title: String?
     public let windowMinutes: Int?
     public let resetsAt: Date?
     /// Optional textual reset description (used by Claude CLI UI scrape).
     public let resetDescription: String?
+    /// Absolute allowance and its unit, when reported alongside the percentage.
+    public let quotaLimit: Double?
+    public let quotaUnit: String?
     /// Optional percent restored on the next regeneration tick for providers with rolling recovery.
     public let nextRegenPercent: Double?
     /// Whether this window was synthesized to stand in for a quota lane the provider did not actually
@@ -25,22 +30,31 @@ public struct RateWindow: Codable, Equatable, Sendable {
         windowMinutes: Int?,
         resetsAt: Date?,
         resetDescription: String?,
+        quotaLimit: Double? = nil,
+        quotaUnit: String? = nil,
         nextRegenPercent: Double? = nil,
-        isSyntheticPlaceholder: Bool = false)
+        isSyntheticPlaceholder: Bool = false,
+        title: String? = nil)
     {
         self.usedPercent = usedPercent
+        self.title = title
         self.windowMinutes = windowMinutes
         self.resetsAt = resetsAt
         self.resetDescription = resetDescription
+        self.quotaLimit = quotaLimit
+        self.quotaUnit = quotaUnit
         self.nextRegenPercent = nextRegenPercent
         self.isSyntheticPlaceholder = isSyntheticPlaceholder
     }
 
     private enum CodingKeys: String, CodingKey {
         case usedPercent
+        case title
         case windowMinutes
         case resetsAt
         case resetDescription
+        case quotaLimit
+        case quotaUnit
         case nextRegenPercent
         case isSyntheticPlaceholder
     }
@@ -48,9 +62,12 @@ public struct RateWindow: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.usedPercent = try container.decode(Double.self, forKey: .usedPercent)
+        self.title = try container.decodeIfPresent(String.self, forKey: .title)
         self.windowMinutes = try container.decodeIfPresent(Int.self, forKey: .windowMinutes)
         self.resetsAt = try container.decodeIfPresent(Date.self, forKey: .resetsAt)
         self.resetDescription = try container.decodeIfPresent(String.self, forKey: .resetDescription)
+        self.quotaLimit = try container.decodeIfPresent(Double.self, forKey: .quotaLimit)
+        self.quotaUnit = try container.decodeIfPresent(String.self, forKey: .quotaUnit)
         self.nextRegenPercent = try container.decodeIfPresent(Double.self, forKey: .nextRegenPercent)
         self.isSyntheticPlaceholder =
             try container.decodeIfPresent(Bool.self, forKey: .isSyntheticPlaceholder) ?? false
@@ -59,9 +76,12 @@ public struct RateWindow: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(self.usedPercent, forKey: .usedPercent)
+        try container.encodeIfPresent(self.title, forKey: .title)
         try container.encodeIfPresent(self.windowMinutes, forKey: .windowMinutes)
         try container.encodeIfPresent(self.resetsAt, forKey: .resetsAt)
         try container.encodeIfPresent(self.resetDescription, forKey: .resetDescription)
+        try container.encodeIfPresent(self.quotaLimit, forKey: .quotaLimit)
+        try container.encodeIfPresent(self.quotaUnit, forKey: .quotaUnit)
         try container.encodeIfPresent(self.nextRegenPercent, forKey: .nextRegenPercent)
         // Only persist the flag when set, keeping payloads identical for the common (real-window) case.
         if self.isSyntheticPlaceholder {
@@ -93,10 +113,13 @@ public struct RateWindow: Codable, Equatable, Sendable {
             windowMinutes: windowMinutes,
             resetsAt: cachedReset,
             resetDescription: self.resetDescription ?? cached?.resetDescription,
+            quotaLimit: self.quotaLimit,
+            quotaUnit: self.quotaUnit,
             nextRegenPercent: self.nextRegenPercent,
             // Preserve the placeholder marker: backfilling a stale reset onto Claude web's null-session
             // placeholder must not let it masquerade as a real session lane.
-            isSyntheticPlaceholder: self.isSyntheticPlaceholder)
+            isSyntheticPlaceholder: self.isSyntheticPlaceholder,
+            title: self.title)
     }
 }
 
@@ -161,6 +184,7 @@ public struct UsageSnapshot: Codable, Sendable {
     /// Live-only ownership proof; a profile directory alone does not identify an account.
     public let browserSessionOwner: ProviderBrowserSessionOwner?
     public let opencodegoUsage: OpenCodeGoUsageSnapshot?
+    public let throughput: ProviderThroughputSnapshot?
     public let openAIAPIUsage: OpenAIAPIUsageSnapshot?
     public let codexResetCredits: CodexRateLimitResetCreditsSnapshot?
     /// Live-only display inventory. Grok redemption token identifiers are intentionally excluded.
@@ -191,6 +215,7 @@ public struct UsageSnapshot: Codable, Sendable {
         case extraRateWindows
         case providerCost
         case details
+        case throughput
         case openAIAPIUsage
         case codexResetCredits
         case mistralUsage
@@ -220,6 +245,7 @@ public struct UsageSnapshot: Codable, Sendable {
         deepseekPlatformBalanceOwner: DeepSeekPlatformBalanceOwner? = nil,
         browserSessionOwner: ProviderBrowserSessionOwner? = nil,
         opencodegoUsage: OpenCodeGoUsageSnapshot? = nil,
+        throughput: ProviderThroughputSnapshot? = nil,
         openAIAPIUsage: OpenAIAPIUsageSnapshot? = nil,
         codexResetCredits: CodexRateLimitResetCreditsSnapshot? = nil,
         grokResetCredits: GrokRateLimitResetCreditsSnapshot? = nil,
@@ -252,6 +278,7 @@ public struct UsageSnapshot: Codable, Sendable {
         self.deepseekPlatformBalanceOwner = deepseekPlatformBalanceOwner
         self.browserSessionOwner = browserSessionOwner
         self.opencodegoUsage = opencodegoUsage
+        self.throughput = throughput
         self.openAIAPIUsage = openAIAPIUsage
         self.codexResetCredits = codexResetCredits
         self.grokResetCredits = grokResetCredits
@@ -361,6 +388,7 @@ public struct UsageSnapshot: Codable, Sendable {
         self.deepseekPlatformBalanceOwner = nil // Live-only balance ownership
         self.browserSessionOwner = nil // Live-only browser session ownership
         self.opencodegoUsage = nil // Not persisted, fetched fresh each time
+        self.throughput = try container.decodeIfPresent(ProviderThroughputSnapshot.self, forKey: .throughput)
         self.openAIAPIUsage = try container.decodeIfPresent(OpenAIAPIUsageSnapshot.self, forKey: .openAIAPIUsage)
         self.codexResetCredits = try container.decodeIfPresent(
             CodexRateLimitResetCreditsSnapshot.self,
@@ -401,6 +429,7 @@ public struct UsageSnapshot: Codable, Sendable {
         if !self.details.isEmpty {
             try container.encode(self.details, forKey: .details)
         }
+        try container.encodeIfPresent(self.throughput, forKey: .throughput)
         try container.encodeIfPresent(self.openAIAPIUsage, forKey: .openAIAPIUsage)
         try container.encodeIfPresent(self.codexResetCredits, forKey: .codexResetCredits)
         try container.encodeIfPresent(self.mistralUsage, forKey: .mistralUsage)
@@ -604,6 +633,7 @@ public struct UsageSnapshot: Codable, Sendable {
             deepseekPlatformBalanceOwner: self.deepseekPlatformBalanceOwner,
             browserSessionOwner: browserSessionOwner.resolving(self.browserSessionOwner),
             opencodegoUsage: self.opencodegoUsage,
+            throughput: self.throughput,
             openAIAPIUsage: self.openAIAPIUsage,
             codexResetCredits: codexResetCredits.resolving(self.codexResetCredits),
             grokResetCredits: grokResetCredits.resolving(self.grokResetCredits),
@@ -695,7 +725,8 @@ public enum UsageLimitsAvailability: Equatable, Sendable {
         // whether a successful payload actually contains subscription limits.
         if provider == .claude {
             if let snapshot {
-                return snapshot.primary?.isSyntheticPlaceholder == true && snapshot.measuredRateWindows.isEmpty
+                return snapshot.measuredRateWindows.isEmpty
+                    && (snapshot.primary?.isSyntheticPlaceholder == true || snapshot.providerCost == nil)
                     ? .unavailable : .available
             }
             return ClaudeStatusProbe.isSubscriptionQuotaUnavailableDescription(lastErrorDescription)
@@ -927,10 +958,7 @@ private final class CodexRPCClient: @unchecked Sendable {
     private static let log = CodexBarLog.logger(LogCategories.provider(.codex, scope: "rpc"))
     private let process = Process()
     private let stdin = RPCChildProcessInput()
-    private let stdoutPipe = Pipe()
-    private let stderrPipe = Pipe()
-    private let stdoutLineStream: AsyncStream<Data>
-    private let stdoutLineContinuation: AsyncStream<Data>.Continuation
+    private let output = RPCChildProcessOutput()
     private var nextID = 1
     private let initializeTimeoutSeconds: TimeInterval
     private let requestTimeoutSeconds: TimeInterval
@@ -945,12 +973,6 @@ private final class CodexRPCClient: @unchecked Sendable {
     {
         self.initializeTimeoutSeconds = initializeTimeoutSeconds
         self.requestTimeoutSeconds = requestTimeoutSeconds
-        var stdoutContinuation: AsyncStream<Data>.Continuation!
-        self.stdoutLineStream = AsyncStream<Data> { continuation in
-            stdoutContinuation = continuation
-        }
-        self.stdoutLineContinuation = stdoutContinuation
-
         let resolution = resolveExecutable(environment, executable)
 
         guard let resolution else {
@@ -969,8 +991,8 @@ private final class CodexRPCClient: @unchecked Sendable {
         self.process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         self.process.arguments = [resolvedExec] + arguments
         self.process.standardInput = self.stdin.pipe
-        self.process.standardOutput = self.stdoutPipe
-        self.process.standardError = self.stderrPipe
+        self.process.standardOutput = self.output.stdout
+        self.process.standardError = self.output.stderr
 
         if let message = CodexCLILaunchGate.shared.backgroundSkipMessage(binary: resolvedExec) {
             Self.log.warning("Codex RPC launch skipped after recent launch failure", metadata: ["binary": resolvedExec])
@@ -987,48 +1009,10 @@ private final class CodexRPCClient: @unchecked Sendable {
             throw RPCWireError.startFailed(throttled ?? message)
         }
 
-        let stdoutHandle = self.stdoutPipe.fileHandleForReading
-        let stdoutLineContinuation = self.stdoutLineContinuation
-        let stdoutBuffer = BoundedLineBuffer()
-        let process = self.process
-        let stdin = self.stdin
-        stdoutHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                stdoutLineContinuation.finish()
-                return
-            }
-
-            let result = stdoutBuffer.appendAndDrainLines(data)
-            if result.didExceedLimit {
-                Self.log.warning("Codex RPC line exceeded memory limit; terminating process")
-                handle.readabilityHandler = nil
-                DispatchQueue.global(qos: .userInitiated).async {
-                    RPCChildProcessTeardown.terminate(process: process, stdin: stdin)
-                }
-                stdoutLineContinuation.finish()
-                return
-            }
-
-            for lineData in result.lines {
-                stdoutLineContinuation.yield(lineData)
-            }
-        }
-
-        let stderrHandle = self.stderrPipe.fileHandleForReading
-        stderrHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            // When the child closes stderr, availableData returns empty and will keep re-firing; clear the handler
-            // to avoid a busy read loop on the file-descriptor monitoring queue.
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                return
-            }
-            guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
-            for line in text.split(whereSeparator: \.isNewline) {
-                Self.log.debug("[codex stderr] \(line)")
-            }
+        self.output.start(process: self.process, stdin: self.stdin) {
+            Self.log.warning("Codex RPC line exceeded memory limit; terminating process")
+        } onStderr: { line in
+            Self.log.debug("[codex stderr] \(line)")
         }
     }
 
@@ -1037,7 +1021,7 @@ private final class CodexRPCClient: @unchecked Sendable {
             method: "initialize",
             params: ["clientInfo": ["name": clientName, "version": clientVersion]],
             timeout: self.initializeTimeoutSeconds)
-        try self.sendNotification(method: "initialized")
+        try self.sendPayload(["method": "initialized", "params": [:]])
     }
 
     func fetchAccount() async throws -> RPCAccountResponse {
@@ -1068,7 +1052,7 @@ private final class CodexRPCClient: @unchecked Sendable {
     {
         let id = self.nextID
         self.nextID += 1
-        try self.sendRequest(id: id, method: method, params: params)
+        try self.sendPayload(["id": id, "method": method, "params": params ?? [:]])
 
         let resolvedTimeout = timeout ?? self.requestTimeoutSeconds
         let wrapped = try await RPCRequestTimeout.run(
@@ -1109,17 +1093,6 @@ private final class CodexRPCClient: @unchecked Sendable {
         }
     }
 
-    private func sendNotification(method: String, params: [String: Any]? = nil) throws {
-        let paramsValue: Any = params ?? [:]
-        try self.sendPayload(["method": method, "params": paramsValue])
-    }
-
-    private func sendRequest(id: Int, method: String, params: [String: Any]?) throws {
-        let paramsValue: Any = params ?? [:]
-        let payload: [String: Any] = ["id": id, "method": method, "params": paramsValue]
-        try self.sendPayload(payload)
-    }
-
     private func sendPayload(_ payload: [String: Any]) throws {
         var data = try JSONSerialization.data(withJSONObject: payload)
         data.append(0x0A)
@@ -1131,7 +1104,7 @@ private final class CodexRPCClient: @unchecked Sendable {
     }
 
     private func readNextMessage() async throws -> [String: Any] {
-        for await lineData in self.stdoutLineStream {
+        for await lineData in self.output.lines {
             if lineData.isEmpty {
                 continue
             }
