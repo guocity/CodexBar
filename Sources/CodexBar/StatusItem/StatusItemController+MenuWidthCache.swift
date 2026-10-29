@@ -133,6 +133,7 @@ extension StatusItemController {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func measuredStandardMenuWidthCacheToken(for action: MenuDescriptor.MenuAction) -> String {
         switch action {
         case .installUpdate:

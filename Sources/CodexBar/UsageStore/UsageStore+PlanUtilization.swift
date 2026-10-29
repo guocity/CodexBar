@@ -596,6 +596,7 @@ extension UsageStore {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     func planUtilizationSeriesSamples(
         provider: UsageProvider,
         snapshot: UsageSnapshot,

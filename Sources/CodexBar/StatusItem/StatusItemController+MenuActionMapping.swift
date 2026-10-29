@@ -1,6 +1,7 @@
 import AppKit
 
 extension StatusItemController {
+    // swiftlint:disable:next cyclomatic_complexity
     func selector(for action: MenuDescriptor.MenuAction) -> (Selector, Any?) {
         switch action {
         case .installUpdate: (#selector(self.installUpdate), nil)
